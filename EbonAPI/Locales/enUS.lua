@@ -56,6 +56,7 @@ EbonAPILocales.enUS = {
   STATUS_CHANNEL_OFF = "channel %s: not needed by any consumer",
   STATUS_PROFILE = "profile: sent P=%d D=%d X=%d, received %d, rejected %d",
   STATUS_VERSIONS = "versions: %s",
+  STATUS_SHARE = "shares: %d key(s) from %d addon(s), %d player(s) seen, %d received, %d refused",
 
   VERSION_UPDATE = "%s %s (%s available)",
   UPDATE_AVAILABLE = "version %s is available (installed: %s).",

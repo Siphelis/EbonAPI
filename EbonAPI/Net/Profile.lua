@@ -17,7 +17,7 @@ local type, tonumber, tostring, pairs, ipairs, next, error = type, tonumber, tos
 local match, gmatch, byte, sub, len, concat, sort = string.match, string.gmatch, string.byte, string.sub, string.len, table.concat, table.sort
 local floor = math.floor
 
-local LETTER = "E"
+local LETTER = "EbonAPI"
 local ECHO_BASE = 200000
 local ECHO_SPAN = 4096
 local STACK_MAX = 63

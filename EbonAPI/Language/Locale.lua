@@ -188,6 +188,10 @@ function EbonAPI:GetAvailableLanguages()
   return Locale.available()
 end
 
+function EbonAPI:IsLanguageChosen()
+  return EbonAPI.DB.isAttached() and type(EbonAPI.DB.shared().account.language) == "string"
+end
+
 function Locale.applyPersisted()
   local saved = EbonAPI.DB.shared().account.language
 
@@ -248,4 +252,8 @@ end
 
 function Handle:GetLanguage()
   return activeLanguage
+end
+
+function Handle:IsLanguageChosen()
+  return EbonAPI:IsLanguageChosen()
 end

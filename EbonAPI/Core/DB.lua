@@ -297,7 +297,3 @@ function Handle:DB(defaults)
 
   return store
 end
-
-function Handle:Shared()
-  return DB.shared()
-end

@@ -56,6 +56,7 @@ EbonAPILocales.deDE = {
   STATUS_CHANNEL_OFF = "Kanal %s: von keinem Verbraucher benötigt",
   STATUS_PROFILE = "Profil: gesendet P=%d D=%d X=%d, empfangen %d, abgelehnt %d",
   STATUS_VERSIONS = "Versionen: %s",
+  STATUS_SHARE = "Freigaben: %d Schlüssel von %d Addon(s), %d Spieler gesehen, %d empfangen, %d abgelehnt",
 
   VERSION_UPDATE = "%s %s (%s verfügbar)",
   UPDATE_AVAILABLE = "Version %s ist verfügbar (installiert: %s).",

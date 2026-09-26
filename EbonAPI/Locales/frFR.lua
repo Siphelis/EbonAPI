@@ -56,6 +56,7 @@ EbonAPILocales.frFR = {
   STATUS_CHANNEL_OFF = "canal %s : aucun consommateur n'en a besoin",
   STATUS_PROFILE = "profil : envoyés P=%d D=%d X=%d, reçus %d, rejetés %d",
   STATUS_VERSIONS = "versions : %s",
+  STATUS_SHARE = "partage : %d clé(s) de %d addon(s), %d joueur(s) vus, %d reçus, %d refusés",
 
   VERSION_UPDATE = "%s %s (%s disponible)",
   UPDATE_AVAILABLE = "la version %s est disponible (installée : %s).",

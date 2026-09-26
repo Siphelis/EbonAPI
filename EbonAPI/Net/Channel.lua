@@ -14,6 +14,7 @@ local L = EbonAPI.L
 local type, tonumber, tostring, error, pcall = type, tonumber, tostring, error, pcall
 local match, find, lower, len, format = string.match, string.find, string.lower, string.len, string.format
 local ceil = math.ceil
+local remove = table.remove
 
 local NAME = "ebonapi"
 local TAG = "EA1"
@@ -30,14 +31,6 @@ Channel.TAG = TAG
 Channel.LINE_MAX = LINE_MAX
 Channel.PACKET_MAX = PACKET_MAX
 Channel.ASSEMBLY_TIMEOUT = ASSEMBLY_TIMEOUT
-
-Channel.LETTERS = {
-  AutoCallboard = "A",
-  EbonBuilds = "B",
-  SkillTreeAutoLoad = "S",
-  EbonStat = "G",
-  EbonAPI = "E",
-}
 
 local listeners = {}
 local wanted = false
@@ -67,24 +60,31 @@ local streams = Assembler.new("EbonAPI:assembly", ASSEMBLY_TIMEOUT, ASSEMBLY_SWE
   drops.expired = drops.expired + 1
 end)
 
-local function keyFor(letter, op)
-  return letter .. ":" .. op
+local function keyFor(addon, op)
+  return addon .. ":" .. op
 end
 
-function Channel.on(letter, op, fn)
-  if type(letter) ~= "string" or not match(letter, "^%u$") then
-    error("EbonAPI.Channel.on attend une lettre d'addon, recu " .. tostring(letter), 2)
+local function checkAddon(addon, who)
+  if type(addon) ~= "string" or not match(addon, "^[%w_]+$") then
+    error(who .. ' expects an addon name (letters, digits and "_"), got ' .. tostring(addon), 3)
   end
+end
 
+local function checkOp(op, who, addon)
   if type(op) ~= "string" or not match(op, "^%w+$") then
-    error("EbonAPI.Channel.on attend une op alphanumerique, recu " .. tostring(op), 2)
+    error(who .. " expects an alphanumeric op for " .. addon .. ", got " .. tostring(op), 3)
   end
+end
+
+function Channel.on(addon, op, fn)
+  checkAddon(addon, "EbonAPI.Channel.on")
+  checkOp(op, "EbonAPI.Channel.on", addon)
 
   if type(fn) ~= "function" then
-    error("EbonAPI.Channel.on attend une fonction pour " .. letter .. ":" .. op .. ", recu " .. type(fn), 2)
+    error("EbonAPI.Channel.on expects a function for " .. addon .. ":" .. op .. ", got " .. type(fn), 2)
   end
 
-  local key = keyFor(letter, op)
+  local key = keyFor(addon, op)
   local list = listeners[key]
 
   if not list then
@@ -95,8 +95,8 @@ function Channel.on(letter, op, fn)
   return list:add(fn)
 end
 
-function Channel.off(letter, op, fn)
-  local key = keyFor(letter, op)
+function Channel.off(addon, op, fn)
+  local key = keyFor(addon, op)
   local list = listeners[key]
 
   if not list or not list:remove(fn) then
@@ -110,8 +110,8 @@ function Channel.off(letter, op, fn)
   return true
 end
 
-function Channel.listenerCount(letter, op)
-  local list = listeners[keyFor(letter, op)]
+function Channel.listenerCount(addon, op)
+  local list = listeners[keyFor(addon, op)]
 
   return list and list.n or 0
 end
@@ -338,14 +338,14 @@ function Channel.requests()
   return ceil(joinAttempts / JOIN_RETRY)
 end
 
-local function deliver(letter, op, sender, body, at)
+local function deliver(addon, op, sender, body, at)
   Channel.received = Channel.received + 1
-  Log.trace("chan", nil, letter .. ":" .. op, len(body), at)
+  Log.trace("chan", nil, addon .. ":" .. op, len(body), at)
 
-  local list = listeners[keyFor(letter, op)]
+  local list = listeners[keyFor(addon, op)]
 
   if list then
-    list:fire(sender, body, letter, op)
+    list:fire(sender, body, addon, op)
   end
 end
 
@@ -381,9 +381,9 @@ onChannelMessage = function(text, sender, _, channelString, _, _, _, channelInde
     return
   end
 
-  local letter, op, number, k, n, body = match(text, "^(%u):(%w+):(%d+)%.(%d+)/(%d+):(.*)$", start + 4)
+  local addon, op, number, k, n, body = match(text, "^([%w_]+):(%w+):(%d+)%.(%d+)/(%d+):(.*)$", start + 4)
 
-  if not letter then
+  if not addon then
     drops.tag = drops.tag + 1
     return
   end
@@ -398,11 +398,11 @@ onChannelMessage = function(text, sender, _, channelString, _, _, _, channelInde
   local at = now()
 
   if k == "1" and n == "1" then
-    deliver(letter, op, sender, body, at)
+    deliver(addon, op, sender, body, at)
     return
   end
 
-  local whole, state = streams:add(sender, letter .. ":" .. op .. ":" .. number, tonumber(k), tonumber(n), body, at)
+  local whole, state = streams:add(sender, addon .. ":" .. op .. ":" .. number, tonumber(k), tonumber(n), body, at)
 
   if state == "bounds" then
     drops.bounds = drops.bounds + 1
@@ -410,7 +410,7 @@ onChannelMessage = function(text, sender, _, channelString, _, _, _, channelInde
   end
 
   if whole then
-    deliver(letter, op, sender, whole, at)
+    deliver(addon, op, sender, whole, at)
   end
 end
 
@@ -445,23 +445,18 @@ end
 
 local slices = {}
 
-function Channel.say(letter, op, body, done)
-  if type(letter) ~= "string" or not match(letter, "^%u$") then
-    error("EbonAPI.Channel.say attend une lettre d'addon, recu " .. tostring(letter), 2)
-  end
-
-  if type(op) ~= "string" or not match(op, "^%w+$") then
-    error("EbonAPI.Channel.say attend une op alphanumerique, recu " .. tostring(op), 2)
-  end
+function Channel.say(addon, op, body, done)
+  checkAddon(addon, "EbonAPI.Channel.say")
+  checkOp(op, "EbonAPI.Channel.say", addon)
 
   body = body or ""
 
   if type(body) ~= "string" then
-    error("EbonAPI.Channel.say attend un corps texte pour " .. letter .. ":" .. op .. ", recu " .. type(body), 2)
+    error("EbonAPI.Channel.say expects a text body for " .. addon .. ":" .. op .. ", got " .. type(body), 2)
   end
 
   if find(body, "|", 1, true) then
-    error("EbonAPI.Channel.say: le corps de " .. letter .. ":" .. op .. " contient '|'", 2)
+    error("EbonAPI.Channel.say: the body of " .. addon .. ":" .. op .. " contains '|'", 2)
   end
 
   Channel.require()
@@ -471,11 +466,11 @@ function Channel.say(letter, op, body, done)
   end
 
   local number = serial % 999999 + 1
-  local head = TAG .. ":" .. letter .. ":" .. op .. ":" .. number .. "."
+  local head = TAG .. ":" .. addon .. ":" .. op .. ":" .. number .. "."
   local budget = LINE_MAX - len(head) - 6
 
   if budget < 1 then
-    error("EbonAPI.Channel.say: op trop longue pour " .. letter .. ":" .. op, 2)
+    error("EbonAPI.Channel.say: op too long for " .. addon .. ":" .. op, 2)
   end
 
   local length = len(body)
@@ -488,8 +483,8 @@ function Channel.say(letter, op, body, done)
   end
 
   if total > PACKET_MAX then
-    error("EbonAPI.Channel.say: corps de " .. length .. " caracteres pour " .. letter .. ":"
-      .. op .. ", la limite est " .. (PACKET_MAX * budget), 2)
+    error("EbonAPI.Channel.say: body of " .. length .. " characters for " .. addon .. ":"
+      .. op .. ", the limit is " .. (PACKET_MAX * budget), 2)
   end
 
   if Queue.room() < total then
@@ -508,13 +503,13 @@ end
 
 function Channel.whisper(prefix, target, text)
   if type(prefix) ~= "string" or prefix == "" then
-    error("EbonAPI.Channel.whisper attend un prefixe, recu " .. tostring(prefix), 2)
+    error("EbonAPI.Channel.whisper expects a prefix, got " .. tostring(prefix), 2)
   end
 
   local room = LINE_MAX - len(prefix) - 1
 
   if type(text) ~= "string" or len(text) > room then
-    error("EbonAPI.Channel.whisper: texte absent ou au-dela de " .. room .. " octets pour le prefixe " .. prefix, 2)
+    error("EbonAPI.Channel.whisper: text missing or beyond " .. room .. " bytes for prefix " .. prefix, 2)
   end
 
   target = baseName(target)
@@ -550,12 +545,8 @@ function Channel.droppedTotal()
   return drops.tag + drops.bounds + drops.expired
 end
 
-function Handle:ChannelLetter()
-  return Channel.LETTERS[self.addonName]
-end
-
-function Handle:OnChannel(letter, op, fn)
-  if not Channel.on(letter, op, fn) then
+function Handle:OnChannel(op, fn)
+  if not Channel.on(self.addonName, op, fn) then
     return false
   end
 
@@ -568,37 +559,29 @@ function Handle:OnChannel(letter, op, fn)
     self._channel = owned
   end
 
-  owned[#owned + 1] = letter
   owned[#owned + 1] = op
   owned[#owned + 1] = fn
 
   return true
 end
 
-function Handle:OffChannel(letter, op, fn)
+function Handle:OffChannel(op, fn)
   local owned = self._channel
 
   if owned then
-    for i = #owned - 2, 1, -3 do
-      if owned[i] == letter and owned[i + 1] == op and owned[i + 2] == fn then
-        table.remove(owned, i + 2)
-        table.remove(owned, i + 1)
-        table.remove(owned, i)
+    for i = #owned - 1, 1, -2 do
+      if owned[i] == op and owned[i + 1] == fn then
+        remove(owned, i + 1)
+        remove(owned, i)
       end
     end
   end
 
-  return Channel.off(letter, op, fn)
+  return Channel.off(self.addonName, op, fn)
 end
 
 function Handle:Say(op, body)
-  local letter = Channel.LETTERS[self.addonName]
-
-  if not letter then
-    error("EbonAPI: " .. self.addonName .. " n'a pas de lettre sur le canal commun", 2)
-  end
-
-  return Channel.say(letter, op, body)
+  return Channel.say(self.addonName, op, body)
 end
 
 function Handle:Whisper(prefix, target, text)
@@ -620,9 +603,9 @@ EbonAPI:AddTeardown(function(handle)
     return
   end
 
-  for i = #owned - 2, 1, -3 do
-    Channel.off(owned[i], owned[i + 1], owned[i + 2])
-    owned[i + 2], owned[i + 1], owned[i] = nil, nil, nil
+  for i = #owned - 1, 1, -2 do
+    Channel.off(handle.addonName, owned[i], owned[i + 1])
+    owned[i + 1], owned[i] = nil, nil
   end
 end)
 

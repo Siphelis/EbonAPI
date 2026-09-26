@@ -11,6 +11,7 @@ local Channel = EbonAPI.Channel
 local Profile = EbonAPI.Profile
 local Session = EbonAPI.Session
 local Version = EbonAPI.Version
+local Share = EbonAPI.Share
 local Ebonhold = EbonAPI.Ebonhold
 local State = EbonAPI.State
 local Opcodes = EbonAPI.Opcodes
@@ -53,6 +54,7 @@ onPlayerLogin = function()
   Channel.enable()
   Profile.enable()
   Version.enable()
+  Share.enable()
 
   EbonAPI._ready = true
   EbonAPI:Emit("READY", EbonAPI.version)
@@ -117,6 +119,7 @@ local function cmdStatus()
   say(format(L.STATUS_PROFILE, Profile.sent.P, Profile.sent.D, Profile.sent.X,
     Profile.received, Profile.rejected))
   say(format(L.STATUS_VERSIONS, Version.summary()))
+  say(format(L.STATUS_SHARE, Share.summary()))
 
   local drops = Bridge.drops
   local total = Bridge.droppedTotal()

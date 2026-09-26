@@ -7,10 +7,14 @@ local setmetatable, pcall, error = setmetatable, pcall, error
 local report = Lib.report
 
 EbonAPI.name = "EbonAPI"
-EbonAPI.MAJOR = 1
-EbonAPI.MINOR = 1
+EbonAPI.MAJOR = 0
+EbonAPI.MINOR = 9
 EbonAPI.PATCH = 0
-EbonAPI.version = "1.1.0"
+EbonAPI.version = "0.9.0"
+
+local NAME_MAX = 32
+
+EbonAPI.NAME_MAX = NAME_MAX
 
 local runFns, runIndex, runCount
 
@@ -303,7 +307,12 @@ end
 
 function EbonAPI:NewAddon(name, needMajor, needMinor)
   if type(name) ~= "string" or name == "" then
-    error("EbonAPI:NewAddon attend un nom d'addon non vide, recu " .. type(name), 2)
+    error("EbonAPI:NewAddon expects a non-empty addon name, got " .. type(name), 2)
+  end
+
+  if string.find(name, "[^%w_]") or string.len(name) > NAME_MAX then
+    error('EbonAPI:NewAddon: addon name "' .. name .. '" must be 1 to ' .. NAME_MAX
+      .. ' letters, digits or "_"', 2)
   end
 
   needMajor = needMajor or self.MAJOR

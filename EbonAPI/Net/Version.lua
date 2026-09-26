@@ -14,7 +14,7 @@ local type, tonumber, tostring, pairs, error = type, tonumber, tostring, pairs, 
 local match, gmatch, format, len, concat, sort = string.match, string.gmatch, string.format, string.len, table.concat, table.sort
 local random, max = math.random, math.max
 
-local LETTER = "E"
+local NAME = "EbonAPI"
 local OP = "V"
 local TEXT_MAX = 20
 local ANNOUNCE_TICK = 1
@@ -27,8 +27,7 @@ Version.REPLY_MAX = REPLY_MAX
 Version.REPLY_COOLDOWN = REPLY_COOLDOWN
 
 local entries = {}
-local byLetter = {}
-local letters = {}
+local names = {}
 local store = nil
 local enabled = false
 local announced = false
@@ -152,10 +151,8 @@ local function settle(entry)
 end
 
 function Version.register(name, text, url)
-  local letter = Channel.LETTERS[name]
-
-  if not letter then
-    error("EbonAPI.Version.register: " .. tostring(name) .. " n'a pas de lettre sur le canal commun", 2)
+  if type(name) ~= "string" or not match(name, "^[%w_]+$") then
+    error("EbonAPI.Version.register expects an addon name, got " .. tostring(name), 2)
   end
 
   local parsed, release = Version.parse(text)
@@ -167,11 +164,10 @@ function Version.register(name, text, url)
   local entry = entries[name]
 
   if not entry then
-    entry = { name = name, letter = letter }
+    entry = { name = name }
     entries[name] = entry
-    byLetter[letter] = entry
-    letters[#letters + 1] = letter
-    sort(letters)
+    names[#names + 1] = name
+    sort(names)
   end
 
   entry.text = text
@@ -189,11 +185,11 @@ end
 local function line()
   local parts = {}
 
-  for i = 1, #letters do
-    local entry = byLetter[letters[i]]
+  for i = 1, #names do
+    local entry = entries[names[i]]
 
     if entry.release then
-      parts[#parts + 1] = entry.letter .. "=" .. entry.text
+      parts[#parts + 1] = entry.name .. "=" .. entry.text
     end
   end
 
@@ -207,7 +203,7 @@ end
 local function say()
   local body = line()
 
-  if not body or not Channel.say(LETTER, OP, body) then
+  if not body or not Channel.say(NAME, OP, body) then
     return false
   end
 
@@ -276,14 +272,14 @@ local function onVersion(_, body)
   local theirs = {}
   local behind = false
 
-  for letter, text in gmatch(body, "(%u)=([^,]+)") do
-    local entry = byLetter[letter]
+  for name, text in gmatch(body, "([%w_]+)=([^,]+)") do
+    local entry = entries[name]
 
     if entry then
       local parsed, release = Version.parse(text)
 
       if parsed then
-        theirs[letter] = parsed
+        theirs[name] = parsed
 
         local order = Version.compare(parsed, entry.parsed)
 
@@ -300,7 +296,7 @@ local function onVersion(_, body)
 
   for _, entry in pairs(entries) do
     if entry.release then
-      local given = theirs[entry.letter]
+      local given = theirs[entry.name]
 
       if not given or Version.compare(given, entry.parsed) < 0 then
         covered = false
@@ -331,8 +327,8 @@ end
 function Version.summary()
   local parts = {}
 
-  for i = 1, #letters do
-    local entry = byLetter[letters[i]]
+  for i = 1, #names do
+    local entry = entries[names[i]]
     local latest = Version.available(entry.name)
 
     if latest then
@@ -362,7 +358,7 @@ function Version.enable()
     settle(entry)
   end
 
-  Channel.on(LETTER, OP, onVersion)
+  Channel.on(NAME, OP, onVersion)
   EbonAPI:On("CHANNEL_JOINED", onJoined)
 
   return true
@@ -375,7 +371,7 @@ function Version.disable()
 
   enabled = false
 
-  Channel.off(LETTER, OP, onVersion)
+  Channel.off(NAME, OP, onVersion)
   EbonAPI:Off("CHANNEL_JOINED", onJoined)
 
   Bus.untick("EbonAPI:version")
