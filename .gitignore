@@ -1,0 +1,10 @@
+DIFF
+.gcommit_context
+tmp.*.json
+
+dist/
+
+Thumbs.db
+.DS_Store
+*.swp
+docs/

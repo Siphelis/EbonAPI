@@ -1,0 +1,71 @@
+name: Package addon
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Construire le zip de l'addon
+        run: |
+          set -euo pipefail
+
+          VERSION=$(sed -n 's/^##[[:space:]]*Version:[[:space:]]*//p' EbonAPI/*.toc \
+                    | head -n 1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+
+          if [ -z "$VERSION" ]; then
+            echo "Impossible de lire '## Version:' dans le .toc" >&2
+            exit 1
+          fi
+
+          mkdir -p dist/EbonAPI
+          cp -r EbonAPI/. dist/EbonAPI/
+
+          ( cd dist && zip -r "EbonAPI-${VERSION}.zip" EbonAPI )
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "ASSET=dist/EbonAPI-${VERSION}.zip" >> "$GITHUB_ENV"
+
+          echo "Zip construit : EbonAPI-${VERSION}.zip"
+
+      - name: Publier la Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          PRERELEASE=""
+          case "$GITHUB_REF_NAME" in
+            *-*) PRERELEASE="--prerelease" ;;
+          esac
+
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              $PRERELEASE
+          fi
+
+          gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber
+
+          echo "Release $GITHUB_REF_NAME publiee avec $ASSET"
+
+      - name: Artefact de build (hors tag)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: EbonAPI-${{ env.VERSION }}
+          path: dist/*.zip
+          if-no-files-found: error

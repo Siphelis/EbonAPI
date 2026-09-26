@@ -1,0 +1,39 @@
+## Interface: 30300
+## Title: |cff8a6fd4EbonAPI|r
+## Notes: Shared runtime for Ebonhold addons: server bridge, event bus, storage, locale.
+## Notes-frFR: Socle commun des addons Ebonhold : pont serveur, bus d'événements, stockage, langue.
+## Author: Siphelis
+## Version: 1.1.0
+## SavedVariables: EbonAPIDB
+
+Core\Lib.lua
+Core\Api.lua
+Core\Listeners.lua
+Core\Log.lua
+Core\Bus.lua
+Core\Assembler.lua
+Core\DB.lua
+Core\Session.lua
+
+Locales\enUS.lua
+Locales\frFR.lua
+Locales\deDE.lua
+Locales\esES.lua
+Language\Locale.lua
+
+Core\Format.lua
+Core\Perf.lua
+
+Net\Queue.lua
+
+Server\Opcodes.lua
+Server\Bridge.lua
+Server\Ebonhold.lua
+Server\State.lua
+
+Net\Channel.lua
+Net\Whisper.lua
+Net\Profile.lua
+Net\Version.lua
+
+Boot.lua
