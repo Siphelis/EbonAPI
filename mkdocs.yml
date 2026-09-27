@@ -17,8 +17,6 @@ theme:
     logo: material/puzzle
   favicon: assets/favicon.svg
   features:
-    - navigation.tabs
-    - navigation.tabs.sticky
     - navigation.sections
     - navigation.indexes
     - navigation.top
