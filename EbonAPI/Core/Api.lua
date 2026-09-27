@@ -7,10 +7,10 @@ local setmetatable, pcall, error = setmetatable, pcall, error
 local report = Lib.report
 
 EbonAPI.name = "EbonAPI"
-EbonAPI.MAJOR = 0
-EbonAPI.MINOR = 9
+EbonAPI.MAJOR = 1
+EbonAPI.MINOR = 0
 EbonAPI.PATCH = 0
-EbonAPI.version = "0.9.0"
+EbonAPI.version = "1.0.0"
 
 local NAME_MAX = 32
 
@@ -90,11 +90,11 @@ end
 
 local function subscribe(owner, event, fn)
   if type(event) ~= "string" then
-    error("EbonAPI: le nom d'evenement doit etre une chaine, recu " .. type(event), 3)
+    error("EbonAPI: the event name must be a string, got " .. type(event), 3)
   end
 
   if type(fn) ~= "function" then
-    error("EbonAPI: le callback de '" .. event .. "' doit etre une fonction, recu " .. type(fn), 3)
+    error("EbonAPI: the callback for '" .. event .. "' must be a function, got " .. type(fn), 3)
   end
 
   local list = listFor(event)
@@ -318,7 +318,7 @@ function EbonAPI:NewAddon(name, needMajor, needMinor)
   needMajor = needMajor or self.MAJOR
   needMinor = needMinor or 0
 
-  if needMajor ~= self.MAJOR or needMinor > self.MINOR then
+  if needMajor > self.MAJOR or (needMajor == self.MAJOR and needMinor > self.MINOR) then
     versionRefusal(name, needMajor, needMinor)
     return nil
   end

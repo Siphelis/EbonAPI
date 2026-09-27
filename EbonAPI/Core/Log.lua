@@ -93,7 +93,7 @@ local function describe(a, b)
     local text = opcodes and opcodes.describe(a) or ("opcode " .. a)
 
     if b then
-      return text .. "  " .. b .. "o"
+      return text .. "  " .. b .. "B"
     end
 
     return text
@@ -132,7 +132,7 @@ function Log.dump(limit, kind)
   end
 
   if #lines == 0 then
-    return "trace vide"
+    return "empty trace"
   end
 
   return concat(lines, "\n")

@@ -50,11 +50,11 @@ end)
 
 function Bridge.on(opcode, fn)
   if type(opcode) ~= "number" then
-    error("EbonAPI.Bridge.on attend un opcode numerique, recu " .. type(opcode), 2)
+    error("EbonAPI.Bridge.on expects a numeric opcode, got " .. type(opcode), 2)
   end
 
   if type(fn) ~= "function" then
-    error("EbonAPI.Bridge.on attend une fonction pour l'opcode " .. opcode .. ", recu " .. type(fn), 2)
+    error("EbonAPI.Bridge.on expects a function for opcode " .. opcode .. ", got " .. type(fn), 2)
   end
 
   local list = listeners[opcode]
@@ -197,7 +197,7 @@ Queue.register("server", rawSend)
 
 function Bridge.send(opcode, body)
   if type(opcode) ~= "number" then
-    error("EbonAPI.Bridge.send attend un opcode numerique, recu " .. type(opcode), 2)
+    error("EbonAPI.Bridge.send expects a numeric opcode, got " .. type(opcode), 2)
   end
 
   local payload
@@ -209,8 +209,8 @@ function Bridge.send(opcode, body)
   end
 
   if len(payload) > MAX_PAYLOAD then
-    error("EbonAPI.Bridge.send: charge de " .. len(payload) .. " octets pour l'opcode "
-      .. opcode .. ", la limite est " .. MAX_PAYLOAD, 2)
+    error("EbonAPI.Bridge.send: payload of " .. len(payload) .. " bytes for opcode "
+      .. opcode .. ", the limit is " .. MAX_PAYLOAD, 2)
   end
 
   return Queue.pushServer(payload)

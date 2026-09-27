@@ -106,13 +106,13 @@ end
 
 local function checkPrefix(prefix, who)
   if type(prefix) ~= "string" or prefix == "" then
-    error("EbonAPI.Whisper." .. who .. " attend un prefixe, recu " .. tostring(prefix), 3)
+    error("EbonAPI.Whisper." .. who .. " expects a prefix, got " .. tostring(prefix), 3)
   end
 end
 
 local function checkOp(op, who)
   if type(op) ~= "string" or not match(op, "^%w+$") then
-    error("EbonAPI.Whisper." .. who .. " attend une op alphanumerique, recu " .. tostring(op), 3)
+    error("EbonAPI.Whisper." .. who .. " expects an alphanumeric op, got " .. tostring(op), 3)
   end
 end
 
@@ -151,7 +151,7 @@ function Whisper.on(prefix, fn)
   checkPrefix(prefix, "on")
 
   if type(fn) ~= "function" then
-    error("EbonAPI.Whisper.on attend une fonction pour " .. prefix .. ", recu " .. type(fn), 2)
+    error("EbonAPI.Whisper.on expects a function for " .. prefix .. ", got " .. type(fn), 2)
   end
 
   local list = plain[prefix]
@@ -191,7 +191,7 @@ function Whisper.onStream(prefix, op, fn, onPart)
   checkOp(op, "onStream")
 
   if type(fn) ~= "function" then
-    error("EbonAPI.Whisper.onStream attend une fonction pour " .. prefix .. ":" .. op .. ", recu " .. type(fn), 2)
+    error("EbonAPI.Whisper.onStream expects a function for " .. prefix .. ":" .. op .. ", got " .. type(fn), 2)
   end
 
   local key = keyFor(prefix, op)
@@ -241,14 +241,14 @@ function Whisper.stream(prefix, target, op, id, body)
   checkOp(op, "stream")
 
   if type(body) ~= "string" then
-    error("EbonAPI.Whisper.stream attend un corps texte pour " .. prefix .. ":" .. op .. ", recu " .. type(body), 2)
+    error("EbonAPI.Whisper.stream expects a text body for " .. prefix .. ":" .. op .. ", got " .. type(body), 2)
   end
 
   if id == nil then
     serial = serial % 1048575 + 1
     id = tostring(serial)
   elseif type(id) ~= "string" or id == "" or find(id, ":", 1, true) then
-    error("EbonAPI.Whisper.stream: identifiant de flux invalide pour " .. prefix .. ":" .. op, 2)
+    error("EbonAPI.Whisper.stream: invalid stream id for " .. prefix .. ":" .. op, 2)
   end
 
   target = baseName(target)
@@ -261,7 +261,7 @@ function Whisper.stream(prefix, target, op, id, body)
   local budget = LINE_MAX - len(prefix) - 1 - len(head) - 8
 
   if budget < 1 then
-    error("EbonAPI.Whisper.stream: entete trop longue pour " .. prefix .. ":" .. op, 2)
+    error("EbonAPI.Whisper.stream: header too long for " .. prefix .. ":" .. op, 2)
   end
 
   if ceil(len(body) / budget) > PART_MAX then

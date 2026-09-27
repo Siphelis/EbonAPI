@@ -59,7 +59,7 @@ Queue.baseName = baseName
 
 function Queue.register(kind, fn, ready)
   if type(kind) ~= "string" or type(fn) ~= "function" then
-    error("EbonAPI.Queue.register attend un genre et une fonction", 2)
+    error("EbonAPI.Queue.register expects a kind and a function", 2)
   end
 
   senders[kind] = fn
@@ -302,7 +302,7 @@ end
 
 function Queue.push(kind, a, b, c, done)
   if type(kind) ~= "string" or not senders[kind] then
-    error("EbonAPI.Queue.push: genre inconnu " .. tostring(kind), 2)
+    error("EbonAPI.Queue.push: unknown kind " .. tostring(kind), 2)
   end
 
   if pLive >= PEER_CAP then

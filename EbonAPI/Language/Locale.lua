@@ -62,11 +62,11 @@ end
 
 function Locale.register(owner, translations)
   if type(owner) ~= "string" then
-    error("EbonAPI: Locale.register attend un nom d'addon, recu " .. type(owner), 3)
+    error("EbonAPI: Locale.register expects an addon name, got " .. type(owner), 3)
   end
 
   if type(translations) ~= "table" then
-    error("EbonAPI: les traductions de '" .. owner .. "' doivent etre une table, recu "
+    error("EbonAPI: the translations of '" .. owner .. "' must be a table, got "
       .. type(translations), 3)
   end
 
@@ -211,11 +211,11 @@ end
 
 function Locale.bind(owner, widget, key)
   if type(key) ~= "string" then
-    error("EbonAPI: Localized attend une clef de traduction, recu " .. type(key), 3)
+    error("EbonAPI: Localized expects a translation key, got " .. type(key), 3)
   end
 
   if not widget or not widget.SetText then
-    error("EbonAPI: Localized attend un widget affichant du texte pour la clef '" .. key .. "'", 3)
+    error("EbonAPI: Localized expects a widget with SetText for the key '" .. key .. "'", 3)
   end
 
   boundOwner[widget] = owner

@@ -470,7 +470,7 @@ Profile.flush = flush
 
 function Profile.SetBans(lists)
   if type(lists) ~= "table" then
-    error("EbonAPI.Profile.SetBans attend un tableau de listes, recu " .. type(lists), 2)
+    error("EbonAPI.Profile.SetBans expects a table of lists, got " .. type(lists), 2)
   end
 
   local class = Profile.PlayerClass()

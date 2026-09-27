@@ -38,7 +38,7 @@ onAddonLoaded = function(name)
 
   Locale.applyPersisted()
 
-  Log.trace("boot", ADDON_NAME, "base attachee")
+  Log.trace("boot", ADDON_NAME, "database attached")
 end
 
 onPlayerLogin = function()
@@ -59,7 +59,7 @@ onPlayerLogin = function()
   EbonAPI._ready = true
   EbonAPI:Emit("READY", EbonAPI.version)
 
-  Log.trace("boot", ADDON_NAME, DB.CharacterKey() or "personnage inconnu")
+  Log.trace("boot", ADDON_NAME, DB.CharacterKey() or "character unknown")
 end
 
 local function onEnteringWorld()

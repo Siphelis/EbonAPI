@@ -56,11 +56,11 @@ frame:SetScript("OnEvent", dispatch)
 
 local function subscribe(registry, event, fn, who)
   if type(event) ~= "string" then
-    error(who .. " attend un nom d'evenement, recu " .. type(event), 3)
+    error(who .. " expects an event name, got " .. type(event), 3)
   end
 
   if type(fn) ~= "function" then
-    error(who .. " attend une fonction pour '" .. event .. "', recu " .. type(fn), 3)
+    error(who .. " expects a function for '" .. event .. "', got " .. type(fn), 3)
   end
 
   local list = registry[event]
@@ -191,17 +191,17 @@ end
 
 function Bus.tick(id, every, fn)
   if type(id) ~= "string" then
-    error("EbonAPI.Bus.tick attend un identifiant, recu " .. type(id), 2)
+    error("EbonAPI.Bus.tick expects a ticker id, got " .. type(id), 2)
   end
 
   if type(fn) ~= "function" then
-    error("EbonAPI.Bus.tick attend une fonction pour '" .. id .. "', recu " .. type(fn), 2)
+    error("EbonAPI.Bus.tick expects a function for '" .. id .. "', got " .. type(fn), 2)
   end
 
   every = Lib.num(every, 1)
 
   if every <= 0 then
-    error("EbonAPI.Bus.tick: intervalle invalide pour '" .. id .. "'", 2)
+    error("EbonAPI.Bus.tick: invalid interval for '" .. id .. "'", 2)
   end
 
   for index = 1, tickerCount do

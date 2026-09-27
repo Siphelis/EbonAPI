@@ -173,11 +173,11 @@ end
 
 local function migrate(store, key, legacy, fn, perCharacter)
   if type(key) ~= "string" then
-    error("EbonAPI: la clef de migration doit etre une chaine, recu " .. type(key), 3)
+    error("EbonAPI: the migration key must be a string, got " .. type(key), 3)
   end
 
   if type(fn) ~= "function" then
-    error("EbonAPI: la migration '" .. key .. "' attend une fonction, recu " .. type(fn), 3)
+    error("EbonAPI: migration '" .. key .. "' expects a function, got " .. type(fn), 3)
   end
 
   if perCharacter and not characterKey then
@@ -194,7 +194,7 @@ local function migrate(store, key, legacy, fn, perCharacter)
   local ok, result = pcall(fn, store, legacy, characterName, characterKey)
 
   if not ok then
-    Log.error(store.owner, "migration '" .. key .. "' interrompue: " .. tostring(result))
+    Log.error(store.owner, "migration '" .. key .. "' failed: " .. tostring(result))
     return false
   end
 
@@ -221,7 +221,7 @@ end
 
 function DB.store(owner, defaults)
   if defaults ~= nil and type(defaults) ~= "table" then
-    error("EbonAPI: les defauts de '" .. (owner or "shared") .. "' doivent etre une table, recu "
+    error("EbonAPI: the defaults of '" .. (owner or "shared") .. "' must be a table, got "
       .. type(defaults), 3)
   end
 
@@ -261,25 +261,25 @@ end
 function DB.dump()
   local db = DB.root()
   local lines = {
-    "EbonAPIDB schema=" .. db.version .. "  personnage=" .. (characterKey or "non resolu"),
+    "EbonAPIDB schema=" .. db.version .. "  character=" .. (characterKey or "not resolved"),
   }
 
   for _, name in pairs(Lib.sortedKeys(db.addons)) do
     local bucket = db.addons[name]
 
     lines[#lines + 1] = "  " .. name
-      .. "  compte=" .. Lib.count(bucket.account) .. " cles"
-      .. "  personnages=" .. Lib.count(bucket.characters)
+      .. "  account=" .. Lib.count(bucket.account) .. " keys"
+      .. "  characters=" .. Lib.count(bucket.characters)
   end
 
   local markers = Lib.count(db.migrations)
 
   if markers > 0 then
-    lines[#lines + 1] = "  migrations posees: " .. markers
+    lines[#lines + 1] = "  migrations applied: " .. markers
   end
 
   if DB.repaired > 0 then
-    lines[#lines + 1] = "  entrees reparees au chargement: " .. DB.repaired
+    lines[#lines + 1] = "  entries repaired at load: " .. DB.repaired
   end
 
   return table.concat(lines, "\n")
