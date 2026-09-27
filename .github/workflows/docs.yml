@@ -14,6 +14,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  deployments: write
 
 concurrency:
   group: pages
@@ -55,3 +56,19 @@ jobs:
       - name: Publier sur GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Ne garder que le dernier déploiement
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # L'API rend les déploiements du plus récent au plus ancien : on garde le premier,
+          # on désactive puis on supprime tous les autres.
+          gh api "repos/${GITHUB_REPOSITORY}/deployments?environment=github-pages&per_page=100" \
+            --jq '.[1:][].id' \
+          | while read -r id; do
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/deployments/${id}/statuses" -f state=inactive > /dev/null
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/deployments/${id}"
+              echo "Déploiement ${id} supprimé"
+            done
