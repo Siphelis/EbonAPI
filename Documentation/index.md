@@ -1,4 +1,4 @@
-# 🧩 EbonAPI for addon developers
+# EbonAPI for addon developers
 
 **Plug your Ebonhold addon into the shared runtime.**
 
@@ -6,28 +6,53 @@ EbonAPI 1.0.0 · World of Warcraft 3.3.5a (Interface 30300) · Lua 5.1
 
 EbonAPI is an addon that other addons build on. In one handle it gives you everything an Ebonhold addon keeps rewriting: the link to the server, a channel to the other players, saved data, a shared language, update notices and diagnostics.
 
-These pages are written for developers. Players should read the [addon README](../README.md) instead.
-
----
+These pages are written for developers. Players should read the [addon README on GitHub](https://github.com/Siphelis/EbonAPI#readme) instead.
 
 ## Start here
 
-| Step | Page | You will be able to |
-| --- | --- | --- |
-| 1 | [Getting started](getting-started.md) | Load EbonAPI, get your handle, react to `READY`. Ten minutes. |
-| 2 | [Concepts](concepts.md) | Understand the handle, the lifecycle, events, names and errors. |
-| 3 | [Talk to the server](guides/server.md) | Receive run data, Soul Ashes and builds; send requests. |
-| 4 | [Talk to other players](guides/channel.md) | Broadcast, whisper, and share datasets that spread on their own. |
-| 5 | [Cookbook](cookbook/README.md) | Copy complete, working recipes. |
+<div class="grid cards" markdown>
 
-```mermaid
-flowchart LR
-    GS["1 · Getting started"] --> C["2 · Concepts"]
-    C --> S["3 · Server"]
-    C --> P["4 · Players"]
-    S --> CB["5 · Cookbook"]
-    P --> CB
-```
+-   :material-rocket-launch:{ .lg .middle } __1 · Getting started__
+
+    ---
+
+    Load EbonAPI, get your handle, react to `READY`. Ten minutes.
+
+    [:octicons-arrow-right-24: Getting started](getting-started.md)
+
+-   :material-compass:{ .lg .middle } __2 · Concepts__
+
+    ---
+
+    The handle, the lifecycle, events, names, sending and errors.
+
+    [:octicons-arrow-right-24: Concepts](concepts.md)
+
+-   :material-satellite-variant:{ .lg .middle } __3 · Talk to the server__
+
+    ---
+
+    Receive run data, Soul Ashes and builds. Send requests.
+
+    [:octicons-arrow-right-24: Server](guides/server.md)
+
+-   :material-account-group:{ .lg .middle } __4 · Talk to other players__
+
+    ---
+
+    Broadcast, whisper, and share datasets that spread on their own.
+
+    [:octicons-arrow-right-24: Channel](guides/channel.md)
+
+-   :material-chef-hat:{ .lg .middle } __5 · Cookbook__
+
+    ---
+
+    Complete, working recipes to copy.
+
+    [:octicons-arrow-right-24: Cookbook](cookbook/index.md)
+
+</div>
 
 ## Services
 
@@ -40,7 +65,7 @@ Every service hangs off the handle returned by `EbonAPI:NewAddon`. Use only the 
 | 💾 Storage | Account and character data with defaults and one-shot migrations | [Storage](guides/storage.md) |
 | 🌍 Localization | One language for every addon, English fallback, self-refreshing widgets | [Localization](guides/localization.md) |
 | 🛰️ Server bridge | Server messages by opcode, parsed run state, throttled requests | [Server](guides/server.md) |
-| 🏰 ProjectEbonhold | Feature detection and safe access to the client services | [Ebonhold](guides/ebonhold.md) |
+| 🏰 ProjectEbonhold | Feature detection and safe access to the client services | [ProjectEbonhold](guides/ebonhold.md) |
 | 📡 Channel | Broadcast to every player who runs your addon | [Channel](guides/channel.md) |
 | 💬 Whispers | Direct messages and long streams to one player | [Whispers](guides/whispers.md) |
 | 🔄 Sharing | Publish datasets; EbonAPI spreads them between players | [Sharing](guides/sharing.md) |
@@ -67,15 +92,11 @@ Every service hangs off the handle returned by `EbonAPI:NewAddon`. Use only the 
 - Every code block is complete: paste it and it runs.
 - Callouts mark what matters:
 
-> [!NOTE]
-> A fact worth knowing before you write the next line.
+!!! note
+    A fact worth knowing before you write the next line.
 
-> [!TIP]
-> A shortcut, or 🎮 **Try it**: a `/eapi` command that shows the result in game.
+!!! tip "🎮 Try it"
+    A `/eapi` command that shows the result in game.
 
-> [!WARNING]
-> A trap that will cost you an evening.
-
----
-
-[Addon README](../README.md) · **Home** · [Getting started →](getting-started.md)
+!!! warning
+    A trap that will cost you an evening.

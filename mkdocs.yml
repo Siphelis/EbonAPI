@@ -1,0 +1,107 @@
+site_name: EbonAPI
+site_description: Developer documentation for EbonAPI, the shared runtime for Ebonhold addons.
+site_url: https://siphelis.github.io/EbonAPI/
+repo_url: https://github.com/Siphelis/EbonAPI
+repo_name: Siphelis/EbonAPI
+edit_uri: edit/main/Documentation/
+copyright: Copyright &copy; 2026 Siphelis
+
+docs_dir: Documentation
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/puzzle
+  favicon: assets/favicon.svg
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Start:
+      - Getting started: getting-started.md
+      - Concepts: concepts.md
+  - Guides:
+      - guides/index.md
+      - Events: guides/events.md
+      - Logging: guides/logging.md
+      - Storage: guides/storage.md
+      - Localization: guides/localization.md
+      - Server: guides/server.md
+      - ProjectEbonhold: guides/ebonhold.md
+      - Channel: guides/channel.md
+      - Whispers: guides/whispers.md
+      - Sharing: guides/sharing.md
+      - Versions: guides/versions.md
+      - Echo profile: guides/echo-profile.md
+      - Performance: guides/performance.md
+  - Reference:
+      - reference/index.md
+      - Handle: reference/handle.md
+      - Events catalog: reference/events.md
+      - Modules: reference/modules.md
+      - Limits: reference/limits.md
+      - Errors: reference/errors.md
+      - Slash commands: reference/slash-commands.md
+      - Glossary: reference/glossary.md
+  - Cookbook:
+      - cookbook/index.md
+      - Minimal addon: cookbook/minimal-addon.md
+      - Run tracker: cookbook/run-tracker.md
+      - Shared dataset: cookbook/shared-dataset.md
+      - Localized window: cookbook/localized-window.md
+      - Update notice: cookbook/update-notice.md

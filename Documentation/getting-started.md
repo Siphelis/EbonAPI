@@ -2,10 +2,6 @@
 
 Ten minutes from an empty folder to an addon that talks to EbonAPI.
 
-[← Home](README.md) · **Getting started** · [Concepts →](concepts.md)
-
----
-
 ## What you need
 
 - World of Warcraft 3.3.5a with the Ebonhold client (ProjectEbonhold).
@@ -16,7 +12,7 @@ Ten minutes from an empty folder to an addon that talks to EbonAPI.
 
 In your `.toc`, ask the game to load EbonAPI first:
 
-```toc
+```text title="MyAddon.toc"
 ## Interface: 30300
 ## Title: MyAddon
 ## Notes: My first Ebonhold addon
@@ -28,8 +24,8 @@ MyAddon.lua
 
 With `## Dependencies`, the game loads EbonAPI before your files and disables your addon when EbonAPI is missing. That is what you want for an Ebonhold addon.
 
-> [!NOTE]
-> There is no `## SavedVariables` line. EbonAPI saves your data for you, inside its own saved variable. See [Storage](guides/storage.md).
+!!! note
+    There is no `## SavedVariables` line. EbonAPI saves your data for you, inside its own saved variable. See [Storage](guides/storage.md).
 
 If your addon must also run without EbonAPI, declare `## OptionalDeps: EbonAPI` instead and guard every access with `if EbonAPI then`.
 
@@ -53,8 +49,8 @@ if not api then
 end
 ```
 
-> [!WARNING]
-> A name that breaks the rules is a bug in your code, not a runtime condition: `NewAddon` raises an error instead of returning `nil`. See [Errors](reference/errors.md).
+!!! warning
+    A name that breaks the rules is a bug in your code, not a runtime condition: `NewAddon` raises an error instead of returning `nil`. See [Errors](reference/errors.md).
 
 ## 3. Wait for READY
 
@@ -86,7 +82,7 @@ end)
 
 `MyAddon.lua`, complete:
 
-```lua
+```lua title="MyAddon.lua"
 local api = EbonAPI:NewAddon("MyAddon", 1, 0)
 
 if not api then
@@ -102,8 +98,8 @@ api:On("SERVER_RUN_DATA", function(event, run)
 end)
 ```
 
-> [!TIP]
-> 🎮 **Try it.** Log in, then type `/eapi status`. The consumers line lists `MyAddon`: your handle is registered. `/eapi trace 10` shows the last messages EbonAPI received from the server.
+!!! tip "🎮 Try it"
+    Log in, then type `/eapi status`. The consumers line lists `MyAddon`: your handle is registered. `/eapi trace 10` shows the last messages EbonAPI received from the server.
 
 ## Where next
 
@@ -111,7 +107,3 @@ end)
 - [Storage](guides/storage.md): `api:DB()` gives you account and character data with defaults.
 - [Localization](guides/localization.md): `api:Locale()` gives your addon the language the player chose.
 - [Cookbook: minimal addon](cookbook/minimal-addon.md): the same addon with storage, translations and a slash command.
-
----
-
-[← Home](README.md) · **Getting started** · [Concepts →](concepts.md)

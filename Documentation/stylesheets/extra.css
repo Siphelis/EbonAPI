@@ -1,0 +1,18 @@
+/* EbonAPI colors: the purple of the addon title, the gold of its highlights. */
+:root {
+  --md-primary-fg-color: #8a6fd4;
+  --md-primary-fg-color--light: #a892e0;
+  --md-primary-fg-color--dark: #6f55b8;
+  --md-accent-fg-color: #d9a400;
+  --md-accent-fg-color--transparent: rgba(217, 164, 0, 0.1);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-accent-fg-color: #ffd200;
+  --md-accent-fg-color--transparent: rgba(255, 210, 0, 0.1);
+}
+
+/* Cards on the home page keep their icon and title on one line. */
+.md-typeset .grid.cards > ul > li > p:first-child {
+  font-size: 1.05em;
+}

@@ -16,6 +16,8 @@ EbonAPI wird derzeit genutzt von:
 
 [English](README.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md)
 
+Entwickler: Die [Entwicklerdokumentation](https://siphelis.github.io/EbonAPI/), auf Englisch, erklärt, wie ein Addon an EbonAPI angebunden wird.
+
 ---
 
 ## Inhaltsverzeichnis

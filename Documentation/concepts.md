@@ -2,10 +2,6 @@
 
 The ideas behind every other page: the handle, the lifecycle, events, names, sending, and how errors reach you.
 
-[← Getting started](getting-started.md) · **Concepts** · [Events →](guides/events.md)
-
----
-
 ## The handle
 
 `EbonAPI:NewAddon("MyAddon", 1, 0)` returns a handle. There is one handle per addon name, shared by all your files, and it is the only object you need to keep.
@@ -163,7 +159,3 @@ EbonAPI keeps one saved variable, `EbonAPIDB`, for every addon. Your part of it 
 ## One language for all
 
 The player picks one language, from any addon's menu or with `/eapi lang`, and every addon follows. An addon without a translation for that language shows English, without changing the language of the others. Guide: [Localization](guides/localization.md).
-
----
-
-[← Getting started](getting-started.md) · **Concepts** · [Events →](guides/events.md)
