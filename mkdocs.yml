@@ -79,6 +79,11 @@ nav:
       - Logging: guides/logging.md
       - Storage: guides/storage.md
       - Localization: guides/localization.md
+      - Connecting your addon: guides/connection.md
+      - Interface: guides/interface.md
+      - Kit: guides/kit.md
+      - Minimap button: guides/minimap.md
+      - Skins: guides/skins.md
       - Server: guides/server.md
       - ProjectEbonhold: guides/ebonhold.md
       - Channel: guides/channel.md
@@ -91,10 +96,12 @@ nav:
       - reference/index.md
       - Handle: reference/handle.md
       - Events catalog: reference/events.md
+      - Elements: reference/elements.md
+      - Skin parameters: reference/skin-parameters.md
       - Modules: reference/modules.md
       - Limits: reference/limits.md
       - Errors: reference/errors.md
-      - Slash commands: reference/slash-commands.md
+      - Options window: reference/options-window.md
       - Glossary: reference/glossary.md
   - Cookbook:
       - cookbook/index.md
@@ -103,3 +110,6 @@ nav:
       - Shared dataset: cookbook/shared-dataset.md
       - Localized window: cookbook/localized-window.md
       - Update notice: cookbook/update-notice.md
+      - Addon window: cookbook/addon-window.md
+      - Settings page: cookbook/settings-page.md
+      - Run board: cookbook/run-board.md

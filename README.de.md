@@ -6,7 +6,7 @@
 
 Es bietet unter anderem Dienste, um mit dem Server zu kommunizieren, Daten zwischen Spielern auszutauschen, gespeicherte Daten zu verwalten, eine gemeinsame Sprache zu teilen, Updates zu erkennen und die Leistung zu überwachen.
 
-Addons können nur die Dienste nutzen, die sie brauchen, und behalten dabei ihre eigene Oberfläche, ihre Daten und ihre Funktionen.
+Addons können nur die Dienste nutzen, die sie brauchen. Sie behalten ihre Funktionen und Daten und können ihre Oberfläche ganz oder teilweise dem Fenster von [EbonAPI](https://github.com/Siphelis/EbonAPI) überlassen.
 
 [EbonAPI](https://github.com/Siphelis/EbonAPI) wird derzeit genutzt von:
 
@@ -25,7 +25,7 @@ Entwickler: Die [Entwicklerdokumentation](https://siphelis.github.io/EbonAPI/), 
 - [Warum EbonAPI](#-warum-ebonapi)
 - [Funktionen](#-funktionen)
 - [Installation](#-installation)
-- [Slash-Befehle](#-slash-befehle)
+- [Das EbonAPI-Fenster](#-das-ebonapi-fenster)
 - [Code-Aufbau](#-code-aufbau--wie-es-funktioniert)
 - [Sprachen](#-sprachen)
 - [Lizenz & Danksagung](#-lizenz--danksagung)
@@ -102,13 +102,19 @@ Diese Benachrichtigung wird pro Sitzung nur einmal für jede neu erkannte Versio
 
 Die Informationen werden nur erneut gesendet, wenn eine Änderung erkannt wird.
 
+### Gemeinsame Oberfläche
+
+[EbonAPI](https://github.com/Siphelis/EbonAPI) hat ein eigenes Einstellungsfenster, das Sie über das Spielmenü öffnen.
+
+Addons können dort ihre Einstellungen anzeigen, mit demselben Aussehen für alle, oder ihre eigene Oberfläche behalten und dem in [EbonAPI](https://github.com/Siphelis/EbonAPI) gewählten Erscheinungsbild folgen: Farben, Skalierung, Deckkraft, Schatten, Ecken und Seite der Reiter.
+
+Ihre Wahl hat immer Vorrang vor den Werten, die ein Addon für sich selbst festlegt.
+
 ### Diagnose und Leistung
 
 [EbonAPI](https://github.com/Siphelis/EbonAPI) enthält mehrere Werkzeuge, um seine eigene Funktion und die der Addons zu überprüfen, die seine Dienste nutzen.
 
-`/eapi status` zeigt einen Überblick über die mit [EbonAPI](https://github.com/Siphelis/EbonAPI) verbundenen Addons und den Zustand der verschiedenen Dienste.
-
-`/eapi perf` zeigt ihren Speicher- und CPU-Verbrauch sowie die aktiven Frames.
+Die Seite **Diagnose** im Fenster von [EbonAPI](https://github.com/Siphelis/EbonAPI) zeigt einen Überblick über die verbundenen Addons und den Zustand der verschiedenen Dienste sowie ihren Speicher- und CPU-Verbrauch und die aktiven Frames.
 
 ## 📦 Installation
 
@@ -117,33 +123,26 @@ Die Informationen werden nur erneut gesendet, wenn eine Änderung erkannt wird.
    `Interface/AddOns/`
 3. Prüfen Sie im AddOn-Auswahlbildschirm von World of Warcraft, dass **[EbonAPI](https://github.com/Siphelis/EbonAPI)** aktiviert ist.
 
-[EbonAPI](https://github.com/Siphelis/EbonAPI) hat keine Hauptoberfläche für den Spieler.
-
-Es stellt seine Funktionen den installierten Addons zur Verfügung, die sie nutzen möchten.
+[EbonAPI](https://github.com/Siphelis/EbonAPI) stellt seine Funktionen den installierten Addons zur Verfügung, die sie nutzen möchten. Seine Einstellungen befinden sich in einem eigenen Fenster: siehe [Das EbonAPI-Fenster](#-das-ebonapi-fenster).
 
 Kompatible Addons erkennen [EbonAPI](https://github.com/Siphelis/EbonAPI) und können sich dann mit den Diensten verbinden, die sie unterstützen.
 
-## 💬 Slash-Befehle
+## 🪟 Das EbonAPI-Fenster
 
-Die Befehle `/eapi` und `/ebonapi` sind gleichwertig.
+[EbonAPI](https://github.com/Siphelis/EbonAPI) hat keine Slash-Befehle: Alles läuft über sein Fenster.
 
-| Befehl                        | Wirkung                                                                                                              |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `/eapi` oder `/eapi help`     | Zeigt die Liste der verfügbaren Befehle.                                                                             |
-| `/eapi status`                | Zeigt den Zustand von [EbonAPI](https://github.com/Siphelis/EbonAPI), seiner Dienste und der Addons, die sie nutzen. |
-| `/eapi lang [code]`           | Zeigt oder ändert die gemeinsame Sprache (`enUS`, `frFR`, `deDE`, `esES`).                                           |
-| `/eapi perf [addon]`          | Zeigt Speicher- und CPU-Verbrauch sowie die aktiven Frames für jedes Addon.                                          |
-| `/eapi trace [n]`             | Zeigt die letzten `n` Diagnoseeinträge.                                                                              |
-| `/eapi debug [addon] on\|off` | Schaltet ausführliche Debug-Informationen für ein Addon ein oder aus.                                                |
-| `/eapi db`                    | Zeigt eine Zusammenfassung der von [EbonAPI](https://github.com/Siphelis/EbonAPI) gespeicherten Daten.               |
+Öffnen Sie es über das Spielmenü (**Esc → EbonAPI**) oder über die Interface-Optionen, Reiter AddOns.
 
-Wenn Sie ein Problem melden, fügen Sie möglichst die Ausgabe dieser Befehle bei:
+| Seite                 | Inhalt                                                                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Allgemein**         | Die gemeinsame Sprache, die alle kompatiblen Addons teilen.                                                                                               |
+| **Erscheinungsbild**  | Farben, Skalierung, Deckkraft, Schatten unter Fenstern, Ecken, Reiter links oder rechts, Fensterpositionen sperren.                                       |
+| **Verbundene Addons** | Die Addons, die [EbonAPI](https://github.com/Siphelis/EbonAPI) nutzen, und ihre Versionen.                                                                |
+| **Diagnose**          | Der Zustand von [EbonAPI](https://github.com/Siphelis/EbonAPI) und seinen Diensten, das Protokoll, die gespeicherten Daten, Debug-Meldungen und Leistung. |
 
-`/eapi status`
+Addons, die ihre Einstellungen [EbonAPI](https://github.com/Siphelis/EbonAPI) überlassen, haben einen eigenen Reiter unter **Addons**. Das Suchfeld oben findet eine Einstellung in allen Reitern.
 
-und
-
-`/eapi trace 30`
+Um ein Problem zu melden, fügen Sie bitte einen Screenshot der Seite **Diagnose** bei, nachdem Sie auf **Status** und danach auf **Protokoll** geklickt haben.
 
 Diese Angaben helfen dabei, den Zustand von [EbonAPI](https://github.com/Siphelis/EbonAPI), die genutzten Dienste und die mögliche Ursache des Problems leichter zu erkennen.
 
@@ -151,14 +150,15 @@ Diese Angaben helfen dabei, den Zustand von [EbonAPI](https://github.com/Sipheli
 
 [EbonAPI](https://github.com/Siphelis/EbonAPI) ist in mehrere Module gegliedert, die den Diensten entsprechen, die es den Addons bereitstellt.
 
-| Ordner / Datei          | Aufgabe                                                                                                                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Core/`                 | Gemeinsame Funktionen von [EbonAPI](https://github.com/Siphelis/EbonAPI): Ereignisse, Timer, gespeicherte Daten, internes Protokoll und Leistungsmessung.                           |
-| `Server/`               | Dienste zur Kommunikation mit dem Ebonhold-Server und ProjectEbonhold sowie Verwaltung der Serverdaten, die den Addons bereitgestellt werden können: Runs, Builds, Seelenasche usw. |
-| `Net/`                  | Dienste zur Kommunikation zwischen Spielern: Sendewarteschlange, Flüsternachrichten, Echo-Profile, zwischen Addons geteilte Daten und Update-Benachrichtigungen.                    |
-| `Language/`, `Locales/` | Verwaltung des gemeinsamen Sprachdienstes und der eigenen Übersetzungen von [EbonAPI](https://github.com/Siphelis/EbonAPI).                                                         |
-| `Boot.lua`              | Initialisierung von [EbonAPI](https://github.com/Siphelis/EbonAPI), Einrichtung seiner Dienste und Verarbeitung der `/eapi`-Befehle.                                                |
-| `EbonAPI.toc`           | Manifest des Addons: Metadaten, gespeicherte Variable `EbonAPIDB` und Ladereihenfolge der Dateien.                                                                                  |
+| Ordner / Datei          | Aufgabe                                                                                                                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Core/`                 | Gemeinsame Funktionen von [EbonAPI](https://github.com/Siphelis/EbonAPI): Ereignisse, Timer, gespeicherte Daten, internes Protokoll und Leistungsmessung.                                                                                   |
+| `Server/`               | Dienste zur Kommunikation mit dem Ebonhold-Server und ProjectEbonhold sowie Verwaltung der Serverdaten, die den Addons bereitgestellt werden können: Runs, Builds, Seelenasche usw.                                                         |
+| `Net/`                  | Dienste zur Kommunikation zwischen Spielern: Sendewarteschlange, Flüsternachrichten, Echo-Profile, zwischen Addons geteilte Daten und Update-Benachrichtigungen.                                                                            |
+| `Language/`, `Locales/` | Verwaltung des gemeinsamen Sprachdienstes und der eigenen Übersetzungen von [EbonAPI](https://github.com/Siphelis/EbonAPI).                                                                                                                 |
+| `UI/`                   | Das Fenster von [EbonAPI](https://github.com/Siphelis/EbonAPI): sein Aussehen, die gemeinsamen Einstellungen des Erscheinungsbilds, die Einstellungen der Addons und die eigenen Seiten von [EbonAPI](https://github.com/Siphelis/EbonAPI). |
+| `Boot.lua`              | Initialisierung von [EbonAPI](https://github.com/Siphelis/EbonAPI) und Einrichtung seiner Dienste.                                                                                                                                          |
+| `EbonAPI.toc`           | Manifest des Addons: Metadaten, gespeicherte Variable `EbonAPIDB` und Ladereihenfolge der Dateien.                                                                                                                                          |
 
 Addons, die [EbonAPI](https://github.com/Siphelis/EbonAPI) nutzen, können sich so je nach Bedarf mit den verschiedenen Diensten verbinden, ohne sich um deren interne Funktionsweise kümmern zu müssen.
 
@@ -173,7 +173,7 @@ Addons, die [EbonAPI](https://github.com/Siphelis/EbonAPI) nutzen, können sich 
 
 Es bietet außerdem einen Sprachdienst, den andere Addons nutzen können.
 
-Die mit `/eapi lang` oder im Sprachmenü eines Addons, das diesen Dienst nutzt, gewählte Sprache wird mit den anderen kompatiblen Addons geteilt.
+Die im Fenster von [EbonAPI](https://github.com/Siphelis/EbonAPI) (**Allgemein → Sprache**) oder im Sprachmenü eines Addons, das diesen Dienst nutzt, gewählte Sprache wird mit den anderen kompatiblen Addons geteilt.
 
 Hat ein Addon keine Übersetzung für die gewählte Sprache, verwendet es automatisch seine englische Fassung.
 

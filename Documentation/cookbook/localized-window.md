@@ -1,6 +1,6 @@
 # Localized window
 
-A small frame whose title and buttons follow the shared language, with one button per language on offer.
+A small frame whose title and buttons follow the shared language, with one button per language on offer. A minimap button opens it.
 
 ```lua title="Greeter.lua"
 local api = EbonAPI:NewAddon("Greeter", 1, 0)
@@ -15,12 +15,14 @@ local L = api:Locale({
     TITLE = "Greeter",
     HELLO = "Hello, %s!",
     CLOSE = "Close",
+    BUTTON_TIP = "Click: open or close the greeting.",
   },
   frFR = {
     LOCALE_NAME = "Français",
     TITLE = "Salutations",
     HELLO = "Bonjour, %s !",
     CLOSE = "Fermer",
+    BUTTON_TIP = "Clic : ouvrir ou fermer les salutations.",
   },
 })
 
@@ -58,8 +60,9 @@ local function refresh()
 end
 
 api:On("LANGUAGE_CHANGED", refresh)
+refresh()
 
--- One button per language any addon registered.
+-- One button per language registered so far.
 local previous = nil
 
 for _, entry in ipairs(EbonAPI:GetAvailableLanguages()) do
@@ -79,20 +82,25 @@ for _, entry in ipairs(EbonAPI:GetAvailableLanguages()) do
   previous = button
 end
 
-SLASH_GREETER1 = "/greeter"
-
-SlashCmdList["GREETER"] = function()
-  refresh()
-  frame:Show()
-end
+-- The minimap button opens and closes the frame.
+api:MinimapButton({
+  tipKey = "BUTTON_TIP",
+  onClick = function()
+    if frame:IsShown() then
+      frame:Hide()
+    else
+      frame:Show()
+    end
+  end,
+})
 ```
 
 ## What happens
 
 1. `api:Localized(title, "TITLE")` binds the font string to the key. When the language changes, EbonAPI sets its text again. Same for the close button.
-2. The greeting is built with `string.format`, so it cannot be bound: it is refreshed in a `LANGUAGE_CHANGED` handler instead. The event is sticky, so `refresh()` also runs once at load.
-3. `EbonAPI:GetAvailableLanguages()` lists every language any addon registered, with the name each gave in `LOCALE_NAME`. One click on a button calls `EbonAPI:SetLanguage`, which switches every addon and saves the choice.
-4. `/greeter` shows the frame.
+2. The greeting is built with `string.format`, so it cannot be bound: `refresh()` runs once at load and again in a `LANGUAGE_CHANGED` handler.
+3. `EbonAPI:GetAvailableLanguages()` lists the languages registered so far, with the name each gave in `LOCALE_NAME`; the loop runs once, at load. One click on a button calls `EbonAPI:SetLanguage`, which switches every addon and saves the choice.
+4. `api:MinimapButton` adds a button around the minimap. Clicking it shows the frame, or hides it when it is open. The tooltip text `BUTTON_TIP` follows the language too.
 
 !!! tip "🎮 Try it"
-    Open the frame, click **Français**: the title, the close button and the greeting change together, and `/eapi lang` now answers `frFR`. So does every other addon's interface.
+    Click the Greeter button on the minimap to open the frame, then click **Français**: the title, the close button and the greeting change together, and **General → Language** in the EbonAPI window now shows the French name. So does the interface of every other addon that registered French.

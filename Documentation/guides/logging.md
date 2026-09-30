@@ -6,69 +6,96 @@ Talk to the player in chat under your addon's tag, keep debug output silent unti
 
 - Prints to the default chat frame with the tag `[MyAddon]` in EbonAPI's colors.
 - Five levels: print, success, warning, error, debug.
-- A debug switch per addon, from code or from `/eapi debug`.
-- A trace: the last 128 things that happened inside EbonAPI, including your warnings and errors.
+- A debug switch per addon, from code or from the EbonAPI window.
+- A trace: the last 128 things that happened inside EbonAPI, your warnings and errors included.
 
 ## Quick example
 
 ```lua
 local api = EbonAPI:NewAddon("MyAddon", 1, 0)
 
-api:Print("Route saved:", "Frostfire")   -- [MyAddon] Route saved: Frostfire
-api:Success("Import complete")
-api:Warn("Nothing to export")
-api:Debug("payload", 1024, "bytes")      -- silent until /eapi debug MyAddon on
+local L = api:Locale({
+  enUS = {
+    SAVED = "Route saved:",
+    IMPORTED = "Import complete",
+    NOTHING = "Nothing to export",
+  },
+  frFR = {
+    SAVED = "Trajet enregistré :",
+    IMPORTED = "Import terminé",
+    NOTHING = "Rien à exporter",
+  },
+})
+
+api:Print(L.SAVED, "Frostfire")          -- [MyAddon] Route saved: Frostfire
+api:Success(L.IMPORTED)
+api:Warn(L.NOTHING)
+api:Debug("payload", 1024, "bytes")      -- silent until debug is on for MyAddon
 ```
 
-Every method takes any number of values. They are converted with `tostring` and joined with spaces.
+## How it works
 
-## Levels
+Every method takes any number of values. They are converted to text and joined with single spaces. The chat line starts with your addon's name in square brackets.
+
+### Levels
 
 | Method | Color | Goes to | Use it for |
 | --- | --- | --- | --- |
-| `api:Print(...)` | text | chat | ordinary messages to the player |
-| `api:Success(...)` | green | chat | a completed action |
-| `api:Warn(...)` | orange | chat and the trace | something the player should know, without stopping |
-| `api:Error(...)` | red | the game's error handler and the trace | a failure a developer must see |
-| `api:Debug(...)` | muted | chat, only when debug is on | what you need while developing |
+| `api:Print(...)` | text color | chat | ordinary messages to the player |
+| `api:Success(...)` | success color | chat | a completed action |
+| `api:Warn(...)` | warning color | chat and the trace | something the player should know, without stopping |
+| `api:Error(...)` | none | the game's error handler and the trace | a failure a developer must see |
+| `api:Debug(...)` | muted color | chat, only when debug is on | what you need while developing |
+
+The colors come from the player's skin.
 
 !!! note
-    `api:Error` behaves like a Lua error: it goes to the error handler, so players with default settings do not see it in chat. It is for failures, not for telling the player something. Use `api:Warn` for that.
+    `api:Error` does not print in chat. It sends `[MyAddon] your text` to the game's error handler, the same place Lua errors go. Use `api:Warn` to tell the player something.
 
-## Debug output
+### Debug output
 
-`api:Debug` prints nothing until debug is on for your addon. Turn it on from code or from the command line:
+`api:Debug` prints nothing until debug is on for your addon. Turn it on from code, or in the EbonAPI window:
 
 ```lua
-api:SetDebug(true)      -- returns the new state
+api:SetDebug(true)      -- true: debug is now on for this addon
 api:IsDebug()           -- true
 ```
 
-```text
-/eapi debug MyAddon on
-/eapi debug MyAddon off
-/eapi debug on            every addon at once
-/eapi debug               shows the current state
-```
+`api:SetDebug(enabled)` switches debug for your addon: any true value turns it on, `false` or `nil` turns it off. It returns `true` when debug is now on for your addon. `api:IsDebug()` returns `true` when debug is on for your addon or for all addons.
 
-The switch is not saved: it resets at every reload. That is on purpose. Debug output is for the session where you need it.
+In the EbonAPI window, under **Diagnostics → Debug messages**:
 
-## The trace
+| Control | Effect |
+| --- | --- |
+| **All addons** | debug on for every addon at once |
+| **Addon** | chooses which addon the next control acts on; the list holds every connected addon and EbonAPI itself |
+| **For the chosen addon** | debug on for the addon chosen above; it cannot be changed while **All addons** is on |
 
-EbonAPI keeps the last 128 events of its own life in a ring: server messages received and sent, channel lines, whisper streams, offline peers, sharing exchanges, saved-data repairs, warnings and errors. Your `api:Warn` and `api:Error` land there too, under your addon name.
+The switches are not saved: every reload turns debug off again.
 
-```text
-/eapi trace              last 20 entries
-/eapi trace 50           last 50
-/eapi trace 30 warn      last 30 warnings only
-```
+### The trace
 
-Each line shows how long ago it happened, its kind, the addon concerned and a short description. The kinds are `boot`, `recv`, `send`, `fail`, `chan`, `wisp`, `offline`, `share`, `repair`, `warn` and `error`.
+EbonAPI keeps the last 128 things that happened, the oldest being dropped first. Your `api:Warn` and `api:Error` land there too, under your addon name. `api:Print`, `api:Success` and `api:Debug` do not.
 
-!!! tip "🎮 Try it"
-    Ask players who report a problem for the output of `/eapi status` and `/eapi trace 30`. The first shows the state of every service, the second what happened just before.
+In the EbonAPI window, **Diagnostics → Reports → Trace** shows the last 30 entries, the newest first. Set **Trace filter** to one kind, such as `warn`, to keep only those. The filter lists **Everything** and every kind that has appeared since the game started.
 
-## Messages in the player's language
+Each line shows how long ago it happened, its kind, the addon concerned and a short description. The kinds are:
+
+| Kind | What it records |
+| --- | --- |
+| `boot` | EbonAPI starting up |
+| `recv`, `send`, `fail` | server messages received, sent, and sends that failed |
+| `chan` | the shared channel |
+| `wisp` | whisper streams |
+| `offline` | players found offline |
+| `share` | datasets shared |
+| `repair` | saved data repaired at load |
+| `skin` | a skin that could not be applied |
+| `warn`, `error` | `api:Warn` and `api:Error` |
+
+When nothing matches, the window shows `empty trace`.
+
+### Messages in the player's language
 
 The strings you print to the player belong in your translations, so they follow the shared language:
 
@@ -78,6 +105,8 @@ local L = api:Locale({
   frFR = { ROUTE_SAVED = "Trajet enregistré : %s" },
 })
 
+local name = "Frostfire"
+
 api:Print(string.format(L.ROUTE_SAVED, name))
 ```
 
@@ -85,19 +114,40 @@ See [Localization](localization.md).
 
 ## API
 
-| Method | Arguments | Returns |
-| --- | --- | --- |
-| `api:Print(...)` | any values | |
-| `api:Success(...)` | any values | |
-| `api:Warn(...)` | any values | |
-| `api:Error(...)` | any values | |
-| `api:Debug(...)` | any values | |
-| `api:SetDebug(enabled)` | boolean | the new state |
-| `api:IsDebug()` | | `true` when debug is on for this addon, or for all |
+| Method | Arguments | Returns | Raises when |
+| --- | --- | --- | --- |
+| `api:Print(...)` | any values | | |
+| `api:Success(...)` | any values | | |
+| `api:Warn(...)` | any values | | |
+| `api:Error(...)` | any values | | |
+| `api:Debug(...)` | any values | | |
+| `api:SetDebug(enabled)` | any value | `true` when debug is now on for this addon | |
+| `api:IsDebug()` | | `true` when debug is on for this addon, or for all addons | |
 
-Colors are available for your own strings in `EbonAPI.Log.COLOR`: `PREFIX`, `TEXT`, `ERROR`, `WARN`, `SUCCESS`, `HIGHLIGHT`, `MUTED` and `RESET`, as WoW color codes.
+Colors are available for your own strings in `EbonAPI.Log.COLOR`: `PREFIX`, `TEXT`, `ERROR`, `WARN`, `SUCCESS`, `HIGHLIGHT`, `MUTED` and `RESET`, as WoW color codes. All but `RESET` come from the player's skin and change when the skin changes: read them when you print, not once at load.
+
+```lua
+local COLOR = EbonAPI.Log.COLOR
+
+api:Print(COLOR.HIGHLIGHT .. "Frostfire" .. COLOR.RESET .. " saved")
+```
+
+## Events
+
+Logging emits no event.
+
+## Limits
+
+| | Value |
+| --- | --- |
+| Entries kept in the trace | 128 |
+| Entries shown by **Diagnostics → Reports → Trace** | 30 |
+
+!!! tip "🎮 Try it"
+    In the EbonAPI window, open **Diagnostics**. Under **Debug messages**, choose your addon in **Addon** and switch on **For the chosen addon**: your `api:Debug` lines appear in chat. Press **Trace** under **Reports** to see your `api:Warn` lines, and set **Trace filter** to `warn` or `error` to keep only those. When a player reports a problem, ask for a screenshot of **Diagnostics → Reports** after **Status**, then after **Trace**.
 
 ## See also
 
-- [Slash commands](../reference/slash-commands.md) for every `/eapi` command.
+- [Options window](../reference/options-window.md) for every diagnostic of the EbonAPI window.
 - [Concepts: errors and messages](../concepts.md#errors-and-messages) for which message goes where.
+- [Performance](performance.md) for the other report of the **Diagnostics** page.

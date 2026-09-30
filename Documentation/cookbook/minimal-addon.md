@@ -1,6 +1,6 @@
 # Minimal addon
 
-An addon with saved data, translations, a version and a slash command, in one file.
+An addon with saved data, translations, a version and a minimap button, in one file.
 
 ## Files
 
@@ -28,7 +28,8 @@ local L = api:Locale({
     LOGINS = "logins on this character: %d",
     ASHES = "Soul Ashes: %s",
     RESET = "counter reset",
-    HELP = "/myaddon show | reset",
+    RESET_MENU = "Reset the counter",
+    BUTTON_TIP = "Click: show the login counter. Right-click: reset it.",
   },
   frFR = {
     LOCALE_NAME = "Français",
@@ -36,7 +37,8 @@ local L = api:Locale({
     LOGINS = "connexions sur ce personnage : %d",
     ASHES = "Cendres d'âme : %s",
     RESET = "compteur remis à zéro",
-    HELP = "/myaddon show | reset",
+    RESET_MENU = "Remettre le compteur à zéro",
+    BUTTON_TIP = "Clic : afficher le compteur de connexions. Clic droit : le remettre à zéro.",
   },
 })
 
@@ -60,20 +62,21 @@ api:On("SERVER_RUN_DATA", function(event, run)
   api:Debug(string.format(L.ASHES, EbonAPI.Format.pair(run.soulPoints, run.soulPointsMax)))
 end)
 
-SLASH_MYADDON1 = "/myaddon"
-
-SlashCmdList["MYADDON"] = function(input)
-  local command = string.lower(string.match(input or "", "^%s*(%S*)"))
-
-  if command == "show" then
+api:MinimapButton({
+  tipKey = "BUTTON_TIP",
+  onClick = function()
     api:Print(string.format(L.LOGINS, db.char.logins))
-  elseif command == "reset" then
-    db.char.logins = 0
-    api:Success(L.RESET)
-  else
-    api:Print(L.HELP)
-  end
-end
+  end,
+  menu = {
+    {
+      key = "RESET_MENU",
+      onClick = function()
+        db.char.logins = 0
+        api:Success(L.RESET)
+      end,
+    },
+  },
+})
 ```
 
 ## What happens
@@ -83,8 +86,8 @@ end
 3. `api:DB` opens the store. `db.account.announce` exists right away; `db.char.logins` from `READY` on.
 4. `api:Version` declares the version written in the `.toc`, so it is never out of step with the file.
 5. At `READY`, the character's counter grows and two lines print, in the player's language.
-6. `SERVER_RUN_DATA` prints the ashes as debug output, visible after `/eapi debug MyAddon on`.
-7. `/myaddon show` and `/myaddon reset` read and reset the counter.
+6. `SERVER_RUN_DATA` prints the ashes as debug output, visible once you turn on **Diagnostics → Debug messages → For the chosen addon** with **Addon** set to MyAddon (or **All addons**) in the EbonAPI window.
+7. `api:MinimapButton` puts a button around the minimap. A left-click prints the counter. A right-click opens a menu with one entry, which resets the counter. The tooltip shows your addon's name and version, then the text of `BUTTON_TIP`.
 
 !!! tip "🎮 Try it"
-    `/eapi db` shows `MyAddon  account=1 keys  characters=1`. `/eapi lang frFR` then `/myaddon show` prints the French line.
+    Left-click the MyAddon button on the minimap: the counter prints. Right-click it and choose **Reset the counter**. In the EbonAPI window, **Diagnostics → Reports → Saved data** shows `MyAddon  account=1 keys  characters=1`. Choose French under **General → Language**: the tooltip and the menu entry change language.

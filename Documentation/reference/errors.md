@@ -4,7 +4,9 @@ Every message EbonAPI can raise, what raised it, and how to fix the call.
 
 A raised error means a **contract error**: the calling code passed something EbonAPI cannot accept. It is a bug to fix, not a condition to handle. Runtime conditions never raise; they come back as `false` or `nil`, and as events. See [Concepts: errors and messages](../concepts.md#errors-and-messages).
 
-Errors surface where a developer looks: with `/console scriptErrors 1`, or with an error-display addon. Players with default settings never see them. Every message is in English.
+You see these errors where the game shows Lua errors: with `/console scriptErrors 1`, or with an error-display addon. Players with default settings never see them. Every message is in English.
+
+Some problems are not raised. EbonAPI reports them to the same error display and carries on. Those are marked "not raised" below.
 
 ## Handle and events
 
@@ -12,8 +14,13 @@ Errors surface where a developer looks: with `/console scriptErrors 1`, or with 
 | --- | --- |
 | `EbonAPI:NewAddon expects a non-empty addon name, got nil` | pass your addon name as a string |
 | `EbonAPI:NewAddon: addon name "My Addon" must be 1 to 32 letters, digits or "_"` | remove spaces and punctuation, shorten the name |
+| `EbonAPI:NewAddon: "MyAddon": the fourth argument must be a table (icon, updates, url, version), got string` | pass the connection options as a table, or leave the fourth argument out |
+| `EbonAPI:NewAddon: "MyAddon": unknown connection option "link" (known: icon, updates, url, version)` | use one of the options listed |
+| `EbonAPI:NewAddon: "MyAddon": connection option "url" expects a non-empty text, got number` | give `icon`, `url` and `version` as texts; an empty text is refused too, and the message then ends with `got string` |
+| `EbonAPI:NewAddon: "MyAddon": connection option "updates" expects a boolean, got string` | pass `true` or `false` |
+| `EbonAPI:NewAddon: "MyAddon": updates needs a version, from the version option or ## Version in the .toc, got nil` | add a `## Version: 1.0.0` line to the `.toc`, or pass `version`; the text must read `major.minor.patch`, such as `1.2.0` or `1.2.0-3` |
 | `EbonAPI: the event name must be a string, got number` | pass the event name as a string |
-| `EbonAPI: the callback for 'READY' must be a function, got nil` | pass a function; check that it is defined before `api:On` |
+| `EbonAPI: the callback for 'READY' must be a function, got nil` | pass a function; check that it is defined before you call `api:On` |
 
 ## WoW events and tickers
 
@@ -21,9 +28,8 @@ Errors surface where a developer looks: with `/console scriptErrors 1`, or with 
 | --- | --- |
 | `EbonAPI.Bus.on expects an event name, got nil` | pass the WoW event name as a string |
 | `EbonAPI.Bus.on expects a function for 'BAG_UPDATE', got table` | pass a function |
-| `EbonAPI.Bus.tick expects a ticker id, got number` | pass the id as a string |
-| `EbonAPI.Bus.tick expects a function for 'poll', got nil` | pass a function |
-| `EbonAPI.Bus.tick: invalid interval for 'poll'` | the interval must be greater than zero |
+| `EbonAPI.Bus.tick expects a function for 'MyAddon:poll', got nil` | pass a function; the name in the message is your addon name and the ticker id |
+| `EbonAPI.Bus.tick: invalid interval for 'MyAddon:poll'` | the interval must be greater than zero |
 
 ## Storage
 
@@ -33,7 +39,7 @@ Errors surface where a developer looks: with `/console scriptErrors 1`, or with 
 | `EbonAPI: the migration key must be a string, got number` | name the migration with a string |
 | `EbonAPI: migration 'import' expects a function, got nil` | pass the migration function as the third argument |
 
-`migration 'import' failed: ...` is not raised: it is reported through `api:Error` when the migration function itself raised, and the migration stays pending.
+Not raised: when the migration function itself raises, the error display shows `[MyAddon] migration 'import' failed: ` followed by the error text. The migration is not marked as done, so it runs again the next time.
 
 ## Localization
 
@@ -41,7 +47,117 @@ Errors surface where a developer looks: with `/console scriptErrors 1`, or with 
 | --- | --- |
 | `EbonAPI: the translations of 'MyAddon' must be a table, got string` | pass a table keyed by language code |
 | `EbonAPI: Localized expects a translation key, got nil` | pass the key as a string |
-| `EbonAPI: Localized expects a widget with SetText for the key 'TITLE'` | pass a font string, button or edit box, not a frame |
+| `EbonAPI: Localized expects a widget with SetText for the key 'TITLE'` | pass a font string, button or edit box, not a frame; `nil` is refused too |
+
+## Links
+
+| Message | Fix |
+| --- | --- |
+| `EbonAPI: MyAddon: api:OpenLink expects a URL text, got nil` | pass the link as a non-empty string |
+| `EbonAPI:OpenLink expects a URL text, got nil` | the same, for the global function |
+
+## Interface
+
+| Message | Fix |
+| --- | --- |
+| `EbonAPI: MyAddon: unknown parameter "color" (known: background, accent, scale, opacity, shadow, corners, tabs, locked)` | use one of the names listed; the global `EbonAPI:GetParameter` raises the same message without the addon name |
+| `EbonAPI: MyAddon: parameter "scale" expects a number from 0.2 to 1.4, got 2` | pass a value in range |
+| `EbonAPI: MyAddon: parameter "corners" expects a whole number from 0 to 16, got 2.5` | pass a whole number |
+| `EbonAPI: MyAddon: parameter "accent" expects a color 0xRRGGBB (0 to 16777215), got 16777216` | pass a color such as `0x3FA7F5` |
+| `EbonAPI: MyAddon: parameter "tabs" expects one of LEFT, RIGHT, got TOP` | pass `"LEFT"` or `"RIGHT"` |
+| `EbonAPI: MyAddon: parameter "locked" expects a boolean, got string` | pass `true` or `false` |
+| `EbonAPI: MyAddon: the options table must be a group (type = "group")` | wrap your options in a root group with `args` |
+| `EbonAPI: MyAddon: option "general" must be a table, got string` | every entry of `args` is a table |
+| `EbonAPI: MyAddon: option "general" (group) needs an args table` | give every group an `args` table |
+| `EbonAPI: MyAddon: option "general.volume" has an unknown type "slider" (known: color, description, execute, group, header, input, range, select, toggle)` | use one of the types listed |
+| `EbonAPI: MyAddon: option "general.volume" needs a name (string or function), got nil` | give every option a `name` |
+| `EbonAPI: MyAddon: option "sounds" (toggle) needs get and set, on itself or on a parent group` | add `get` and `set` to the option or to a group above it |
+| `EbonAPI: MyAddon: option "general.volume" (range) needs numeric min and max, with min below max` | give `min` and `max` |
+| `EbonAPI: MyAddon: option "mode" (select) needs values (table, function or method name)` | give `values` |
+| `EbonAPI: MyAddon: option "reset" (execute) needs a func, on itself or on a parent group` | give `func` |
+| `EbonAPI: MyAddon: option "sounds" width must be "half", "normal", "double", "full" or a number, got huge` | use one of the widths listed |
+| `EbonAPI: MyAddon: option "sounds" get must be a function or a method name, got number` | pass a function, or the name of a method of `handler`; the same message exists for `set`, `func`, `disabled`, `hidden` and `values` |
+| `EbonAPI: MyAddon: option "sounds" desc must be a string or a function, got number` | give `desc` a text or a function |
+| `EbonAPI: MyAddon: option "sounds" order must be a number or a function, got string` | give `order` a number or a function |
+| `EbonAPI: MyAddon: option "sounds" handler must be a table, got string` | give `handler` a table holding your methods |
+| `EbonAPI: MyAddon: option "general.volume" (range) step must be a positive number` | give `step` a number above zero, or leave it out |
+| `EbonAPI: MyAddon: option "general.volume" (range) softMin must be a number` | `softMin`, `softMax` and `bigStep` are numbers |
+| `EbonAPI: MyAddon: the options table has a key of type number in args, keys must be strings` | key `args` by name, not by index |
+| `EbonAPI: MyAddon: option "general" contains itself` | a group cannot contain itself |
+| `EbonAPI: MyAddon: OpenOptions needs options registered with api:Options first` | call `api:Options` before `api:OpenOptions` |
+
+Not raised: `EbonAPI: MyAddon: option "MyAddon.general.mode": method "GetMode" not found on its handler`. It appears when a field names a method that `handler` does not have, or when there is no `handler`. While the window draws the page, it is reported and the option is left out. The error of a `get`, `name`, `desc` or `values` function is reported the same way and only that option is left out. The error of a `set` or `func` function is reported when the player changes the value or clicks the button.
+
+## Kit
+
+| Message | Fix |
+| --- | --- |
+| `EbonAPI: MyAddon: api:Window expects an id of letters, digits or _, got main window` | name the window with letters, digits and `_` only, such as `main_window` |
+| `EbonAPI: MyAddon: api:Window expects a table, got string` | pass the window's fields as a table, or nothing |
+| `EbonAPI: MyAddon: scroll expects NONE, VERTICAL, HORIZONTAL or BOTH, got DOWN` | give `scroll` one of the four values, on `api:Window`, `group` or `panel` |
+| `EbonAPI: MyAddon: api:Dialog expects a table, got string` | pass the dialog's fields as a table; for a yes or no question, `api:Confirm(text, onYes, onNo)` takes plain arguments |
+| `EbonAPI: MyAddon: unknown element "slider" (known: arrow, bar, button, chart, color, grid, group, handle, heading, icon, input, list, model, panel, progress, range, secure, select, shortcut, slot, status, table, tabs, text, timer, toggle, tree)` | use one of the elements listed; `api:Elements()` returns the same list |
+| `EbonAPI: MyAddon: element "button" expects a table, got string` | pass the element's fields as a table, or nothing |
+| `EbonAPI: MyAddon: a secure element cannot be created during combat` | create `secure` elements, and `icon` elements with a `spell`, `item` or `macro`, out of combat; `api:AfterCombat(fn)` runs `fn` once the fight is over |
+| `EbonAPI: MyAddon: list item color "red" is not a palette color (known: bg, bgSoft, card, border, borderDim, button, buttonBorder, buttonHover, buttonDisabledBorder, buttonText, buttonDisabledText, checkbox, checkboxBorder, checked, thumb, selected, selectedText, text, muted, title, heading, menu, shadow, focus, buttonHoverFill, rowHover, headerBg, navBg, pageBg, footerBg, success)` | give `color` one of the names listed, or leave it out; the error comes when the list draws the item, not when you pass the items |
+| `EbonAPI: MyAddon: api:SetShortcut expects an id of letters, digits or _, got nil` | pass the same id as the `shortcut` field of the element, letters, digits and `_` only |
+| `EbonAPI: MyAddon: api:AfterCombat expects a function, got nil` | pass a function |
+
+## Minimap button
+
+| Message | Fix |
+| --- | --- |
+| `EbonAPI: MyAddon: api:MinimapButton expects a table, got string` | pass the button's fields as a table, or nothing |
+| `EbonAPI: MyAddon: api:MinimapButton display expects BUTTON, GROUP or HIDDEN, got SHOWN` | give `display` one of the three values |
+
+## Skins
+
+| Message | Fix |
+| --- | --- |
+| `EbonAPI:RegisterSkin expects a skin name, got nil` | pass the skin's name as a non-empty string |
+| `EbonAPI:RegisterSkin: skin "Night" expects a table, got string` | pass the skin's values as a table |
+| `EbonAPI:RegisterSkin: skin "Night" is already registered` | give the skin a name no other skin uses |
+| `EbonAPI: Bricks.build: no built-in brick "glass" for slot "range"` | `B.build(slot, name, parent)` builds only the bricks that come with EbonAPI; use one of those names for that slot, such as `default` |
+
+The problems below are not raised. EbonAPI reports each one to the same error display, keeps the rest of the skin, and `EbonAPI:RegisterSkin` returns `false`. Each message starts with `EbonAPI: skin "Night": `.
+
+| Message, after the skin name | Fix |
+| --- | --- |
+| `unknown parameter "header.colour"` | check the path of the parameter; the value is ignored |
+| `parameter "kit.scroll.height" expects a whole number from 40 to 2000, got 10` | give a value in the range named in the message |
+| `parameter "palette.text" expects a color 0xRRGGBB or { 0xRRGGBB, alpha from 0 to 1 }, got white` | give a number such as `0xFFFFFF`, or a pair such as `{ 0xFFFFFF, 0.8 }` |
+| `parameter "page.addons" expects one of CARDS, LIST, got GRID` | give one of the values listed |
+| `parameter "widgets.button.brick" expects a brick name, got 5` | give the name of a brick, as a non-empty text |
+| `parameter "header.title.font" expects one of button, large, normal, small, got huge` | give one of the four text sizes listed |
+| `parameter "header.title.color" expects a palette color name (bg, bgSoft, ...), got red` | give the name of a palette color; the message lists all 31 |
+| `parameter "media.solid" expects a texture path, or "" for none, got number` | give a texture path as a text, or `""` for none; sound parameters say `a sound path` |
+| `parameter "window.glass.enabled" expects a boolean, got string` | pass `true` or `false` |
+| `parameter "fonts.normal.file" expects a font file or "game", got 5` | give the path of a font file, or `"game"` |
+| `parameter "windows.detach.list" expects a list of texts, got number` | give a table of texts; a bad item adds `at` and its number |
+| `parameter "header.close.glyph" expects a text, got number` | give a text |
+| `keys must be texts, got 1 in "(root)"` | name every value; the message says in which section the numbered key is |
+| `parent must be a skin name, got number` | give `parent` the name of another skin |
+| `bricks must be a table of slots, got string` | write `bricks = { button = { glass = function(parent, B) ... end } }` |
+| `unknown brick slot "slider" (known: button, close, color, execute, group, heading, input, minimap, range, row, scroll, section, select, tab, text, toggle)` | use one of the slots listed |
+| `brick slot "button" expects a table of name = constructor, got function` | put each constructor under a name: `button = { glass = function(parent, B) ... end }` |
+| `brick "button.glass" must be a function, got table` | give the brick a constructor function |
+
+Two more are reported when EbonAPI applies the player's skin, at login and after a reload. The values that could not be inherited come from the default skin.
+
+| Message, after the skin name | Fix |
+| --- | --- |
+| `unknown parent "Nigth"` | check the name given to `parent` |
+| `parent loop at "Night"` | two skins name each other as parent, directly or through others; break the loop |
+
+A brick that cannot be used is reported when EbonAPI builds it, and the default brick of the slot takes its place:
+
+| Message | Fix |
+| --- | --- |
+| `EbonAPI: brick "glass" of slot "button" is not registered, the default one applies` | register the brick under `bricks`, or check the name given to the parameter that chooses it, such as `widgets.button.brick` |
+| `EbonAPI: brick "glass" of slot "button" failed, the default one applies: the method "TextWidth" is missing` | give the widget the method or the field named in the message |
+| `EbonAPI: brick "glass" of slot "button" failed, the default one applies: the constructor returned nil` | return the widget from the constructor |
+
+A failing constructor reports its own error text after `the default one applies: `. Each brick is reported once per session. A `range` brick whose `SetFormat` function raises reports the raw error text each time the value is shown, and the default display is used.
 
 ## Server
 
@@ -50,18 +166,22 @@ Errors surface where a developer looks: with `/console scriptErrors 1`, or with 
 | `EbonAPI.Bridge.on expects a numeric opcode, got string` | use `EbonAPI.SS.NAME`, a number |
 | `EbonAPI.Bridge.on expects a function for opcode 13, got nil` | pass a function |
 | `EbonAPI.Bridge.send expects a numeric opcode, got string` | use `EbonAPI.CS.NAME`, a number |
-| `EbonAPI.Bridge.send: payload of 260 bytes for opcode 341, the limit is 240` | shorten the body |
+| `EbonAPI.Bridge.send: payload of 260 bytes for opcode 341, the limit is 240` | shorten the body; the number in the message is the total you must stay under |
+
+Not raised: when a ProjectEbonhold function called by EbonAPI raises, its own error text is reported, unchanged.
 
 ## Channel
 
 | Message | Fix |
 | --- | --- |
-| `EbonAPI.Channel.on expects an alphanumeric op for MyAddon, got my-op` | letters and digits only |
+| `EbonAPI.Channel.on expects an alphanumeric op for MyAddon, got my-op` | letters and digits only; `EbonAPI.Channel.say` raises the same message under its own name |
 | `EbonAPI.Channel.on expects a function for MyAddon:ROUTE, got nil` | pass a function |
 | `EbonAPI.Channel.say expects a text body for MyAddon:ROUTE, got table` | encode the body as a string |
 | `EbonAPI.Channel.say: the body of MyAddon:ROUTE contains '|'` | remove or encode the `|` character |
-| `EbonAPI.Channel.say: op too long for MyAddon:...` | shorten the op |
-| `EbonAPI.Channel.say: body of 4000 characters for MyAddon:ROUTE, the limit is 3648` | split the content, or use a whisper stream |
+| `EbonAPI.Channel.say: op too long for MyAddon:ROUTE` | shorten the op |
+| `EbonAPI.Channel.say: body of 4000 characters for MyAddon:ROUTE, the limit is 3648` | split the content, or use a whisper stream; the limit in the message depends on the length of the op |
+
+The `op too long` and `body of ... characters` errors can only be raised once the channel is ready, so they may appear a little after load rather than at the first call.
 
 ## Whispers
 
@@ -69,9 +189,9 @@ Errors surface where a developer looks: with `/console scriptErrors 1`, or with 
 | --- | --- |
 | `EbonAPI.Channel.whisper expects a prefix, got nil` | pass your prefix as a non-empty string |
 | `EbonAPI.Channel.whisper: text missing or beyond 246 bytes for prefix MyAddonW` | shorten the text, or use a stream |
-| `EbonAPI.Whisper.on expects a prefix, got nil` | pass your prefix |
+| `EbonAPI.Whisper.on expects a prefix, got nil` | pass your prefix; `onStream` and `stream` raise the same message under their own names |
 | `EbonAPI.Whisper.on expects a function for MyAddonW, got nil` | pass a function |
-| `EbonAPI.Whisper.onStream expects an alphanumeric op, got my-op` | letters and digits only |
+| `EbonAPI.Whisper.onStream expects an alphanumeric op, got my-op` | letters and digits only; `stream` raises the same message |
 | `EbonAPI.Whisper.onStream expects a function for MyAddonW:ROUTE, got nil` | pass a function |
 | `EbonAPI.Whisper.stream expects a text body for MyAddonW:ROUTE, got table` | encode the body as a string |
 | `EbonAPI.Whisper.stream: invalid stream id for MyAddonW:ROUTE` | the id is a non-empty string without `:`, or `nil` |
@@ -83,19 +203,27 @@ Errors surface where a developer looks: with `/console scriptErrors 1`, or with 
 | --- | --- |
 | `EbonAPI: MyAddon: share key name must be a string, got number` | pass the dataset name as a string |
 | `EbonAPI: MyAddon: share key name is empty` | give it a name |
-| `EbonAPI: MyAddon: share key "my notes" contains a space (allowed: letters, digits and "_")` | remove the character named in the message |
-| `EbonAPI: MyAddon: share key "..." is 40 characters long (maximum 32)` | shorten the name |
+| `EbonAPI: MyAddon: share key "my notes" contains a space (allowed: letters, digits and "_")` | remove the character named in the message; it can also read `a control character (byte 9)` or `the character "é"` |
+| `EbonAPI: MyAddon: share key "a_dataset_name_that_is_far_too_long" is 35 characters long (maximum 32)` | shorten the name |
 | `EbonAPI: MyAddon: share key "notes": state must be a whole number, got table` | pass a number or a string of digits |
 | `EbonAPI: MyAddon: share key "notes": state 1.5 is not a whole number (0 to 9007199254740991)` | pass a whole number in range |
 | `EbonAPI: MyAddon: share "notes": text must be a string, got table` | encode the content as a string |
 | `EbonAPI: MyAddon: share "notes": text is 40000 bytes long (maximum 32768)` | shorten or split the content |
 | `EbonAPI: MyAddon: ShareRule expects a function or nil, got string` | pass a function, or `nil` to remove the rule |
 
+Not raised: when your rule function raises while a player offers a dataset, its error text is reported and that dataset is not fetched.
+
 ## Echo profile
 
 | Message | Fix |
 | --- | --- |
 | `EbonAPI.Profile.SetBans expects a table of lists, got string` | pass a list of lists of spell ids |
+
+## Errors inside your own functions
+
+Your functions run under protection: a handler of `api:On` or `api:OnEvent`, a ticker, a migration, a Kit callback such as `onClick`, `onAccept` or `onSelect`, a function of the options table. When one raises, EbonAPI reports the error text as is, to the error display, and carries on. It does not stop the other handlers or the load of your addon. When the game has no error display, the text appears in the chat as `[EbonAPI] ` followed by the text. Functions queued with `api:AfterCombat` are reported the same way.
+
+`api:Error(text)` reports your own text the same way, prefixed with your addon name in brackets, such as `[MyAddon] text`.
 
 ## Messages to the player
 
@@ -105,4 +233,4 @@ These are not errors. They are printed in the player's language, through EbonAPI
 | --- | --- |
 | `NewAddon` asked for a newer EbonAPI | `EbonAPI 1.0.0 is too old for MyAddon, which needs 1.2.` |
 | A newer release of an addon was seen | `version 1.3.0 is available (installed: 1.2.0).` followed by the link |
-| The channel could not be joined after several requests | `channel ebonapi not joined after 3 requests: the client may have no channel slot left; still trying` |
+| The channel could not be joined after four requests | `channel ebonapi not joined after 4 requests: the client may have no channel slot left; still trying` |

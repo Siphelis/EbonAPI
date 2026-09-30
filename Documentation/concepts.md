@@ -1,28 +1,26 @@
 # 🧭 Concepts
 
-The ideas behind every other page: the handle, the lifecycle, events, names, sending, and how errors reach you.
+The few ideas every other page relies on: the handle, the start-up order, events, names, sending, and how errors reach you.
 
 ## The handle
 
 `EbonAPI:NewAddon("MyAddon", 1, 0)` returns a handle. There is one handle per addon name, shared by all your files, and it is the only object you need to keep.
 
-The handle scopes everything by your addon name:
+Everything you do through the handle is labelled with your addon name, so two addons never step on each other:
 
-| What | Scoped as |
+| What | Labelled as |
 | --- | --- |
 | Chat output | `[MyAddon] ...` |
-| Saved data | `EbonAPIDB.addons.MyAddon` |
-| Channel messages | `MyAddon:<op>` |
-| Share keys and shared data | owner `MyAddon` |
+| Saved data | the data of `MyAddon` |
 | Translations | the table registered for `MyAddon` |
-| Tickers | `MyAddon:<id>` |
-| Performance counters | addon `MyAddon` |
+| Share keys and shared data | owner `MyAddon` |
+| Performance measures | addon `MyAddon` |
 
-Three layers exist. The handle is the one to use.
+EbonAPI offers three ways in. Use the handle; reach for the other two only when a guide tells you to.
 
-1. **The handle**, `api:...`: the supported surface, documented in the guides. Everything it registers is tracked, so `api:OffAll()` can undo it.
-2. **Global functions**, `EbonAPI:...`: a few calls that belong to no addon, such as `GetVersion`, `SetLanguage` and `AddonNames`.
-3. **Modules**, `EbonAPI.State`, `EbonAPI.Ebonhold`, `EbonAPI.Format`, `EbonAPI.Lib`, `EbonAPI.SS`, `EbonAPI.CS`: read-only helpers and parsed data, listed in [Modules](reference/modules.md). The other modules are EbonAPI's internals. Leave them alone: they may change without notice.
+1. **The handle**, `api:...`: what the guides describe. EbonAPI remembers every subscription made through it, so `api:OffAll()` can remove them all at once.
+2. **Global functions**, `EbonAPI:...`: a few calls that belong to no addon in particular, such as `GetVersion`, `SetLanguage` and `AddonNames`.
+3. **Modules**, `EbonAPI.State`, `EbonAPI.Ebonhold`, `EbonAPI.Profile`, `EbonAPI.Format`, `EbonAPI.Lib`, `EbonAPI.SS`, `EbonAPI.CS`: helpers, and data read from the server, listed in [Modules](reference/modules.md). The other tables inside `EbonAPI` are its internals: leave them alone, they may change in any version.
 
 ## The lifecycle
 
@@ -31,26 +29,23 @@ sequenceDiagram
     participant WoW
     participant EbonAPI
     participant MyAddon
-    WoW->>EbonAPI: files load
-    WoW->>EbonAPI: ADDON_LOADED
-    Note over EbonAPI: saved data attached<br/>language restored
+    WoW->>EbonAPI: EbonAPI loads, its saved data is ready
     WoW->>MyAddon: files load
     MyAddon->>EbonAPI: NewAddon, On, Locale, Version, DB
-    WoW->>EbonAPI: PLAYER_LOGIN
-    Note over EbonAPI: character bound<br/>ProjectEbonhold detected<br/>bridge, channel, versions, sharing enabled
+    WoW->>EbonAPI: player logs in
     EbonAPI-->>MyAddon: READY (version)
-    EbonAPI-->>MyAddon: CHANNEL_JOINED, a little later
+    EbonAPI-->>MyAddon: CHANNEL_JOINED, when the channel is joined
     EbonAPI-->>MyAddon: SERVER_* as messages arrive
 ```
 
-What this means for your code:
+What you can do at each step:
 
-- **At file load**: get the handle, subscribe, register translations and your version, open your saved data. `db.account` is usable; `db.char` is not yet.
-- **At `READY`**: the character is known, `db.char` exists, the server bridge listens.
-- **At `CHANNEL_JOINED`**: you can broadcast. `api:Say` returns `false` before that.
-- **At `PLAYER_ENTERING_WORLD`**: ProjectEbonhold is probed again. Watch `FEATURE_CHANGED` if you depend on one of its services.
+- **When your files load**: get the handle, subscribe to events, register your translations and your version, open your saved data. `db.account` is usable; `db.char` is not yet.
+- **At `READY`**: the character is known, so `db.char` exists, and the server and player services are on.
+- **At `CHANNEL_JOINED`**: you can broadcast to other players. EbonAPI joins the shared channel by itself once an addon is connected; you do not ask for it. Before that, `api:Say` returns `false`. If the channel is lost, `CHANNEL_LOST` fires and `api:Say` returns `false` until `CHANNEL_JOINED` fires again.
+- **At every `PLAYER_ENTERING_WORLD`**: EbonAPI checks ProjectEbonhold again. If you rely on one of its services, watch `FEATURE_CHANGED`.
 
-Sticky events replay their last value to any subscriber that comes later, so the order in which your files run never matters.
+`READY` is sticky, and `CHANNEL_JOINED` is sticky while the channel is joined: a function that subscribes then runs at once with the value. The order in which the game loads your files never makes you miss them.
 
 To undo everything at once, when your addon disables itself:
 
@@ -58,15 +53,15 @@ To undo everything at once, when your addon disables itself:
 api:OffAll()
 ```
 
-This removes every subscription the handle made: EbonAPI events, WoW events, tickers, channel, whisper and server listeners, and your share rule.
+This removes every subscription the handle made: EbonAPI events, WoW events, tickers, channel, whisper and server listeners, and your share rule. Your saved data and your shared data stay.
 
 ## Events
 
-EbonAPI has two event systems. Keep them apart.
+EbonAPI handles two kinds of events. Keep them apart: you subscribe to them with different methods, and their callbacks do not receive the same arguments.
 
 ### EbonAPI events: `api:On`, `api:Off`, `api:Emit`
 
-Names are `UPPER_SNAKE_CASE` strings. The callback receives the event name first, then up to five values:
+Names are `UPPER_SNAKE_CASE` strings. The callback receives the event name first, then up to six values:
 
 ```lua
 api:On("SERVER_ASH", function(event, ash)
@@ -76,16 +71,16 @@ end)
 
 - `api:On` returns `true`, or `false` when that exact function is already subscribed.
 - `api:Off(event, fn)` removes one function. `api:Off(event)` removes all of yours for that event.
-- An error inside one callback is reported through the game's error handler, and the other callbacks still run.
-- `api:Emit(event, ...)` reaches **every** addon, not only yours. Prefix your own events with your addon name in capitals, such as `MYADDON_ROUTE_SAVED`, so they never collide.
+- An error in one callback is reported through the game's error display, and the other callbacks still run.
+- `api:Emit(event, ...)` reaches **every** addon, not only yours, and returns how many functions were called. Prefix your own events with your addon name in capitals, such as `MYADDON_ROUTE_SAVED`, so they never collide.
 
-**Sticky events** keep their last value. Subscribing to one replays that value immediately, inside the `api:On` call itself, so your callback may run before `api:On` returns. `api:LastValue(event)` reads the value without subscribing.
+**Sticky events** keep their last values. Subscribing to one replays them immediately, inside the `api:On` call itself, so your callback may run before `api:On` returns. `api:LastValue(event)` reads the values without subscribing.
 
 Sticky: `READY`, `LANGUAGE_CHANGED`, `CHANNEL_JOINED`, `SERVER_RUN_DATA`, `SERVER_INTENSITY`, `SERVER_ASH`, `SERVER_MULTIPLIER`, `SERVER_BUILDS`, `SERVER_BUILD_ACTIVE`, `SERVER_LOADOUT`. Every other event fires and forgets. The full list is in the [Events catalog](reference/events.md).
 
 ### WoW events: `api:OnEvent`, `api:OffEvent`
 
-These are the game client's own events, such as `PLAYER_ENTERING_WORLD` or `BAG_UPDATE`. EbonAPI registers them on a shared frame for you. The callback receives the event's arguments **without** the event name:
+These are the game client's own events, such as `PLAYER_ENTERING_WORLD` or `BAG_UPDATE`. The callback receives the event's arguments **without** the event name:
 
 ```lua
 api:OnEvent("ZONE_CHANGED_NEW_AREA", function()
@@ -97,6 +92,8 @@ api:OnEvent("CHAT_MSG_SYSTEM", function(message)
 end)
 ```
 
+`api:OnEvent` returns `true`, or `false` when that function is already registered for that event. An error in one callback is reported and the other callbacks still run. `api:OffEvent(event, fn)` removes one.
+
 ### Tickers: `api:Tick`, `api:Untick`
 
 ```lua
@@ -107,7 +104,7 @@ end)
 api:Untick("poll")
 ```
 
-One `OnUpdate` frame serves every ticker of every addon. Ids are yours: `"poll"` in MyAddon and `"poll"` in another addon never clash. Calling `api:Tick` again with the same id replaces the interval and the function.
+`api:Tick(id, every, fn)` calls `fn(every)` about every `every` seconds, which must be above 0. Ticker ids belong to your addon: `"poll"` in MyAddon and `"poll"` in another addon are two different tickers. Calling `api:Tick` again with the same id replaces its function and its interval. `api:Untick(id)` returns `true` when it removed a ticker.
 
 Guide: [Events](guides/events.md).
 
@@ -115,28 +112,32 @@ Guide: [Events](guides/events.md).
 
 Names are case-sensitive.
 
-| Identifier | Rule | Example |
+| Name | Rule | Example |
 | --- | --- | --- |
 | Addon name, `NewAddon` | 1 to 32 characters, `A-Z a-z 0-9 _` | `MyAddon` |
-| Channel op, `OnChannel` and `Say` | letters and digits; keep it short, it travels in every packet | `R`, `ROUTE` |
+| Channel op, `OnChannel` and `Say` | letters and digits; keep it short | `R`, `ROUTE` |
 | Share key name, `Share` and `SetShareKey` | 1 to 32 characters, `A-Z a-z 0-9 _` | `routes_v2` |
-| Whisper prefix, `OnWhisper` and `Whisper` | any non-empty string; keep it short and unique to your addon | `MyAddonW` |
+| Whisper prefix, `OnWhisper` and `Whisper` | any non-empty text; keep it short and unique to your addon | `MyAddonW` |
 | Whisper stream op, `OnWhisperStream` | letters and digits | `SYNC` |
-| Ticker id, `Tick` | any string | `poll` |
-| Event name, `On` and `Emit` | any string, by convention `UPPER_SNAKE_CASE` | `MYADDON_SAVED` |
+| Ticker id, `Tick` | any text | `poll` |
+| Event name, `On` and `Emit` | any text, by convention `UPPER_SNAKE_CASE` | `MYADDON_SAVED` |
+
+An **op** is the short word that says what kind of message you send, so the receiver knows what to do with it. A **prefix** is the label you give your whispers, so the receiver knows they are yours. A **stream** is a long whisper cut into parts and put back together by the receiver. See [Channel](guides/channel.md) and [Whispers](guides/whispers.md).
 
 ## Sending
 
-Every message you send, to the server or to players, goes through one shared queue. It leaves one line every 0.15 seconds, so several addons never flood the client together. Server messages go first; player messages wait behind them. The player queue holds 500 lines.
+Messages to the server and to players are not sent at once. They wait in one shared queue and leave at a steady pace, one every 0.15 seconds, so several addons never flood the client together. Messages to the server go first. The queue for players holds 500 items. Guides: [Server](guides/server.md), [Channel](guides/channel.md), [Whispers](guides/whispers.md).
 
-Send methods tell you what happened with their return value, never with an error:
+The methods that send to players tell you with their return value whether the message was accepted. A refusal is never an error:
 
 | Return | Meaning |
 | --- | --- |
 | `true` | queued; it leaves in order |
-| `false` | refused: not joined yet, the queue is full, or the player is known to be offline |
+| `false` | refused: the channel is not joined yet (the message is not kept), the queue is full, or the player is known to be offline |
 
-Two events report what happened after queuing: `SEND_FAILED` when the client refused a line, `PEER_OFFLINE` when a whispered player turned out to be offline. Guides: [Channel](guides/channel.md), [Whispers](guides/whispers.md).
+`api:SendServer` always returns `true`. `api:RequestServer` returns `false` when the same request was already sent less than its minimum interval ago.
+
+Two events report what happened after queuing: `SEND_FAILED` when the client refused a message, `PEER_OFFLINE` when a whispered player turned out to be offline.
 
 ## Errors and messages
 
@@ -144,13 +145,15 @@ EbonAPI separates three kinds of messages:
 
 | Kind | How it reaches you | Language |
 | --- | --- | --- |
-| **Contract error**: wrong type, invalid name, body too long | a Lua `error()` naming the method and what it expected | English, always |
-| **Runtime condition**: not joined, queue full, peer offline, version too old | a return value, `false` or `nil`, and an event | none, it is a value |
-| **Player message**: update available, EbonAPI too old for an addon, channel slow to join | chat, through the language service | the player's language |
+| **Contract error**: wrong type, invalid name, body too long | a Lua `error()` whose message says what was expected | English, always |
+| **Runtime condition**: not joined, queue full, peer offline | a return value, `false` or `nil`; `SEND_FAILED` and `PEER_OFFLINE` report some of them | none, it is a value |
+| **Player message**: update available, EbonAPI too old for an addon, channel slow to join | chat, through the translations | the player's language |
 
-A contract error means a bug in the calling code. It surfaces only where a developer looks: with `/console scriptErrors 1` or an error-display addon. Players with default settings never see it. Fix the call; the message tells you which argument is wrong. The full list is in [Errors](reference/errors.md).
+A contract error means a bug in the calling code. The message says which argument is wrong and what was expected; [Errors](reference/errors.md) lists every message and how to fix the call.
 
-Your own messages to the player go through `api:Print`, `api:Warn` and the translations of `api:Locale`, so they follow the shared language. Your own debug output goes through `api:Debug`, which stays silent until someone enables it with `/eapi debug MyAddon on`.
+An EbonAPI that is too old for your addon is both: `NewAddon` returns `nil`, and the player reads a message in chat.
+
+Your own messages to the player go through `api:Print`, `api:Warn` and the translations of `api:Locale`, so they follow the shared language. Your own debug output goes through `api:Debug`, which stays silent until someone turns it on, in the EbonAPI window under **Diagnostics → Debug messages**, or with `api:SetDebug(true)`.
 
 ## Saved data in one place
 
@@ -158,4 +161,4 @@ EbonAPI keeps one saved variable, `EbonAPIDB`, for every addon. Your part of it 
 
 ## One language for all
 
-The player picks one language, from any addon's menu or with `/eapi lang`, and every addon follows. An addon without a translation for that language shows English, without changing the language of the others. Guide: [Localization](guides/localization.md).
+The player picks one language, under **General → Language** in the EbonAPI window or in any addon that offers the choice through `EbonAPI:SetLanguage`, and every addon follows. For a language your addon has no text in, each text falls back to your English one (`enUS`), without changing the language of the other addons. `LANGUAGE_CHANGED` fires when the language changes. Guide: [Localization](guides/localization.md).

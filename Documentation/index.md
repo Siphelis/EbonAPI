@@ -1,10 +1,10 @@
 # EbonAPI for addon developers
 
-**Plug your Ebonhold addon into the shared runtime.**
+**The shared foundation of Ebonhold addons: server, players, data, language and interface.**
 
 EbonAPI 1.0.0 · World of Warcraft 3.3.5a (Interface 30300) · Lua 5.1
 
-EbonAPI is an addon that other addons build on. In one handle it gives you everything an Ebonhold addon keeps rewriting: the link to the server, a channel to the other players, saved data, a shared language, update notices and diagnostics.
+EbonAPI is an addon that other addons build on. It does, once and for all of them, what every Ebonhold addon would otherwise rewrite: read what the server sends, talk to the other players, save data, follow the player's language, draw windows and settings, announce updates, and help you find what went wrong. Your addon asks for a **handle** and reaches every service through it.
 
 These pages are written for developers. Players should read the [addon README on GitHub](https://github.com/Siphelis/EbonAPI#readme) instead.
 
@@ -16,7 +16,7 @@ These pages are written for developers. Players should read the [addon README on
 
     ---
 
-    Load EbonAPI, get your handle, react to `READY`. Ten minutes.
+    Load EbonAPI, get your handle, start when `READY` fires.
 
     [:octicons-arrow-right-24: Getting started](getting-started.md)
 
@@ -48,7 +48,7 @@ These pages are written for developers. Players should read the [addon README on
 
     ---
 
-    Complete, working recipes to copy.
+    Complete addons to copy, each one explained line by line.
 
     [:octicons-arrow-right-24: Cookbook](cookbook/index.md)
 
@@ -60,11 +60,16 @@ Every service hangs off the handle returned by `EbonAPI:NewAddon`. Use only the 
 
 | Service | Gives you | Guide |
 | --- | --- | --- |
-| 🚀 Lifecycle and events | `READY`, shared events, sticky values, WoW events, tickers | [Events](guides/events.md) |
+| 🚀 Lifecycle and events | `READY`, EbonAPI events, values EbonAPI remembers for late subscribers (sticky events), WoW events, tickers | [Events](guides/events.md) |
 | 📝 Logging | Chat output tagged with your addon name, a debug toggle, a trace | [Logging](guides/logging.md) |
 | 💾 Storage | Account and character data with defaults and one-shot migrations | [Storage](guides/storage.md) |
 | 🌍 Localization | One language for every addon, English fallback, self-refreshing widgets | [Localization](guides/localization.md) |
-| 🛰️ Server bridge | Server messages by opcode, parsed run state, throttled requests | [Server](guides/server.md) |
+| 🔌 Connection | Your icon and project link, your card in the EbonAPI window, links opened for the player | [Connecting your addon](guides/connection.md) |
+| 🪟 Interface | Your settings in the EbonAPI window, shared appearance parameters for your own | [Interface](guides/interface.md) |
+| 🧱 Kit | Windows and 27 elements for your own interface, dialogs, menus, notifications, shortcuts | [Kit](guides/kit.md) |
+| 🧭 Minimap button | A button around the minimap that the player places, groups or hides | [Minimap button](guides/minimap.md) |
+| 🎨 Skins | The whole look of the interface, chosen by the player, written in a Lua file | [Skins](guides/skins.md) |
+| 🛰️ Server bridge | Server messages by opcode (the number that names a kind of message), parsed run state, throttled requests | [Server](guides/server.md) |
 | 🏰 ProjectEbonhold | Feature detection and safe access to the client services | [ProjectEbonhold](guides/ebonhold.md) |
 | 📡 Channel | Broadcast to every player who runs your addon | [Channel](guides/channel.md) |
 | 💬 Whispers | Direct messages and long streams to one player | [Whispers](guides/whispers.md) |
@@ -79,24 +84,26 @@ Every service hangs off the handle returned by `EbonAPI:NewAddon`. Use only the 
 | --- | --- |
 | [Handle](reference/handle.md) | Every method of the handle, grouped by service |
 | [Events catalog](reference/events.md) | Every event, its arguments, and whether it is sticky |
-| [Modules](reference/modules.md) | `EbonAPI.State`, `EbonAPI.Ebonhold`, `EbonAPI.Format`, `EbonAPI.Lib`, opcodes |
+| [Elements](reference/elements.md) | The 27 elements of the Kit, their fields and methods |
+| [Skin parameters](reference/skin-parameters.md) | Every parameter a skin can set |
+| [Modules](reference/modules.md) | `EbonAPI.State`, `EbonAPI.Ebonhold`, `EbonAPI.Profile`, `EbonAPI.Format`, `EbonAPI.Lib`, opcodes, constants |
 | [Limits](reference/limits.md) | Every size, count and delay, in one table |
 | [Errors](reference/errors.md) | Every error message and how to fix the call |
-| [Slash commands](reference/slash-commands.md) | `/eapi` for diagnostics while you develop |
+| [Options window](reference/options-window.md) | How players open it, its pages, and the diagnostics while you develop |
 | [Glossary](reference/glossary.md) | The words these pages use, one meaning each |
 
 ## Conventions
 
 - `api` always means the handle returned by `EbonAPI:NewAddon`.
 - `MyAddon` is the example addon. Replace it with your own name.
-- Every code block is complete: paste it and it runs.
+- A code block with a file name above it goes in that file. The others are excerpts: they expect `api` to exist already.
 - Callouts mark what matters:
 
 !!! note
-    A fact worth knowing before you write the next line.
+    A rule worth knowing before you write the next line.
 
 !!! tip "🎮 Try it"
-    A `/eapi` command that shows the result in game.
+    Where to see the result in game, in the EbonAPI window.
 
 !!! warning
-    A trap that will cost you an evening.
+    A trap that breaks your addon if you miss it.
