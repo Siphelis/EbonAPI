@@ -6,7 +6,7 @@
 ## Notes-esES: Base común de los addons de Ebonhold: puente con el servidor, bus de eventos, almacenamiento, idioma.
 ## Notes-esMX: Base común de los addons de Ebonhold: puente con el servidor, bus de eventos, almacenamiento, idioma.
 ## Author: Siphelis
-## Version: 2.0.0-1
+## Version: 1.0.0-1
 ## SavedVariables: EbonAPIDB
 
 Core\Lib.lua
