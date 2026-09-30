@@ -10,7 +10,7 @@ local Listeners = EbonAPI.Listeners
 local Assembler = EbonAPI.Assembler
 local Handle = EbonAPI.Handle
 
-local type, tonumber, tostring, error = type, tonumber, tostring, error
+local type, tonumber, tostring, error, pairs = type, tonumber, tostring, error, pairs
 local match, byte, len = string.match, string.byte, string.len
 
 local PREFIX = "AAM0x9"
@@ -48,15 +48,17 @@ local streams = Assembler.new("EbonAPI:streams", STREAM_TIMEOUT, STREAM_SWEEP, M
   EbonAPI:Emit("STREAM_TIMEOUT", opcode, id, record.count, record.total)
 end)
 
-function Bridge.on(opcode, fn)
+local function checkListener(opcode, fn, label)
   if type(opcode) ~= "number" then
-    error("EbonAPI.Bridge.on expects a numeric opcode, got " .. type(opcode), 2)
+    error(label .. " expects a numeric opcode, got " .. type(opcode), 3)
   end
 
   if type(fn) ~= "function" then
-    error("EbonAPI.Bridge.on expects a function for opcode " .. opcode .. ", got " .. type(fn), 2)
+    error(label .. " expects a function for opcode " .. opcode .. ", got " .. type(fn), 3)
   end
+end
 
+local function add(opcode, fn)
   local list = listeners[opcode]
 
   if not list then
@@ -65,6 +67,12 @@ function Bridge.on(opcode, fn)
   end
 
   return list:add(fn)
+end
+
+function Bridge.on(opcode, fn)
+  checkListener(opcode, fn, "EbonAPI.Bridge.on")
+
+  return add(opcode, fn)
 end
 
 function Bridge.off(opcode, fn)
@@ -195,9 +203,9 @@ end
 
 Queue.register("server", rawSend)
 
-function Bridge.send(opcode, body)
+local function build(opcode, body)
   if type(opcode) ~= "number" then
-    error("EbonAPI.Bridge.send expects a numeric opcode, got " .. type(opcode), 2)
+    error("EbonAPI.Bridge.send expects a numeric opcode, got " .. type(opcode), 3)
   end
 
   local payload
@@ -210,28 +218,40 @@ function Bridge.send(opcode, body)
 
   if len(payload) > MAX_PAYLOAD then
     error("EbonAPI.Bridge.send: payload of " .. len(payload) .. " bytes for opcode "
-      .. opcode .. ", the limit is " .. MAX_PAYLOAD, 2)
+      .. opcode .. ", the limit is " .. MAX_PAYLOAD, 3)
   end
 
-  return Queue.pushServer(payload)
+  return payload
+end
+
+function Bridge.send(opcode, body)
+  return Queue.pushServer(build(opcode, body))
 end
 
 function Bridge.request(opcode, body, minInterval)
   minInterval = Lib.num(minInterval, 0)
 
-  if minInterval > 0 then
-    local key = tostring(opcode) .. "\t" .. tostring(body or "")
-    local last = throttles[key]
-    local current = now()
-
-    if last and current - last < minInterval then
-      return false
-    end
-
-    throttles[key] = current
+  if minInterval <= 0 then
+    return Bridge.send(opcode, body)
   end
 
-  return Bridge.send(opcode, body)
+  local payload = build(opcode, body)
+  local key = tostring(opcode) .. "\t" .. tostring(body or "")
+  local current = now()
+
+  for held, expiry in pairs(throttles) do
+    if expiry <= current then
+      throttles[held] = nil
+    end
+  end
+
+  if throttles[key] then
+    return false
+  end
+
+  throttles[key] = current + minInterval
+
+  return Queue.pushServer(payload)
 end
 
 function Bridge.queueLength()
@@ -280,7 +300,9 @@ function Bridge.droppedTotal()
 end
 
 function Handle:OnServer(opcode, fn)
-  if not Bridge.on(opcode, fn) then
+  checkListener(opcode, fn, "EbonAPI: " .. self.addonName .. ": api:OnServer")
+
+  if not add(opcode, fn) then
     return false
   end
 
@@ -300,16 +322,20 @@ end
 function Handle:OffServer(opcode, fn)
   local owned = self._bridge
 
-  if owned then
-    for index = #owned - 1, 1, -2 do
-      if owned[index] == opcode and owned[index + 1] == fn then
-        table.remove(owned, index + 1)
-        table.remove(owned, index)
-      end
+  if not owned then
+    return false
+  end
+
+  for index = #owned - 1, 1, -2 do
+    if owned[index] == opcode and owned[index + 1] == fn then
+      table.remove(owned, index + 1)
+      table.remove(owned, index)
+
+      return Bridge.off(opcode, fn)
     end
   end
 
-  return Bridge.off(opcode, fn)
+  return false
 end
 
 function Handle:SendServer(opcode, body)

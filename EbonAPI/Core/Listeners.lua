@@ -10,14 +10,14 @@ local List = {}
 List.__index = List
 
 function Listeners.new()
-  return setmetatable({ n = 0, fns = {}, busy = 0 }, List)
+  return setmetatable({ n = 0, fns = {}, owners = {}, busy = 0 }, List)
 end
 
-function List:index(fn)
-  local fns = self.fns
+function List:index(fn, owner)
+  local fns, owners = self.fns, self.owners
 
   for i = 1, self.n do
-    if fns[i] == fn then
+    if fns[i] == fn and owners[i] == owner then
       return i
     end
   end
@@ -27,19 +27,20 @@ end
 
 local function mutable(self)
   if self.busy > 0 then
-    local fns = {}
-    local old = self.fns
+    local fns, owners = {}, {}
+    local oldFns, oldOwners = self.fns, self.owners
 
     for i = 1, self.n do
-      fns[i] = old[i]
+      fns[i] = oldFns[i]
+      owners[i] = oldOwners[i]
     end
 
-    self.fns = fns
+    self.fns, self.owners = fns, owners
   end
 end
 
-function List:add(fn)
-  if self:index(fn) then
+function List:add(fn, owner)
+  if self:index(fn, owner) then
     return false
   end
 
@@ -49,12 +50,13 @@ function List:add(fn)
 
   self.n = n
   self.fns[n] = fn
+  self.owners[n] = owner
 
   return true
 end
 
-function List:remove(fn)
-  local found = self:index(fn)
+function List:remove(fn, owner)
+  local found = self:index(fn, owner)
 
   if not found then
     return false
@@ -62,13 +64,15 @@ function List:remove(fn)
 
   mutable(self)
 
-  local fns, n = self.fns, self.n
+  local fns, owners, n = self.fns, self.owners, self.n
 
   for i = found, n - 1 do
     fns[i] = fns[i + 1]
+    owners[i] = owners[i + 1]
   end
 
   fns[n] = nil
+  owners[n] = nil
   self.n = n - 1
 
   return true
@@ -82,7 +86,7 @@ function List:fire(...)
   end
 
   self.busy = self.busy + 1
-  fanout(self.fns, n, ...)
+  fanout(self.fns, self.owners, n, ...)
   self.busy = self.busy - 1
 
   return n

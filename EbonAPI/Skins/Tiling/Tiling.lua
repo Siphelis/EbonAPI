@@ -6,7 +6,6 @@ EbonAPI:RegisterSkin("Tiling", {
   opacity = 0.86,
   shadow = 0.5,
   corners = 10,
-  tabs = "LEFT",
 
   palette = {
     bg = { 0x1E1E2E, 0.86 },
@@ -57,7 +56,7 @@ EbonAPI:RegisterSkin("Tiling", {
   window = {
     padding = 12,
     spacing = 34,
-    shadow = { base = 4, spread = 16, alphaBase = 0.1, alphaSpread = 0.35 },
+    shadow = { spread = 16, alphaBase = 0.1, alphaSpread = 0.35 },
     glass = {
       enabled = true, tint = 0xB4BEFE, darken = 0.5, milk = 0.03, grain = 0.04,
       sheen = 0.04, sheenHeight = 0.3, edge = 0.06,
@@ -72,9 +71,9 @@ EbonAPI:RegisterSkin("Tiling", {
 
   header = {
     height = 30,
-    title = { x = 2, y = 9, font = "normal", color = "title" },
-    version = { gap = 8, y = 0 },
-    search = { position = "CENTER", width = 220, height = 20, inset = 8 },
+    title = { y = 9, font = "normal", color = "title" },
+    version = { y = 0 },
+    search = { position = "CENTER", width = 220, height = 20 },
     close = { brick = "flat", size = 30, width = 36, y = 0, glyph = "×", hover = 0xF38BA8 },
     rule = { show = false },
     inset = -12,
@@ -83,8 +82,8 @@ EbonAPI:RegisterSkin("Tiling", {
   nav = {
     width = 170,
     inset = 4,
-    section = { upper = true, color = "muted", x = 4 },
-    tab = { brick = "bar", height = 24, gap = 3, align = "LEFT", font = "normal" },
+    section = { upper = true, x = 4 },
+    tab = { brick = "bar", gap = 3, align = "LEFT", font = "normal" },
   },
 
   page = {
@@ -92,6 +91,7 @@ EbonAPI:RegisterSkin("Tiling", {
     height = 500,
     top = 44,
     inset = { x = 6, y = 4 },
+    close = { size = 30, width = 36, glyph = "×" },
     title = { color = "title" },
   },
 
@@ -99,9 +99,13 @@ EbonAPI:RegisterSkin("Tiling", {
     toggle = { brick = "switch", mark = 2, roundKnob = true, switch = { width = 30, height = 16 } },
     range = { fill = true, fillColor = "border", roundThumb = true, thumb = { width = 12, height = 12 } },
     menu = { brick = "list", title = { align = "LEFT" } },
-    heading = { lines = "BOTH", upper = true, color = "heading" },
-    group = { brick = "line", upper = true, color = "heading", font = "small", padding = 8 },
+    heading = { upper = true },
+    group = { brick = "line", upper = true, font = "small", padding = 8 },
     scroll = { trackAlpha = 0.3 },
+  },
+
+  kit = {
+    icon = { border = "checkboxBorder" },
   },
 
   chat = {

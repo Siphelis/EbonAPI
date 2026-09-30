@@ -2,8 +2,11 @@
 ## Title: |cff8a6fd4EbonAPI|r
 ## Notes: Shared runtime for Ebonhold addons: server bridge, event bus, storage, locale.
 ## Notes-frFR: Socle commun des addons Ebonhold : pont serveur, bus d'événements, stockage, langue.
+## Notes-deDE: Gemeinsame Grundlage der Ebonhold-Addons: Serverbrücke, Ereignisbus, Speicher, Sprache.
+## Notes-esES: Base común de los addons de Ebonhold: puente con el servidor, bus de eventos, almacenamiento, idioma.
+## Notes-esMX: Base común de los addons de Ebonhold: puente con el servidor, bus de eventos, almacenamiento, idioma.
 ## Author: Siphelis
-## Version: 2.0.0
+## Version: 2.0.0-1
 ## SavedVariables: EbonAPIDB
 
 Core\Lib.lua

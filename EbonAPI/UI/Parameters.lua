@@ -6,6 +6,7 @@ local Catalog = EbonAPI.Catalog
 local Skins = EbonAPI.Skins
 local DB = EbonAPI.DB
 local Handle = EbonAPI.Handle
+local Lib = EbonAPI.Lib
 
 local pairs, ipairs, tostring, error, type = pairs, ipairs, tostring, error, type
 local format, concat = string.format, table.concat
@@ -20,7 +21,6 @@ for index, entry in ipairs(LIST) do
   NAMES[index] = entry.key
 end
 
-Parameters.LIST = LIST
 Parameters.NAMES = NAMES
 
 local own = {}
@@ -63,17 +63,16 @@ local function held()
     checked = values
 
     for name, value in pairs(values) do
-      if problem(name, value) then
+      local reason = problem(name, value)
+
+      if reason then
         values[name] = nil
+        Lib.report(format("EbonAPI: saved parameter dropped: %s", reason))
       end
     end
   end
 
   return values
-end
-
-function Parameters.isKnown(name)
-  return BY_NAME[name] ~= nil
 end
 
 function Parameters.entry(name)
@@ -91,8 +90,7 @@ function Parameters.player(name)
 end
 
 function Parameters.value(addon, name)
-  local values = held()
-  local chosen = values and values[name]
+  local chosen = Parameters.player(name)
 
   if chosen ~= nil then
     return chosen
@@ -130,10 +128,6 @@ function Parameters.setPlayer(name, value)
 
   if not values then
     return false
-  end
-
-  if value == Parameters.default(name) then
-    value = nil
   end
 
   if values[name] == value then

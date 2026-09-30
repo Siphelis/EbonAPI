@@ -15,13 +15,14 @@ local L = EbonAPI.L
 local type, pairs, ipairs, pcall, tostring, error = type, pairs, ipairs, pcall, tostring, error
 local floor, ceil, max, min, sqrt, sin, cos, atan2, deg, rad =
   math.floor, math.ceil, math.max, math.min, math.sqrt, math.sin, math.cos, math.atan2, math.deg, math.rad
-local format, sort = string.format, table.sort
+local format, lower, sort = string.format, string.lower, table.sort
 
 local S = Skins.value
 local evaluate = Kit.evaluate
 
 local OWNER = "EbonAPI"
 local DISPLAYS = { BUTTON = true, GROUP = true, HIDDEN = true }
+local UNSUPPORTED = { "width", "height", "point", "disabled" }
 
 -- Quadrants where the minimap is round, by the shape name minimap addons return from
 -- GetMinimapShape (the table of LibDBIcon-1.0). Quadrant 1 is bottom right, then bottom left,
@@ -48,10 +49,6 @@ local members = {}
 local group = nil
 local flyout = nil
 local selfBroker = nil
-
-local function map()
-  return Minimap or UIParent
-end
 
 local function held(owner)
   local data = Kit.saved(owner)
@@ -81,7 +78,7 @@ local function displayOf(button)
   return data and data.display or addonDisplay(button)
 end
 
-local function isLocked(owner)
+function Buttons.isLocked(owner)
   local data = held(owner)
 
   if Parameters.value(nil, "locked") then
@@ -120,8 +117,8 @@ local function place(button, angle)
   else
     local corner = S("kit.minimap.corner")
 
-    x = max(-width, min(x * (sqrt(2 * width * width) - corner), width))
-    y = max(-height, min(y * (sqrt(2 * height * height) - corner), height))
+    x = max(-width, min(x * (width * sqrt(2) - corner), width))
+    y = max(-height, min(y * (height * sqrt(2) - corner), height))
   end
 
   button:ClearAllPoints()
@@ -206,7 +203,7 @@ local function follow(button)
 end
 
 local function build(owner)
-  local button = CreateFrame("Button", nil, map())
+  local button = CreateFrame("Button", nil, Minimap)
 
   button.owner = owner
   button:SetWidth(S("kit.minimap.size"))
@@ -215,11 +212,15 @@ local function build(owner)
   button.icon:SetAllPoints(button)
   Kit.trim(button.icon)
   Bricks.create("minimap", button)
-  dock(button, map())
+  dock(button, Minimap)
   button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   button:RegisterForDrag("LeftButton")
 
   function button:SetAngle(value)
+    if type(value) ~= "number" then
+      error(format("EbonAPI: %s: button:SetAngle expects a number, got %s", self.owner, tostring(value)), 2)
+    end
+
     local data = held(self.owner)
 
     self.angle = value
@@ -228,7 +229,7 @@ local function build(owner)
       data.angle = value
     end
 
-    if self:GetParent() == map() then
+    if self:GetParent() == Minimap then
       place(self, value)
     end
 
@@ -236,7 +237,7 @@ local function build(owner)
   end
 
   button:SetScript("OnDragStart", function(self)
-    if self:GetParent() ~= map() or isLocked(self.owner) then
+    if self:GetParent() ~= Minimap or Buttons.isLocked(self.owner) then
       return
     end
 
@@ -339,7 +340,7 @@ local function arrange()
 end
 
 local function byOwner(a, b)
-  return a.owner < b.owner
+  return lower(a.owner) < lower(b.owner)
 end
 
 local function groupClick(_, mouse)
@@ -373,7 +374,7 @@ function Buttons.layout()
     if display == "GROUP" then
       members[#members + 1] = button
     else
-      dock(button, map())
+      dock(button, Minimap)
       place(button, angleOf(button))
 
       if display == "HIDDEN" then
@@ -402,7 +403,7 @@ function Buttons.layout()
 
   ensureGroup()
   refresh(group)
-  dock(group, map())
+  dock(group, Minimap)
   place(group, angleOf(group))
   group:Show()
   arrange()
@@ -607,12 +608,6 @@ function Buttons.setAlwaysShown(value)
   return true
 end
 
-function Buttons.isLocked(owner)
-  local data = held(owner)
-
-  return data and data.locked or false
-end
-
 function Buttons.setLocked(owner, value)
   local data = held(owner)
 
@@ -651,6 +646,18 @@ function Handle:MinimapButton(spec)
   if spec.display ~= nil and not DISPLAYS[spec.display] then
     error(format("EbonAPI: %s: api:MinimapButton display expects BUTTON, GROUP or HIDDEN, got %s",
       self.addonName, tostring(spec.display)), 2)
+  end
+
+  if spec.angle ~= nil and type(spec.angle) ~= "number" then
+    error(format("EbonAPI: %s: api:MinimapButton angle expects a number, got %s",
+      self.addonName, tostring(spec.angle)), 2)
+  end
+
+  for _, field in ipairs(UNSUPPORTED) do
+    if spec[field] ~= nil then
+      error(format("EbonAPI: %s: api:MinimapButton does not take %s, EbonAPI sets the size, place and state of the button",
+        self.addonName, field), 2)
+    end
   end
 
   return Buttons.create(self.addonName, spec)

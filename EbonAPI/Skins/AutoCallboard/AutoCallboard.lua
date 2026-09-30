@@ -27,7 +27,6 @@ EbonAPI:RegisterSkin("AutoCallboard", {
     title = 0xD1D1F6,
     heading = 0xB048F8,
     menu = 0xB048F8,
-    shadow = 0x000000,
     focus = 0xE879FF,
     buttonHoverFill = 0x4B2E83,
     rowHover = { 0xB048F8, 0.2 },
@@ -35,7 +34,6 @@ EbonAPI:RegisterSkin("AutoCallboard", {
     navBg = { 0x050505, 0 },
     pageBg = { 0x050505, 0 },
     footerBg = { 0x050505, 0 },
-    success = 0x40FF40,
   },
 
   border = {
@@ -57,7 +55,7 @@ EbonAPI:RegisterSkin("AutoCallboard", {
     banner = { texture = "", width = 256 },
     version = { show = true },
     search = { width = 200, height = 22, inset = 8 },
-    close = { brick = "default", size = 22, width = 22, y = 11 },
+    close = { brick = "default", size = 22, width = 22, y = 11, glyph = "X" },
     rule = { show = true },
     inset = 0,
   },
@@ -72,6 +70,7 @@ EbonAPI:RegisterSkin("AutoCallboard", {
     width = 634,
     height = 528,
     description = { color = "muted" },
+    close = { size = 22, width = 22, glyph = "X" },
     inset = { x = 0, y = 0 },
   },
 
@@ -80,7 +79,7 @@ EbonAPI:RegisterSkin("AutoCallboard", {
     button = { brick = "default", padding = 12 },
     execute = { brick = "default", height = 24 },
     toggle = { brick = "box", height = 22, size = 16, gap = 6 },
-    range = { brick = "default", height = 50, top = 15, bar = 14 },
+    range = { brick = "default", height = 50, top = 15, bar = 14, thumb = { width = 8, height = 14 } },
     menu = { brick = "fill", inset = 6, title = { align = "CENTER" } },
     input = { brick = "default", field = 22 },
     group = { padding = 10, frame = "LARGE" },

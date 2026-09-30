@@ -18,6 +18,7 @@ local RESERVED = { parent = true, bricks = true }
 local CHAT = {
   PREFIX = "chat.prefix", TEXT = "chat.text", ERROR = "chat.error", WARN = "chat.warn",
   SUCCESS = "chat.success", HIGHLIGHT = "chat.highlight", MUTED = "chat.muted",
+  GOLD = "chat.gold", SILVER = "chat.silver", COPPER = "chat.copper",
 }
 
 Skins.DEFAULT = DEFAULT
@@ -45,7 +46,7 @@ local function account()
 end
 
 local function media(skin, kind, value)
-  if value == "" or find(value, "\\", 1, true) or (kind == "font" and value == "game")
+  if value == "" or find(value, "[\\/]") or (kind == "font" and value == "game")
       or (kind == "sound" and not find(value, ".", 1, true)) then
     return value
   end
@@ -78,11 +79,17 @@ local function read(skin, source, prefix, problems)
 
         if reason then
           problems[#problems + 1] = reason
+        elseif skin.values[path] ~= nil then
+          problems[#problems + 1] = format('parameter "%s" is given twice, flat and nested', path)
         else
           skin.values[path] = MEDIA[entry.kind] and media(skin.name, entry.kind, value) or value
         end
-      elseif type(value) == "table" and Catalog.isSection(path) then
-        read(skin, value, path, problems)
+      elseif Catalog.isSection(path) then
+        if type(value) == "table" then
+          read(skin, value, path, problems)
+        else
+          problems[#problems + 1] = format('section "%s" expects a table, got %s', path, type(value))
+        end
       else
         problems[#problems + 1] = format('unknown parameter "%s"', path)
       end
@@ -96,7 +103,9 @@ local function readBricks(skin, source, problems)
     return
   end
 
-  for slot, list in pairs(source) do
+  for _, slot in ipairs(Lib.sortedKeys(source)) do
+    local list = source[slot]
+
     if not Catalog.slotKey(slot) then
       problems[#problems + 1] = format('unknown brick slot "%s" (known: %s)', tostring(slot),
         concat(Catalog.slotNames(), ", "))
@@ -104,7 +113,9 @@ local function readBricks(skin, source, problems)
       problems[#problems + 1] = format('brick slot "%s" expects a table of name = constructor, got %s',
         slot, type(list))
     else
-      for name, build in pairs(list) do
+      for _, name in ipairs(Lib.sortedKeys(list)) do
+        local build = list[name]
+
         if type(name) ~= "string" or type(build) ~= "function" then
           problems[#problems + 1] = format('brick "%s.%s" must be a function, got %s', slot, tostring(name),
             type(build))
@@ -127,15 +138,15 @@ end
 
 function EbonAPI:RegisterSkin(name, spec)
   if type(name) ~= "string" or name == "" then
-    error("EbonAPI:RegisterSkin expects a skin name, got " .. type(name), 2)
+    error("EbonAPI: RegisterSkin expects a skin name, got " .. type(name), 2)
   end
 
   if type(spec) ~= "table" then
-    error('EbonAPI:RegisterSkin: skin "' .. name .. '" expects a table, got ' .. type(spec), 2)
+    error('EbonAPI: RegisterSkin: skin "' .. name .. '" expects a table, got ' .. type(spec), 2)
   end
 
-  if registered[name] then
-    error('EbonAPI:RegisterSkin: skin "' .. name .. '" is already registered', 2)
+  if Skins.isRegistered(name) then
+    error('EbonAPI: RegisterSkin: skin "' .. name .. '" is already registered', 2)
   end
 
   local problems = {}
@@ -158,18 +169,27 @@ function EbonAPI:RegisterSkin(name, spec)
     readBricks(skin, spec.bricks, problems)
   end
 
-  registered[name] = skin
-  names[#names + 1] = name
-
   for _, problem in ipairs(problems) do
     Lib.report(format('EbonAPI: skin "%s": %s', name, problem))
   end
+
+  if #problems > 0 then
+    return false
+  end
+
+  registered[name] = skin
+  names[#names + 1] = name
 
   if name == DEFAULT then
     paintChat(Skins.default)
   end
 
-  return #problems == 0
+  if resolved and Skins.chosen() == name then
+    Skins.resolve()
+    EbonAPI.Bricks.apply()
+  end
+
+  return true
 end
 
 local function chainOf(name, loud)
@@ -286,12 +306,6 @@ function Skins.defaultBrick(slot, name)
   return list and list[name]
 end
 
-function Skins.origin(key)
-  applied()
-
-  return origins[key] or DEFAULT
-end
-
 function Skins.reference(key)
   applied()
 
@@ -308,12 +322,6 @@ end
 
 function Skins.isRegistered(name)
   return registered[name] ~= nil
-end
-
-function Skins.parent(name)
-  local skin = registered[name]
-
-  return skin and skin.parent
 end
 
 function Skins.list()

@@ -16,7 +16,13 @@ Lib.max = max
 Lib.min = min
 Lib.concat = concat
 
-function Lib.report(err)
+function Lib.report(err, owner)
+  EbonAPI.Log.trace("error", owner, tostring(err))
+
+  return Lib.display(err)
+end
+
+function Lib.display(err)
   if geterrorhandler then
     local handler = geterrorhandler()
 
@@ -46,7 +52,11 @@ local function upperLatin(second)
 end
 
 function Lib.upper(text)
-  return (gsub(upper(text or ""), "\195([\160-\190])", upperLatin))
+  text = gsub(upper(text or ""), "\195([\160-\190])", upperLatin)
+  text = gsub(text, "\195\191", "\197\184")
+  text = gsub(text, "\195\159", "SS")
+
+  return (gsub(text, "\197\147", "\197\146"))
 end
 
 local ICONS = "Interface\\Icons\\"
@@ -63,8 +73,8 @@ function Lib.icon(value)
   return ICONS .. value
 end
 
-function Lib.safeCall(fn, a, b, c)
-  local ok, err = pcall(fn, a, b, c)
+function Lib.safeCall(fn, ...)
+  local ok, err = pcall(fn, ...)
 
   if not ok then
     Lib.report(err)
@@ -73,12 +83,12 @@ function Lib.safeCall(fn, a, b, c)
   return ok
 end
 
-function Lib.safeGet(fn, a, b)
-  local ok, result = pcall(fn, a, b)
+function Lib.safeGet(fn, ...)
+  local ok, result = pcall(fn, ...)
 
   if not ok then
     Lib.report(result)
-    return nil
+    return nil, result
   end
 
   return result
@@ -154,11 +164,13 @@ end
 function Lib.applyDefaults(target, defaults)
   for key, value in pairs(defaults) do
     if type(value) == "table" then
-      if type(target[key]) ~= "table" then
+      if target[key] == nil then
         target[key] = {}
       end
 
-      Lib.applyDefaults(target[key], value)
+      if type(target[key]) == "table" then
+        Lib.applyDefaults(target[key], value)
+      end
     elseif target[key] == nil then
       target[key] = value
     end
@@ -203,6 +215,16 @@ function Lib.sortedKeys(t)
   local keys = Lib.keys(t)
 
   sort(keys, function(a, b)
+    local numberA, numberB = type(a) == "number", type(b) == "number"
+
+    if numberA and numberB then
+      return a < b
+    end
+
+    if numberA ~= numberB then
+      return numberA
+    end
+
     return tostring(a) < tostring(b)
   end)
 
@@ -262,14 +284,16 @@ function Lib.cutUtf8(body, start, budget)
     return length
   end
 
-  while stop > start do
-    local following = byte(body, stop + 1)
+  local following = byte(body, stop + 1)
 
-    if following < 128 or following > 191 then
-      break
-    end
-
+  while stop > start and following >= 128 and following <= 191 do
     stop = stop - 1
+    following = byte(body, stop + 1)
+  end
+
+  while stop < length and following >= 128 and following <= 191 do
+    stop = stop + 1
+    following = byte(body, stop + 1)
   end
 
   return stop

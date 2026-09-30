@@ -119,13 +119,14 @@ local function notify(entry)
   notified[entry.name] = latest
 
   local text = format(L.UPDATE_AVAILABLE, latest, own)
+  local url = EbonAPI:AddonLink(entry.name)
 
-  if entry.url then
-    text = text .. " " .. entry.url
+  if url then
+    text = text .. " " .. url
   end
 
   Log.print(entry.name, text)
-  EbonAPI:Emit("UPDATE_AVAILABLE", entry.name, latest, own, entry.url)
+  EbonAPI:Emit("UPDATE_AVAILABLE", entry.name, latest, own, url)
 
   return true
 end
@@ -150,7 +151,7 @@ local function settle(entry)
   end
 end
 
-function Version.register(name, text, url)
+function Version.register(name, text)
   if type(name) ~= "string" or not match(name, "^[%w_]+$") then
     error("EbonAPI.Version.register expects an addon name, got " .. tostring(name), 2)
   end
@@ -173,7 +174,6 @@ function Version.register(name, text, url)
   entry.text = text
   entry.parsed = parsed
   entry.release = release
-  entry.url = url
 
   if enabled then
     settle(entry)
@@ -213,14 +213,14 @@ local function say()
 end
 
 local function tickAnnounce()
-  Bus.untick("EbonAPI:version")
-
-  if announced or not Session.isNew() then
+  if announced or not Session.isNew() or not Channel.isJoined() or not line() then
+    Bus.untick("EbonAPI:version")
     return
   end
 
   if say() then
     announced = true
+    Bus.untick("EbonAPI:version")
   end
 end
 
@@ -346,13 +346,14 @@ function Version.enable()
     return false
   end
 
-  enabled = true
   announced = false
   replyAt, lastReplyAt = nil, nil
 
   store = DB.store("EbonAPI", { account = { versions = {} } })
 
-  Version.register("EbonAPI", EbonAPI.version, nil)
+  Version.register("EbonAPI", EbonAPI.version)
+
+  enabled = true
 
   for _, entry in pairs(entries) do
     settle(entry)
@@ -385,11 +386,11 @@ function Version.disable()
 end
 
 function Handle:Version(text, url)
-  if url then
+  if url and Version.parse(text) then
     self.link = url
   end
 
-  return Version.register(self.addonName, text, url or self.link)
+  return Version.register(self.addonName, text)
 end
 
 function Handle:AvailableUpdate()

@@ -4,32 +4,48 @@ EbonAPI.Palette = {}
 local Palette = EbonAPI.Palette
 local Catalog = EbonAPI.Catalog
 local Skins = EbonAPI.Skins
+local Lib = EbonAPI.Lib
 
 local pairs, ipairs, type, setmetatable = pairs, ipairs, type, setmetatable
 local floor, max, min = math.floor, math.max, math.min
 local format = string.format
 
 local KEYS = Catalog.PALETTE
-local BACKGROUND = {
-  bg = true, bgSoft = true, card = true, checkbox = true,
-  headerBg = true, navBg = true, pageBg = true, footerBg = true,
+local CLASSES = {
+  background = { "bg", "bgSoft", "card", "checkbox", "headerBg", "navBg", "pageBg", "footerBg" },
+  foreground = { "text", "muted", "title" },
+  fixed = { "buttonText", "buttonDisabledText", "selectedText", "shadow", "success" },
+  accent = {
+    "border", "borderDim", "button", "buttonBorder", "buttonHover", "buttonDisabledBorder", "checkboxBorder",
+    "checked", "thumb", "selected", "heading", "menu", "focus", "buttonHoverFill", "rowHover",
+  },
 }
 local SCALED = { bg = true, bgSoft = true, card = true, headerBg = true, navBg = true, pageBg = true, footerBg = true }
-local FOREGROUND = { text = true, muted = true, title = true }
-local FIXED = { buttonText = true, buttonDisabledText = true, selectedText = true, shadow = true, success = true }
 local AGAINST_BACKGROUND = { "heading", "buttonHover", "checked", "thumb", "focus", "success" }
 local WHITE = { 1, 1, 1 }
 local BLACK = { 0, 0, 0 }
 local WEAK = { __mode = "k" }
 
 local THEME = {}
+local CLASS = {}
+
+for class, list in pairs(CLASSES) do
+  for _, key in ipairs(list) do
+    CLASS[key] = class
+  end
+end
 
 for _, key in ipairs(KEYS) do
+  if not CLASS[key] then
+    error(format('EbonAPI: Palette: palette key "%s" has no class (background, foreground, fixed or accent)', key))
+  end
+
   THEME[key] = { 0, 0, 0, 1 }
 end
 
 Palette.THEME = THEME
 Palette.KEYS = KEYS
+Palette.CLASS = CLASS
 
 local painted = {}
 
@@ -61,21 +77,28 @@ local function ratio(a, b)
   return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 end
 
-Palette.contrast = ratio
-
-function Palette.readable()
-  return Skins.value("contrast.minimum")
+local function unreachable(key, got, readable)
+  Lib.report(format('EbonAPI: Palette: "%s" cannot reach a contrast of %s, it stops at %.2f', key, readable, got))
 end
 
-local function reach(color, against, toward, readable)
-  for _ = 1, 30 do
+local function reach(key, against, toward, readable)
+  local color = THEME[key]
+  local step = Skins.value("contrast.step")
+
+  for _ = 1, Skins.value("contrast.attempts") do
     if ratio(color, against) >= readable then
       return
     end
 
     for index = 1, 3 do
-      color[index] = color[index] + (toward - color[index]) * 0.15
+      color[index] = color[index] + (toward - color[index]) * step
     end
+  end
+
+  local got = ratio(color, against)
+
+  if got < readable then
+    unreachable(key, got, readable)
   end
 end
 
@@ -124,7 +147,9 @@ function Palette.derive(background, accent, opacity)
 
     value[1], value[2], value[3], value[4] = r, g, b, a
 
-    if BACKGROUND[key] then
+    local class = CLASS[key]
+
+    if class == "background" then
       if newGround then
         value[1], value[2], value[3] = br, bgreen, bb
         changed, groundChanged = true, true
@@ -133,12 +158,12 @@ function Palette.derive(background, accent, opacity)
       if SCALED[key] then
         value[4] = min(1, a * opacity / reference.opacity)
       end
-    elseif FOREGROUND[key] then
+    elseif class == "foreground" then
       if newGround then
         setGrey(value, neutral)
         changed, groundChanged = true, true
       end
-    elseif not FIXED[key] and accent ~= reference.accent then
+    elseif class == "accent" and accent ~= reference.accent then
       local rr, rg, rb = Palette.unpackColor(reference.accent)
       local top = max(rr, rg, rb)
       local brightness = top > 0 and max(r, g, b) / top or 1
@@ -156,42 +181,53 @@ function Palette.derive(background, accent, opacity)
   if enforce then
     local buttonText = THEME.buttonText
 
-    reach(THEME.button, buttonText, lightness(buttonText) > lightness(THEME.button) and 0 or 1, readable)
-    reach(THEME.buttonHoverFill, buttonText, lightness(buttonText) > lightness(THEME.buttonHoverFill) and 0 or 1,
+    reach("button", buttonText, lightness(buttonText) > lightness(THEME.button) and 0 or 1, readable)
+    reach("buttonHoverFill", buttonText, lightness(buttonText) > lightness(THEME.buttonHoverFill) and 0 or 1,
       readable)
   end
 
   local selected = THEME.selected
-  local onDark = ratio(selected, { dark, dark, dark }) >= ratio(selected, { light, light, light })
+  local selectedText = THEME.selectedText
 
-  setGrey(THEME.selectedText, onDark and dark or light)
+  if accent ~= Skins.reference("palette.selectedText").accent then
+    local onDark = ratio(selected, { dark, dark, dark }) >= ratio(selected, { light, light, light })
+
+    setGrey(selectedText, onDark and dark or light)
+  end
 
   if enforce then
-    reach(selected, THEME.selectedText, onDark and 1 or 0, readable)
-    reach(THEME.menu, BLACK, 1, readable)
+    reach("selected", selectedText, lightness(selectedText) > lightness(selected) and 0 or 1, readable)
+    reach("menu", BLACK, 1, readable)
 
     if changed then
       for _, key in ipairs(AGAINST_BACKGROUND) do
-        reach(THEME[key], ground, neutral, readable)
+        reach(key, ground, neutral, readable)
       end
     end
 
     if groundChanged then
       local muted = THEME.muted
+      local step = Skins.value("contrast.mutedStep")
 
-      for _ = 1, 20 do
-        if muted[4] >= 1 or ratio(Palette.blend(muted, ground), ground) >= readable then
-          break
-        end
+      while muted[4] < 1 and ratio(Palette.blend(muted, ground), ground) < readable do
+        muted[4] = min(1, muted[4] + step)
+      end
 
-        muted[4] = min(1, muted[4] + 0.05)
+      local got = ratio(Palette.blend(muted, ground), ground)
+
+      if got < readable then
+        unreachable("muted", got, readable)
       end
     end
   end
 end
 
+local function known(key)
+  return THEME[key] and key or "heading"
+end
+
 function Palette.code(key)
-  local color = THEME[key] or THEME.heading
+  local color = THEME[known(key)]
 
   return format("|cff%02x%02x%02x", floor(color[1] * 255 + 0.5), floor(color[2] * 255 + 0.5), floor(color[3] * 255 + 0.5))
 end
@@ -204,6 +240,7 @@ function Palette.paint(target, method, key)
     painted[method] = list
   end
 
+  key = known(key)
   list[target] = key
 
   local color = THEME[key]

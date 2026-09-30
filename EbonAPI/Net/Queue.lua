@@ -6,12 +6,13 @@ local Lib = EbonAPI.Lib
 local Log = EbonAPI.Log
 local Bus = EbonAPI.Bus
 
-local type, pairs, next, error, tostring = type, pairs, next, error, tostring
+local type, pairs, error, tostring = type, pairs, error, tostring
 local match, gsub, find, lower = string.match, string.gsub, string.find, string.lower
 
 local SEND_INTERVAL = 0.15
 local PEER_CAP = 500
 local OFFLINE_HOLD = 60
+local ANSWER_WINDOW = 5
 
 Queue.SEND_INTERVAL = SEND_INTERVAL
 Queue.PEER_CAP = PEER_CAP
@@ -122,7 +123,7 @@ local function purgeWhispers(target)
   local dones, count = {}, 0
 
   for index = pFirst, pLast do
-    if pKind[index] == "whisper" and pB[index] == target then
+    if pKind[index] == "whisper" and lower(pB[index]) == target then
       if pDone[index] then
         count = count + 1
         dones[count] = pDone[index]
@@ -158,15 +159,15 @@ onSystem = function(message)
   end
 
   local name = offlinePlayer(message)
+  local key = name and lower(name)
 
-  if not name or not recentWhisper[name] then
+  if not key or not recentWhisper[key] or Queue.isOffline(key) then
     return
   end
 
-  recentWhisper[name] = nil
-  offlineUntil[name] = current + OFFLINE_HOLD
+  offlineUntil[key] = current + OFFLINE_HOLD
 
-  local removed = purgeWhispers(name)
+  local removed = purgeWhispers(key)
 
   dropped.offline = dropped.offline + removed
 
@@ -175,14 +176,15 @@ onSystem = function(message)
 end
 
 function Queue.isOffline(target)
-  local until_ = offlineUntil[target]
+  local key = lower(target)
+  local until_ = offlineUntil[key]
 
   if not until_ then
     return false
   end
 
   if now() >= until_ then
-    offlineUntil[target] = nil
+    offlineUntil[key] = nil
     return false
   end
 
@@ -257,7 +259,7 @@ local function drain()
 
     if kind then
       if kind == "whisper" then
-        recentWhisper[b] = now()
+        recentWhisper[lower(b)] = now()
         watch()
       end
 
@@ -287,6 +289,14 @@ function Queue.wake()
   end
 end
 
+local function refuse(done)
+  if done then
+    Lib.safeCall(done, false)
+  end
+
+  return false
+end
+
 function Queue.pushServer(payload)
   sLast = sLast + 1
   sPayload[sLast] = payload
@@ -307,12 +317,12 @@ function Queue.push(kind, a, b, c, done)
 
   if pLive >= PEER_CAP then
     dropped.full = dropped.full + 1
-    return false
+    return refuse(done)
   end
 
   if kind == "whisper" and Queue.isOffline(b) then
     dropped.offline = dropped.offline + 1
-    return false
+    return refuse(done)
   end
 
   pLast = pLast + 1
@@ -363,12 +373,11 @@ end
 
 Queue.register("whisper", rawWhisper)
 
--- The server answers a whisper to a player who left with a system line; the ones EbonAPI caused
--- are hidden, whether onSystem has already handled them or not.
 function Queue.ownOffline(message)
   local name = offlinePlayer(message)
+  local at = name and recentWhisper[lower(name)]
 
-  return name ~= nil and (recentWhisper[name] ~= nil or Queue.isOffline(name))
+  return at ~= nil and now() - at <= ANSWER_WINDOW
 end
 
 if ChatFrame_AddMessageEventFilter then

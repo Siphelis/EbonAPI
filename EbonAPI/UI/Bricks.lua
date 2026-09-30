@@ -309,6 +309,13 @@ local function layoutDecor(frame)
     fill(frame, texture, inset)
   end
 
+  if decor.gradient then
+    local color = THEME[S("window.gradient.color")]
+
+    decor.gradient:SetGradientAlpha(S("window.gradient.orientation"), color[1], color[2], color[3],
+      S("window.gradient.from"), color[1], color[2], color[3], S("window.gradient.to"))
+  end
+
   if decor.sheen then
     decor.sheen:ClearAllPoints()
     decor.sheen:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
@@ -318,6 +325,7 @@ local function layoutDecor(frame)
 
   if decor.edges then
     local top, bottom, left, right = decor.edges[1], decor.edges[2], decor.edges[3], decor.edges[4]
+    local thickness = S("window.glass.edgeSize")
 
     for _, edge in ipairs(decor.edges) do
       edge:ClearAllPoints()
@@ -325,16 +333,16 @@ local function layoutDecor(frame)
 
     top:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
     top:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -inset, -inset)
-    top:SetHeight(1)
+    top:SetHeight(thickness)
     bottom:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", inset, inset)
     bottom:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
-    bottom:SetHeight(1)
+    bottom:SetHeight(thickness)
     left:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
     left:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", inset, inset)
-    left:SetWidth(1)
+    left:SetWidth(thickness)
     right:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -inset, -inset)
     right:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
-    right:SetWidth(1)
+    right:SetWidth(thickness)
   end
 end
 
@@ -364,10 +372,7 @@ local function decorate(frame)
   local orientation = S("window.gradient.orientation")
 
   if orientation ~= "NONE" then
-    local r, g, b = Palette.unpackColor(S("window.gradient.color"))
-
     decor.gradient = layer(frame, "ARTWORK", solid)
-    decor.gradient:SetGradientAlpha(orientation, r, g, b, S("window.gradient.from"), r, g, b, S("window.gradient.to"))
     decor.fills[#decor.fills + 1] = decor.gradient
   end
 
@@ -453,7 +458,9 @@ function Bricks.tip(owner, title, body)
     GameTooltip:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
   end
 
-  GameTooltip:AddLine(title or "", heading[1], heading[2], heading[3])
+  if title and title ~= "" then
+    GameTooltip:AddLine(title, heading[1], heading[2], heading[3])
+  end
 
   if body then
     GameTooltip:AddLine(body, text[1], text[2], text[3], true)
@@ -1010,6 +1017,7 @@ local function toggleRow(parent, build)
   function row:SetDisabledState(disabled)
     self.disabledState = disabled and true or false
     self:SetAlpha(self.disabledState and S("widgets.disabledAlpha") or 1)
+    self:Visual()
   end
 
   function row:TextWidth()
@@ -1051,7 +1059,7 @@ Bricks.register("toggle", "box", function(parent)
   end)
 
   function row:Visual()
-    paint(self.box, "SetBackdropBorderColor", self.hovered and "buttonHover" or "checkboxBorder")
+    paint(self.box, "SetBackdropBorderColor", self.hovered and not self.disabledState and "buttonHover" or "checkboxBorder")
 
     if self.value then
       self.mark:Show()
@@ -1089,7 +1097,7 @@ Bricks.register("toggle", "switch", function(parent)
   function row:Visual()
     local border = self.value and "checked" or "checkboxBorder"
 
-    if self.hovered then
+    if self.hovered and not self.disabledState then
       border = "buttonHover"
     end
 
@@ -1114,7 +1122,7 @@ Bricks.register("toggle", "switch", function(parent)
 end)
 
 local function trimNumber(value)
-  local text = format("%.2f", value)
+  local text = format("%.6f", value)
 
   text = gsub(text, "0+$", "")
   text = gsub(text, "%.$", "")
@@ -1136,27 +1144,8 @@ local function roundTo(value, low, step)
   return tonumber(format("%.6f", value))
 end
 
-Bricks.register("range", "default", function(parent)
-  local box = CreateFrame("Frame", nil, parent)
+local function flatRange(slider)
   local solid = Bricks.media("solid")
-
-  box:SetHeight(S("widgets.range.height"))
-
-  local title = Bricks.text(box, "small", "heading")
-
-  title:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
-  title:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, 0)
-  title:SetJustifyH("CENTER")
-
-  local top = S("widgets.range.top")
-  local slider = CreateFrame("Slider", nil, box)
-
-  slider:SetOrientation("HORIZONTAL")
-  slider:SetHeight(S("widgets.range.bar"))
-  slider:SetPoint("TOPLEFT", box, "TOPLEFT", 0, -top)
-  slider:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -top)
-  slider:EnableMouse(true)
-
   local track = slider:CreateTexture(nil, "BACKGROUND")
 
   track:SetTexture(solid)
@@ -1180,9 +1169,47 @@ Bricks.register("range", "default", function(parent)
   local thumb = slider:GetThumbTexture()
 
   if thumb then
+    paint(thumb, "SetVertexColor", "thumb")
+  end
+
+  return {
+    track = track,
+    fill = filled,
+    hover = function(over)
+      if thumb then
+        paint(thumb, "SetVertexColor", over and "buttonHover" or "thumb")
+      end
+    end,
+  }
+end
+
+local function rangeBox(parent, dress)
+  local box = CreateFrame("Frame", nil, parent)
+
+  box:SetHeight(S("widgets.range.height"))
+
+  local title = Bricks.text(box, "small", "heading")
+
+  title:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
+  title:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, 0)
+  title:SetJustifyH("CENTER")
+
+  local top = S("widgets.range.top")
+  local slider = CreateFrame("Slider", nil, box)
+
+  slider:SetOrientation("HORIZONTAL")
+  slider:SetHeight(S("widgets.range.bar"))
+  slider:SetPoint("TOPLEFT", box, "TOPLEFT", 0, -top)
+  slider:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -top)
+  slider:EnableMouse(true)
+
+  local art = dress(slider)
+  local filled = art.fill
+  local thumb = slider:GetThumbTexture()
+
+  if thumb then
     thumb:SetWidth(S("widgets.range.thumb.width"))
     thumb:SetHeight(S("widgets.range.thumb.height"))
-    paint(thumb, "SetVertexColor", "thumb")
   end
 
   local low = Bricks.text(box, "small", "muted")
@@ -1204,7 +1231,7 @@ Bricks.register("range", "default", function(parent)
   paint(edit, "SetTextColor", "text")
 
   box.title, box.slider, box.edit, box.low, box.high, box.fill = title, slider, edit, low, high, filled
-  box.track = track
+  box.track = art.track
   box.min, box.max, box.step = 0, 1, 0.01
 
   local function show(value)
@@ -1215,8 +1242,9 @@ Bricks.register("range", "default", function(parent)
         return tostring(text)
       end
 
-      if not ok then
-        Lib.report(text)
+      if not ok and not box.formatFailed then
+        box.formatFailed = true
+        Lib.report(format("EbonAPI: range formatter failed: %s", tostring(text)))
       end
     end
 
@@ -1244,15 +1272,35 @@ Bricks.register("range", "default", function(parent)
     end
   end
 
+  local function fit(value)
+    return max(box.min, min(box.max, roundTo(value, box.min, box.step)))
+  end
+
+  local function refresh()
+    local value = box.value or box.min
+
+    box.syncing = true
+    slider:SetValue(value)
+    box.syncing = false
+    edit:SetText(show(value))
+    showFill(value)
+  end
+
   local function commit(value)
-    value = roundTo(max(box.min, min(box.max, value)), box.min, box.step)
+    if box.disabledState then
+      refresh()
+
+      return
+    end
+
+    value = fit(value)
     edit:SetText(show(value))
     showFill(value)
 
     if value ~= box.value then
       box.value = value
 
-      if box.onCommit and not box.disabledState then
+      if box.onCommit then
         box.onCommit(value)
       end
     end
@@ -1263,7 +1311,7 @@ Bricks.register("range", "default", function(parent)
       return
     end
 
-    edit:SetText(show(roundTo(value, box.min, box.step)))
+    edit:SetText(show(fit(value)))
     showFill(value)
 
     if not box.dragging then
@@ -1278,15 +1326,15 @@ Bricks.register("range", "default", function(parent)
     commit(self:GetValue())
   end)
   slider:SetScript("OnEnter", function()
-    if thumb then
-      paint(thumb, "SetVertexColor", "buttonHover")
+    if art.hover then
+      art.hover(true)
     end
 
     enterTip(box)
   end)
   slider:SetScript("OnLeave", function()
-    if thumb then
-      paint(thumb, "SetVertexColor", "thumb")
+    if art.hover then
+      art.hover(false)
     end
 
     hideTip()
@@ -1327,29 +1375,30 @@ Bricks.register("range", "default", function(parent)
     self.syncing = false
     self.low:SetText(show(lowest))
     self.high:SetText(show(highest))
+
+    if self.value ~= nil then
+      self:SetValue(self.value)
+    end
   end
 
   function box:SetFormat(formatter)
     self.formatter = formatter
+    self.formatFailed = nil
     self.low:SetText(show(self.min))
     self.high:SetText(show(self.max))
     self.edit:SetText(show(self.value or self.min))
   end
 
   function box:SetValue(value)
-    value = tonumber(value) or self.min
-    self.value = value
-    self.syncing = true
-    self.slider:SetValue(value)
-    self.syncing = false
-    self.edit:SetText(show(value))
-    showFill(value)
+    self.value = fit(tonumber(value) or self.min)
+    refresh()
   end
 
   function box:SetDisabledState(disabled)
     self.disabledState = disabled and true or false
     self:SetAlpha(self.disabledState and S("widgets.disabledAlpha") or 1)
     self.slider:EnableMouse(not self.disabledState)
+    self.edit:EnableMouse(not self.disabledState)
   end
 
   function box:Commit(value)
@@ -1357,6 +1406,12 @@ Bricks.register("range", "default", function(parent)
   end
 
   return box
+end
+
+Bricks.rangeBox = rangeBox
+
+Bricks.register("range", "default", function(parent)
+  return rangeBox(parent, flatRange)
 end)
 
 local menu
@@ -1552,13 +1607,7 @@ Bricks.register("select", "default", function(parent)
       end
     end)
   end
-  button:SetScript("OnEnter", function(self)
-    self.hovered = true
-
-    if self.Visual then
-      self:Visual()
-    end
-
+  button:HookScript("OnEnter", function()
     enterTip(box)
   end)
 
@@ -1568,6 +1617,7 @@ Bricks.register("select", "default", function(parent)
 
   function box:SetItems(items)
     self.items = items or {}
+    self:SetValue(self.value)
   end
 
   function box:SetValue(key)
@@ -1702,7 +1752,15 @@ Bricks.register("color", "default", function(parent)
   return row
 end)
 
-Bricks.register("input", "default", function(parent)
+local function flatInput(field)
+  Bricks.frame(field, "small", "bgSoft", "borderDim")
+
+  return function(focused)
+    paint(field, "SetBackdropBorderColor", focused and "focus" or "borderDim")
+  end
+end
+
+local function inputBox(parent, dress)
   local box = CreateFrame("Frame", nil, parent)
   local top = S("widgets.input.top")
   local padding, paddingY = S("widgets.input.padding"), S("widgets.input.paddingY")
@@ -1720,8 +1778,8 @@ Bricks.register("input", "default", function(parent)
   field:SetPoint("TOPLEFT", box, "TOPLEFT", 0, -top)
   field:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -top)
   field:SetHeight(S("widgets.input.field"))
-  Bricks.frame(field, "small", "bgSoft", "borderDim")
 
+  local focus = dress(field)
   local edit = CreateFrame("EditBox", nil, field)
 
   edit:SetAllPoints(field)
@@ -1758,14 +1816,16 @@ Bricks.register("input", "default", function(parent)
     self:ClearFocus()
   end)
   edit:SetScript("OnEditFocusGained", function()
-    paint(field, "SetBackdropBorderColor", "focus")
+    if focus then
+      focus(true)
+    end
   end)
   edit:SetScript("OnEditFocusLost", function()
-    paint(field, "SetBackdropBorderColor", "borderDim")
-
-    if box.multiline then
-      commit()
+    if focus then
+      focus(false)
     end
+
+    commit()
   end)
   edit:SetScript("OnEnter", function()
     enterTip(box)
@@ -1812,6 +1872,12 @@ Bricks.register("input", "default", function(parent)
   end
 
   return box
+end
+
+Bricks.inputBox = inputBox
+
+Bricks.register("input", "default", function(parent)
+  return inputBox(parent, flatInput)
 end)
 
 Bricks.register("text", "default", function(parent)
@@ -1951,7 +2017,7 @@ Bricks.SCROLL_HORIZONTAL = SCROLL_HORIZONTAL
 -- Dresses the minimap button it is given, whose icon texture already exists: a ring and a disk in
 -- the colors of the skin.
 Bricks.register("minimap", "flat", function(button)
-  local size, inset, gap, edge = S("kit.minimap.size"), S("kit.minimap.inset"), S("kit.gap"), S("kit.icon.trim")
+  local size, inset, ringWidth, edge = S("kit.minimap.size"), S("kit.minimap.inset"), S("kit.minimap.ring"), S("kit.icon.trim")
   local ring = button:CreateTexture(nil, "BACKGROUND")
   local disk = button:CreateTexture(nil, "BORDER")
 
@@ -1961,8 +2027,8 @@ Bricks.register("minimap", "flat", function(button)
   ring:SetAllPoints(button)
   paint(ring, "SetVertexColor", "border")
   disk:SetTexture(Bricks.media("circle"))
-  disk:SetPoint("TOPLEFT", button, "TOPLEFT", gap, -gap)
-  disk:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -gap, gap)
+  disk:SetPoint("TOPLEFT", button, "TOPLEFT", ringWidth, -ringWidth)
+  disk:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -ringWidth, ringWidth)
   paint(disk, "SetVertexColor", "bg")
   button.icon:ClearAllPoints()
   button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", inset, -inset)
@@ -1973,9 +2039,9 @@ Bricks.register("minimap", "flat", function(button)
 end)
 
 -- A view over its child with a bar per scrolled direction, right and bottom. The wheel follows the
--- mode, and Shift + wheel goes across in BOTH; a view that cannot move further hands the wheel to
--- the scroll around it, in the same direction. The blocked function freezes it, secure content in
--- combat.
+-- mode, and Shift + wheel goes across in BOTH; a view that cannot move further, or that the blocked
+-- function freezes (secure content in combat), hands the wheel to the scroll around it, in the same
+-- direction.
 Bricks.register("scroll", "default", function(parent)
   local scroll = CreateFrame("ScrollFrame", nil, parent)
   local child = CreateFrame("Frame", nil, scroll)
@@ -2104,14 +2170,25 @@ Bricks.register("scroll", "default", function(parent)
     if not SCROLL_HORIZONTAL[self.mode] then
       self.child:SetWidth(viewWidth)
     end
+
+    if self.contentHeight then
+      self:SetContentHeight(self.contentHeight)
+    end
+
+    if self.contentWidth then
+      self:SetContentWidth(self.contentWidth)
+    end
   end
 
   function scroll:SetContentHeight(height)
+    self.contentHeight = height
     self.child:SetHeight(max(1, height))
     range(self.bar, SCROLL_VERTICAL[self.mode] and max(0, height - self.viewHeight) or 0)
   end
 
   function scroll:SetContentWidth(width)
+    self.contentWidth = width
+
     if SCROLL_HORIZONTAL[self.mode] then
       self.child:SetWidth(max(1, width))
       range(self.hbar, max(0, width - self.viewWidth))
@@ -2160,11 +2237,9 @@ Bricks.register("scroll", "default", function(parent)
       bar = SCROLL_VERTICAL[self.mode] and self.bar
     end
 
-    if bar then
-      if self:Blocked() then
-        return true
-      end
+    local frozen = bar and self:Blocked() or false
 
+    if bar and not frozen then
       local lowest, highest = bar:GetMinMaxValues()
       local before = bar:GetValue()
       local after = max(lowest, min(highest, before - delta * step))
@@ -2185,7 +2260,7 @@ Bricks.register("scroll", "default", function(parent)
       at = at.GetParent and at:GetParent() or nil
     end
 
-    return false
+    return frozen
   end
 
   scroll:EnableMouseWheel(true)
@@ -2233,7 +2308,7 @@ function Bricks.editArea(field, edit, widthOf)
 
     local padding, paddingY = S("widgets.input.padding"), S("widgets.input.paddingY")
     local viewWidth = max(1, ((widthOf and widthOf()) or field:GetWidth() or 0) - S("widgets.scroll.width")
-      - S("kit.gap"))
+      - S("widgets.input.gap"))
     local viewHeight = max(1, field:GetHeight() or 0)
     local text = edit:GetText() or ""
 
@@ -2304,7 +2379,7 @@ function Bricks.Container(name)
   frame:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
 
-    if self.onMoved then
+    if self.onMoved and not Parameters.value(nil, "locked") then
       self.onMoved(self)
     end
   end)

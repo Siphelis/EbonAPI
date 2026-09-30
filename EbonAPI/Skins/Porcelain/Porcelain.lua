@@ -1,24 +1,22 @@
 local DOTS = {
-  { color = 0xFF5F57, glyph = "×", ink = 0x4D0000 },
-  { color = 0xFEBC2E, glyph = "-", ink = 0x995700 },
-  { color = 0x28C840, glyph = "+", ink = 0x006500 },
+  { color = "header.close.hover", glyph = "header.close.glyph", ink = "header.close.ink" },
+  { color = "header.minimize.color", glyph = "header.minimize.glyph", ink = "header.minimize.ink" },
+  { color = "header.zoom.color", glyph = "header.zoom.glyph", ink = "header.zoom.ink" },
 }
 
-local function rgb(value)
-  return math.floor(value / 65536) / 255, math.floor(value / 256) % 256 / 255, value % 256 / 255
-end
-
 local function dot(button, B, spec)
+  local Palette = EbonAPI.Palette
   local disk = button:CreateTexture(nil, "ARTWORK")
 
   disk:SetTexture(B.media("circle"))
   disk:SetPoint("LEFT", button, "LEFT", 0, 0)
-  disk:SetVertexColor(rgb(spec.color))
+  disk:SetVertexColor(Palette.unpackColor(B.value(spec.color)))
   button.disk = disk
   B.font(button.label, "button", "")
   button.label:ClearAllPoints()
   button.label:SetPoint("CENTER", disk, "CENTER", 0, 0)
-  button.label:SetTextColor(rgb(spec.ink))
+  button.label:SetTextColor(Palette.unpackColor(B.value(spec.ink)))
+  button.label:SetText(B.value(spec.glyph))
 end
 
 local function lights(parent, B)
@@ -40,7 +38,6 @@ local function lights(parent, B)
 
     other.label = other:CreateFontString(nil, "OVERLAY")
     dot(other, B, DOTS[index])
-    other.label:SetText(DOTS[index].glyph)
     other:SetScript("OnEnter", function(self)
       self.hovered = true
       close:Visual()
@@ -106,7 +103,6 @@ EbonAPI:RegisterSkin("Porcelain", {
   opacity = 0.94,
   shadow = 0.6,
   corners = 8,
-  tabs = "LEFT",
 
   palette = {
     bg = 0xF6F6F6,
@@ -132,7 +128,6 @@ EbonAPI:RegisterSkin("Porcelain", {
     title = 0x1D1D1F,
     heading = 0x1D1D1F,
     menu = 0x007AFF,
-    shadow = 0x000000,
     focus = 0x007AFF,
     rowHover = { 0x000000, 0.06 },
     headerBg = { 0xEBEBEB, 0.92 },
@@ -144,7 +139,7 @@ EbonAPI:RegisterSkin("Porcelain", {
 
   fonts = {
     small = { file = "Fonts\\ARIALN.TTF", size = 11 },
-    normal = { file = "Fonts\\ARIALN.TTF", size = 12 },
+    normal = { file = "Fonts\\ARIALN.TTF" },
     large = { file = "Fonts\\ARIALN.TTF", size = 17 },
     button = { file = "Fonts\\ARIALN.TTF", size = 12, outline = "NONE" },
     shadow = { alpha = 0 },
@@ -155,7 +150,7 @@ EbonAPI:RegisterSkin("Porcelain", {
     spacing = 0,
     shadow = { base = 10, spread = 20, alphaBase = 0.12, alphaSpread = 0.3, y = -8 },
     glass = {
-      enabled = true, tint = 0xFFFFFF, darken = 0, milk = 0.18, grain = 0.02,
+      enabled = true, darken = 0, milk = 0.18, grain = 0.02,
       sheen = 0.12, sheenHeight = 0.25, edge = 0.35,
     },
     fade = 0.12,
@@ -167,17 +162,17 @@ EbonAPI:RegisterSkin("Porcelain", {
     inset = 14,
     title = { align = "CENTER", y = 13, font = "normal", color = "title" },
     version = { show = false },
-    search = { position = "OPPOSITE", width = 170, height = 22, inset = 8 },
-    close = { brick = "lights", size = 12, width = 52, y = 13, glyph = "×" },
+    search = { position = "OPPOSITE", width = 170 },
+    close = { brick = "lights", size = 12, width = 52, y = 13, glyph = "×", hover = 0xFF5F57 },
   },
 
   nav = {
     width = 190,
     inset = 4,
     padding = 10,
-    divider = { size = 1, color = "borderDim" },
-    section = { x = 6, height = 20, before = 10, after = 2, color = "muted" },
-    tab = { brick = "list", height = 24, gap = 2, indent = 12, align = "LEFT", font = "normal", padding = 10 },
+    divider = { size = 1 },
+    section = { x = 6, before = 10 },
+    tab = { brick = "list", gap = 2, align = "LEFT", font = "normal", padding = 10 },
   },
 
   page = {
@@ -186,26 +181,27 @@ EbonAPI:RegisterSkin("Porcelain", {
     gutter = 10,
     top = 44,
     inset = { x = 24, y = 18 },
+    close = { size = 12, width = 52, glyph = "×" },
     title = { color = "title" },
     gap = { x = 16, y = 14 },
   },
 
   widgets = {
-    button = { height = 22, padding = 12 },
     toggle = {
-      brick = "switch", height = 22, gap = 8, mark = 2, roundKnob = true,
+      brick = "switch", gap = 8, mark = 2, roundKnob = true,
       switch = { width = 30, height = 16 },
     },
-    range = { fill = true, fillColor = "checked", roundThumb = true, track = 3, thumb = { width = 14, height = 14 } },
-    menu = { brick = "list", padding = 4, inset = 12, gap = 1, title = { align = "LEFT" } },
+    range = { fill = true, roundThumb = true, track = 3, thumb = { width = 14 } },
+    menu = { brick = "list", padding = 4, inset = 12, title = { align = "LEFT" } },
     heading = { lines = "NONE", color = "muted", upper = true, height = 20 },
-    group = { brick = "card", frame = "LARGE", padding = 12, title = 20, titleX = 4, color = "title" },
-    scroll = { width = 6, thumb = 30, trackAlpha = 0 },
+    group = { padding = 12, title = 20, titleX = 4, color = "title" },
+    scroll = { thumb = 30, trackAlpha = 0 },
   },
 
   kit = {
     header = 24,
     control = 18,
+    icon = { border = "checkboxBorder" },
   },
 
   chat = {

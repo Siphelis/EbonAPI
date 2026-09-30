@@ -18,7 +18,6 @@ local remove = table.remove
 
 local NAME = "ebonapi"
 local TAG = "EA1"
-local LINE_MAX = 255
 local PACKET_MAX = 16
 local ASSEMBLY_TIMEOUT = 30
 local ASSEMBLY_SWEEP = 5
@@ -28,7 +27,7 @@ local JOIN_WARN = 3
 
 Channel.NAME = NAME
 Channel.TAG = TAG
-Channel.LINE_MAX = LINE_MAX
+Channel.LINE_MAX = 255
 Channel.PACKET_MAX = PACKET_MAX
 Channel.ASSEMBLY_TIMEOUT = ASSEMBLY_TIMEOUT
 
@@ -44,7 +43,7 @@ local serial = 0
 local baseName = Queue.baseName
 
 Channel.received = 0
-Channel.drops = { tag = 0, bounds = 0, expired = 0, own = 0 }
+Channel.drops = { tag = 0, bounds = 0, expired = 0 }
 
 local drops = Channel.drops
 
@@ -76,7 +75,7 @@ local function checkOp(op, who, addon)
   end
 end
 
-function Channel.on(addon, op, fn)
+function Channel.on(addon, op, fn, handle)
   checkAddon(addon, "EbonAPI.Channel.on")
   checkOp(op, "EbonAPI.Channel.on", addon)
 
@@ -92,7 +91,25 @@ function Channel.on(addon, op, fn)
     listeners[key] = list
   end
 
-  return list:add(fn)
+  if not list:add(fn) then
+    return false
+  end
+
+  if handle then
+    Channel.require()
+
+    local owned = handle._channel
+
+    if not owned then
+      owned = {}
+      handle._channel = owned
+    end
+
+    owned[#owned + 1] = op
+    owned[#owned + 1] = fn
+  end
+
+  return true
 end
 
 function Channel.off(addon, op, fn)
@@ -178,6 +195,23 @@ end
 tryJoin = function()
   local id = resolve(NAME)
 
+  if not id then
+    local attempt = joinAttempts
+
+    joinAttempts = attempt + 1
+
+    if attempt % JOIN_RETRY == 0 and JoinChannelByName then
+      pcall(JoinChannelByName, NAME)
+
+      id = resolve(NAME)
+
+      if not warned and joinAttempts > JOIN_RETRY * JOIN_WARN then
+        warned = true
+        Log.warn("EbonAPI", format(L.CHANNEL_JOIN_SLOW, NAME, ceil(joinAttempts / JOIN_RETRY)))
+      end
+    end
+  end
+
   if id then
     index = id
 
@@ -194,20 +228,6 @@ tryJoin = function()
 
     return true
   end
-
-  if joinAttempts % JOIN_RETRY == 0 and JoinChannelByName then
-    pcall(JoinChannelByName, NAME)
-    joinAttempts = joinAttempts + 1
-
-    if not warned and joinAttempts > JOIN_RETRY * JOIN_WARN then
-      warned = true
-      Log.warn("EbonAPI", format(L.CHANNEL_JOIN_SLOW, NAME, ceil(joinAttempts / JOIN_RETRY)))
-    end
-
-    return tryJoin()
-  end
-
-  joinAttempts = joinAttempts + 1
 
   return false
 end
@@ -295,16 +315,12 @@ function Channel.disable()
 
   enabled = false
 
-  if joined then
-    joined = false
-    index = nil
-    joinedAt = nil
-    Bus.offCore("CHAT_MSG_CHANNEL", onChannelMessage)
-  end
+  lose()
 
   joinAttempts = 0
   warned = false
 
+  Bus.offCore("CHAT_MSG_CHANNEL", onChannelMessage)
   Bus.offCore("CHAT_MSG_CHANNEL_NOTICE", onNotice)
   Bus.offCore("CHANNEL_UI_UPDATE", recheck)
   Bus.offCore("PLAYER_ENTERING_WORLD", recheck)
@@ -391,7 +407,6 @@ onChannelMessage = function(text, sender, _, channelString, _, _, _, channelInde
   sender = baseName(sender)
 
   if not sender or sender == myName() then
-    drops.own = drops.own + 1
     return
   end
 
@@ -445,6 +460,10 @@ end
 
 local slices = {}
 
+function Channel.bodyMax(addon, op)
+  return PACKET_MAX * (Channel.LINE_MAX - len(TAG .. ":" .. addon .. ":" .. op .. ":999999.") - 6)
+end
+
 function Channel.say(addon, op, body, done)
   checkAddon(addon, "EbonAPI.Channel.say")
   checkOp(op, "EbonAPI.Channel.say", addon)
@@ -459,15 +478,9 @@ function Channel.say(addon, op, body, done)
     error("EbonAPI.Channel.say: the body of " .. addon .. ":" .. op .. " contains '|'", 2)
   end
 
-  Channel.require()
-
-  if not joined then
-    return false
-  end
-
   local number = serial % 999999 + 1
   local head = TAG .. ":" .. addon .. ":" .. op .. ":" .. number .. "."
-  local budget = LINE_MAX - len(head) - 6
+  local budget = Channel.LINE_MAX - len(head) - 6
 
   if budget < 1 then
     error("EbonAPI.Channel.say: op too long for " .. addon .. ":" .. op, 2)
@@ -483,12 +496,18 @@ function Channel.say(addon, op, body, done)
   end
 
   if total > PACKET_MAX then
-    error("EbonAPI.Channel.say: body of " .. length .. " characters for " .. addon .. ":"
-      .. op .. ", the limit is " .. (PACKET_MAX * budget), 2)
+    error("EbonAPI.Channel.say: body of " .. length .. " bytes for " .. addon .. ":"
+      .. op .. ", the limit is " .. (PACKET_MAX * budget) .. " bytes", 2)
+  end
+
+  Channel.require()
+
+  if not joined then
+    return false, "not_joined"
   end
 
   if Queue.room() < total then
-    return false
+    return false, "full"
   end
 
   serial = number
@@ -501,16 +520,20 @@ function Channel.say(addon, op, body, done)
   return true
 end
 
-function Channel.whisper(prefix, target, text)
+local function checkWhisper(prefix, text, who)
   if type(prefix) ~= "string" or prefix == "" then
-    error("EbonAPI.Channel.whisper expects a prefix, got " .. tostring(prefix), 2)
+    error(who .. " expects a prefix, got " .. tostring(prefix), 3)
   end
 
-  local room = LINE_MAX - len(prefix) - 1
+  local room = Channel.LINE_MAX - len(prefix) - 1
 
   if type(text) ~= "string" or len(text) > room then
-    error("EbonAPI.Channel.whisper: text missing or beyond " .. room .. " bytes for prefix " .. prefix, 2)
+    error(who .. ": text missing or beyond " .. room .. " bytes for prefix " .. prefix, 3)
   end
+end
+
+function Channel.whisper(prefix, target, text)
+  checkWhisper(prefix, text, "EbonAPI.Channel.whisper")
 
   target = baseName(target)
 
@@ -528,6 +551,10 @@ function Channel.whisperAll(prefix, target, parts, count)
     return true
   end
 
+  for i = 1, count do
+    checkWhisper(prefix, parts[i], "EbonAPI.Channel.whisperAll")
+  end
+
   target = baseName(target)
 
   if not target or Queue.isOffline(target) or Queue.room() < count then
@@ -535,7 +562,7 @@ function Channel.whisperAll(prefix, target, parts, count)
   end
 
   for i = 1, count do
-    Channel.whisper(prefix, target, parts[i])
+    Queue.push("whisper", prefix, target, parts[i])
   end
 
   return true
@@ -546,23 +573,7 @@ function Channel.droppedTotal()
 end
 
 function Handle:OnChannel(op, fn)
-  if not Channel.on(self.addonName, op, fn) then
-    return false
-  end
-
-  Channel.require()
-
-  local owned = self._channel
-
-  if not owned then
-    owned = {}
-    self._channel = owned
-  end
-
-  owned[#owned + 1] = op
-  owned[#owned + 1] = fn
-
-  return true
+  return Channel.on(self.addonName, op, fn, self)
 end
 
 function Handle:OffChannel(op, fn)

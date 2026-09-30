@@ -9,7 +9,7 @@ EbonAPI:RegisterSkin("Midnight", {
 
   window = {
     glass = { enabled = true, tint = 0xB8D4FF, darken = 0.45, milk = 0.06, grain = 0.05, sheen = 0.1, edge = 0.14 },
-    gradient = { orientation = "VERTICAL", color = 0x3FA7F5, from = 0, to = 0.08 },
+    gradient = { orientation = "VERTICAL", color = "selected", to = 0.08 },
     fade = 0.15,
   },
 

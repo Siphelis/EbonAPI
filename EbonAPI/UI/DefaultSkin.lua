@@ -107,7 +107,7 @@ EbonAPI:RegisterSkin("Azeroth", {
     success = 0x40FF40,
   },
 
-  contrast = { minimum = 4.5, enforce = true, light = 0.96, dark = 0.04 },
+  contrast = { minimum = 4.5, enforce = true, light = 0.96, dark = 0.04, step = 0.15, attempts = 30, mutedStep = 0.05 },
 
   fonts = {
     small = { file = "game", size = 10, outline = "NONE" },
@@ -156,11 +156,11 @@ EbonAPI:RegisterSkin("Azeroth", {
     strata = "HIGH",
     texture = "",
     textureAlpha = 1,
-    gradient = { orientation = "NONE", color = 0xFFFFFF, from = 0, to = 0.06 },
+    gradient = { orientation = "NONE", color = "text", from = 0, to = 0.06 },
     shadow = { base = 4, spread = 14, alphaBase = 0.25, alphaSpread = 0.5, x = 0, y = 0, level = -1 },
     glass = {
       enabled = false, tint = 0xFFFFFF, darken = 0.35, milk = 0.1, grain = 0.06,
-      sheen = 0.08, sheenHeight = 0.4, edge = 0.12,
+      sheen = 0.08, sheenHeight = 0.4, edge = 0.12, edgeSize = 1,
     },
     fade = 0,
     sound = { open = "", close = "" },
@@ -181,13 +181,14 @@ EbonAPI:RegisterSkin("Azeroth", {
     banner = { texture = "Interface\\DialogFrame\\UI-DialogBox-Header", width = 300, height = 64, y = 12 },
     version = { show = false, gap = 8, y = 1 },
     search = { show = true, width = 160, height = 20, gap = 10, inset = 6, insetY = 2, position = "CONTROLS" },
-    close = { brick = "native", show = true, size = 32, width = 32, y = 4, glyph = "X", hover = 0xE81123 },
+    close = { brick = "native", show = true, size = 32, width = 32, y = 4, glyph = "", hover = 0xE81123, ink = 0x4D0000 },
     rule = { show = false, size = 1 },
     inset = -14,
     spacing = 4,
     history = { show = false, back = "<", forward = ">", width = 22 },
-    minimize = { show = false, glyph = "-" },
-    sidebar = { show = false, size = 16 },
+    minimize = { show = false, width = 32, glyph = "-", color = 0xFEBC2E, ink = 0x995700 },
+    zoom = { glyph = "+", color = 0x28C840, ink = 0x006500 },
+    sidebar = { show = false, size = 16, width = 22 },
   },
 
   footer = {
@@ -195,11 +196,17 @@ EbonAPI:RegisterSkin("Azeroth", {
     height = 22,
     version = true,
     rule = true,
+    ruleSize = 1,
+    inset = 2,
+    refresh = 1,
     badge = { show = false, color = "focus", text = "selectedText", padding = 8 },
     items = false,
     gap = 10,
     icon = 12,
   },
+
+  panel = { button = { width = 240, height = 24 }, margin = 16, gap = 12 },
+  gamemenu = { gap = 1 },
 
   nav = {
     width = 175,
@@ -209,16 +216,19 @@ EbonAPI:RegisterSkin("Azeroth", {
     frame = "NONE",
     rail = {
       show = false, width = 36, gap = 4, icon = 20, spacing = 4, indicator = 2,
-      color = "headerBg", desaturate = true, dim = 0.6, filter = true,
+      color = "headerBg", desaturate = true, dim = 0.6, filter = true, crop = 0.08, indicatorColor = "focus",
     },
-    tree = { collapsible = false, expanded = true, guides = false, chevron = 10 },
+    tree = {
+      collapsible = false, expanded = true, guides = false, chevron = 10, chevronColor = "text",
+      guideColor = "borderDim", guideWidth = 1, margin = 2,
+    },
     section = {
       brick = "default", show = true, x = 2, height = 20, before = 6, after = 2,
       upper = false, color = "muted", font = "small",
     },
     tab = {
       brick = "native", height = 18, gap = 1, indent = 12, align = "LEFT", bar = 3,
-      font = "normal", padding = 8,
+      font = "normal", padding = 8, glow = { selected = 1, hover = 0.5 },
     },
   },
 
@@ -228,7 +238,7 @@ EbonAPI:RegisterSkin("Azeroth", {
     gutter = 16,
     top = 46,
     title = { show = true, y = 2, color = "heading", font = "large" },
-    description = { show = true, gap = 6, below = 4, color = "text" },
+    description = { show = true, gap = 6, below = 4, color = "text", font = "small" },
     unit = 170,
     gap = { x = 14, y = 12 },
     inset = { x = 6, y = 4 },
@@ -239,9 +249,11 @@ EbonAPI:RegisterSkin("Azeroth", {
       show = false, height = 26, padding = 12, border = 1,
       color = "headerBg", tab = "pageBg", accent = "focus", text = "title",
       tabs = 1, idle = "headerBg", idleText = "muted", separator = "borderDim", close = 16,
+      font = "button", separatorWidth = 1,
     },
+    close = { size = 32, width = 32, gap = 10, glyph = "" },
     frame = "NONE",
-    crumbs = { show = false, height = 20, separator = ">", color = "muted" },
+    crumbs = { show = false, height = 20, separator = ">", color = "muted", font = "small" },
   },
 
   widgets = {
@@ -257,7 +269,7 @@ EbonAPI:RegisterSkin("Azeroth", {
     range = {
       brick = "native", height = 52, top = 16, bar = 17, track = 4, labels = 3,
       fill = false, fillColor = "checked", roundThumb = false,
-      thumb = { width = 8, height = 14 },
+      thumb = { width = 32, height = 32 },
       edit = { width = 60, height = 16, y = 2 },
     },
     select = {
@@ -271,7 +283,7 @@ EbonAPI:RegisterSkin("Azeroth", {
     color = { brick = "default", height = 22, size = 18, gap = 6, margin = 2 },
     input = {
       brick = "native", height = 42, top = 16, field = 20, padding = 6, paddingY = 2,
-      line = 14, lines = 4, linePad = 8, bottom = 2,
+      line = 14, lines = 4, linePad = 8, bottom = 2, gap = 2,
     },
     heading = {
       brick = "default", height = 22, gap = 8, lines = "BOTH", size = 1, upper = false, color = "heading",
@@ -290,33 +302,45 @@ EbonAPI:RegisterSkin("Azeroth", {
     inset = 4,
     gap = 2,
     columns = 4,
+    wrap = 320,
+    text = { font = "small" },
+    bar = { color = "card", border = "borderDim" },
     header = 30,
     control = 22,
-    icon = { size = 32, inset = 2, trim = 0.08 },
+    icon = {
+      size = 32, inset = 2, trim = 0.08,
+      color = "checkbox", border = "buttonBorder", hover = "buttonHover", checked = "checked",
+    },
     badge = { size = 14, level = 3, color = "focus", text = "selectedText" },
-    progress = { height = 14, color = "checked" },
+    progress = { height = 14, color = "checked", background = "bgSoft", border = "borderDim" },
     row = 20,
     slot = 24,
     indent = 12,
     list = 200,
     scroll = { width = 320, height = 240 },
-    table = { row = 18, sort = 8, column = 20 },
+    table = { row = 18, sort = 8, column = 20, selected = "selected", hover = "rowHover" },
     toast = { width = 260, duration = 4, top = 120, icon = 24, fade = 0.5 },
     drag = 12,
+    ghost = { width = 170, color = "selected", border = "focus" },
     handle = 12,
+    dot = { color = "thumb", hover = "buttonHover" },
     pointer = 48,
-    chart = { color = "checked", height = 60 },
+    aim = { every = 0.05 },
+    timer = { every = 0.1, font = "small" },
+    chart = { color = "checked", height = 60, background = "bgSoft", border = "borderDim" },
     dialog = {
-      width = 320, copy = 80, button = 80, choices = 6,
+      width = 320, copy = 80, button = 80, choices = 6, offset = 120,
       title = { font = "normal", color = "heading", align = "CENTER" },
+      field = { color = "bgSoft", border = "borderDim" },
     },
     minimap = {
-      brick = "native", size = 31, inset = 4, offset = 10, corner = 10, angle = 225,
+      brick = "native", size = 31, inset = 4, ring = 2, offset = 10, corner = 10, angle = 225,
       group = { angle = 245, columns = 4 },
     },
     model = { width = 160, height = 220, turn = 0.02, zoom = { step = 0.25, min = -1, max = 3 } },
     combatAlpha = 0.3,
     animation = 0.15,
+    rescale = { delay = 0.01 },
   },
 
   chat = {
@@ -327,6 +351,9 @@ EbonAPI:RegisterSkin("Azeroth", {
     success = 0x40FF40,
     highlight = 0xFFD200,
     muted = 0x9090A0,
+    gold = 0xFFD700,
+    silver = 0xC7C7CF,
+    copper = 0xEDA55F,
   },
 
   bricks = {
@@ -368,6 +395,8 @@ EbonAPI:RegisterSkin("Azeroth", {
       native = function(parent, B)
         local button = B.baseButton(parent, function(self)
           self.icon:SetTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-" .. (self.pressed and "Down" or "Up"))
+          B.paint(self.label, "SetTextColor", "heading")
+          B.labelFont(self, "heading")
         end)
         local glow = button:CreateTexture(nil, "HIGHLIGHT")
 
@@ -376,11 +405,7 @@ EbonAPI:RegisterSkin("Azeroth", {
         glow:SetTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight")
         glow:SetBlendMode("ADD")
         glow:SetAllPoints(button)
-        button.label:Hide()
-
-        function button:SetLabel()
-        end
-
+        button:SetPadding(0)
         button:SetScript("OnMouseDown", function(self)
           self.pressed = true
           self:Visual()
@@ -412,7 +437,7 @@ EbonAPI:RegisterSkin("Azeroth", {
           B.labelFont(self, text)
 
           if self.selectedState or self.hovered then
-            self.glow:SetAlpha(self.selectedState and 1 or 0.5)
+            self.glow:SetAlpha(B.value(self.selectedState and "nav.tab.glow.selected" or "nav.tab.glow.hover"))
             self.glow:Show()
           else
             self.glow:Hide()
@@ -437,6 +462,7 @@ EbonAPI:RegisterSkin("Azeroth", {
       native = function(parent, B)
         local row = B.toggleRow(parent, function(owner)
           local size = B.value("widgets.toggle.size")
+          local texture = B.value("widgets.toggle.markTexture")
           local box = CreateFrame("Frame", nil, owner)
           local up = box:CreateTexture(nil, "ARTWORK")
           local check = box:CreateTexture(nil, "OVERLAY")
@@ -447,7 +473,7 @@ EbonAPI:RegisterSkin("Azeroth", {
           box:SetPoint("LEFT", owner, "LEFT", 0, 0)
           up:SetTexture("Interface\\Buttons\\UI-CheckBox-Up")
           up:SetAllPoints(box)
-          check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+          check:SetTexture(texture ~= "" and texture or "Interface\\Buttons\\UI-CheckBox-Check")
           check:SetAllPoints(box)
           glow:SetTexture("Interface\\Buttons\\UI-CheckBox-Highlight")
           glow:SetBlendMode("ADD")
@@ -464,7 +490,7 @@ EbonAPI:RegisterSkin("Azeroth", {
             self.mark:Hide()
           end
 
-          if self.hovered then
+          if self.hovered and not self.disabledState then
             self.glow:Show()
           else
             self.glow:Hide()
@@ -479,60 +505,42 @@ EbonAPI:RegisterSkin("Azeroth", {
 
     range = {
       native = function(parent, B)
-        local box = B.build("range", "default", parent)
-        local slider = box.slider
-        local thumb = slider:GetThumbTexture()
+        return B.rangeBox(parent, function(slider)
+          slider:SetBackdrop({
+            bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+            edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+            tile = true, tileSize = 8, edgeSize = 8,
+            insets = { left = 3, right = 3, top = 6, bottom = 6 },
+          })
+          slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
 
-        box.track:Hide()
-        slider:SetBackdrop({
-          bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
-          edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
-          tile = true, tileSize = 8, edgeSize = 8,
-          insets = { left = 3, right = 3, top = 6, bottom = 6 },
-        })
-
-        if thumb then
-          B.unpaint(thumb, "SetVertexColor")
-          thumb:SetTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
-          thumb:SetVertexColor(1, 1, 1, 1)
-          thumb:SetWidth(32)
-          thumb:SetHeight(32)
-        end
-
-        slider:SetScript("OnEnter", function()
-          B.enterTip(box)
+          return {}
         end)
-        slider:SetScript("OnLeave", B.hideTip)
-
-        return box
       end,
     },
 
     input = {
       native = function(parent, B)
-        local box = B.build("input", "default", parent)
-        local field = box.field
         local parts = {}
+        local box = B.inputBox(parent, function(field)
+          for index, slice in ipairs({ { 0, 0.0625 }, { 0.0625, 0.9375 }, { 0.9375, 1 } }) do
+            local part = field:CreateTexture(nil, "BACKGROUND")
 
-        B.unframe(field)
+            part:SetTexture("Interface\\Common\\Common-Input-Border")
+            part:SetTexCoord(slice[1], slice[2], 0, 0.625)
+            parts[index] = part
+          end
 
-        for index, slice in ipairs({ { 0, 0.0625 }, { 0.0625, 0.9375 }, { 0.9375, 1 } }) do
-          local part = field:CreateTexture(nil, "BACKGROUND")
+          parts[1]:SetWidth(8)
+          parts[1]:SetPoint("TOPLEFT", field, "TOPLEFT", 0, 0)
+          parts[1]:SetPoint("BOTTOMLEFT", field, "BOTTOMLEFT", 0, 0)
+          parts[3]:SetWidth(8)
+          parts[3]:SetPoint("TOPRIGHT", field, "TOPRIGHT", 0, 0)
+          parts[3]:SetPoint("BOTTOMRIGHT", field, "BOTTOMRIGHT", 0, 0)
+          parts[2]:SetPoint("TOPLEFT", parts[1], "TOPRIGHT", 0, 0)
+          parts[2]:SetPoint("BOTTOMRIGHT", parts[3], "BOTTOMLEFT", 0, 0)
+        end)
 
-          part:SetTexture("Interface\\Common\\Common-Input-Border")
-          part:SetTexCoord(slice[1], slice[2], 0, 0.625)
-          parts[index] = part
-        end
-
-        parts[1]:SetWidth(8)
-        parts[1]:SetPoint("TOPLEFT", field, "TOPLEFT", 0, 0)
-        parts[1]:SetPoint("BOTTOMLEFT", field, "BOTTOMLEFT", 0, 0)
-        parts[3]:SetWidth(8)
-        parts[3]:SetPoint("TOPRIGHT", field, "TOPRIGHT", 0, 0)
-        parts[3]:SetPoint("BOTTOMRIGHT", field, "BOTTOMRIGHT", 0, 0)
-        parts[2]:SetPoint("TOPLEFT", parts[1], "TOPRIGHT", 0, 0)
-        parts[2]:SetPoint("BOTTOMRIGHT", parts[3], "BOTTOMLEFT", 0, 0)
-        box.edit:SetScript("OnEditFocusGained", nil)
         box.parts = parts
 
         return box

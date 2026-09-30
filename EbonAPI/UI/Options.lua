@@ -128,7 +128,7 @@ local function check(option, path, seen, has)
       return where .. " (range) step must be a positive number"
     end
 
-    for _, field in ipairs({ "softMin", "softMax", "bigStep" }) do
+    for _, field in ipairs({ "softMin", "softMax" }) do
       if option[field] ~= nil and type(option[field]) ~= "number" then
         return format("%s (range) %s must be a number", where, field)
       end
@@ -136,6 +136,10 @@ local function check(option, path, seen, has)
   elseif kind == "select" then
     if option.values == nil then
       return where .. " (select) needs values (table, function or method name)"
+    end
+
+    if option.sorting ~= nil and type(option.sorting) ~= "table" and type(option.sorting) ~= "function" then
+      return where .. " (select) sorting must be a table or a function, got " .. type(option.sorting)
     end
   elseif kind == "execute" then
     if not inherited.func then
@@ -261,10 +265,6 @@ function Options.info(node)
   return info
 end
 
-function Options.label(node)
-  return node.owner .. (#node.path > 0 and ("." .. concat(node.path, ".")) or "")
-end
-
 function Options.call(node, field, ...)
   local value = lookup(node, field)
 
@@ -277,8 +277,8 @@ function Options.call(node, field, ...)
     local method = handler and handler[value]
 
     if type(method) ~= "function" then
-      error(format('EbonAPI: %s: option "%s": method "%s" not found on its handler',
-        node.owner, Options.label(node), value), 0)
+      error(format('EbonAPI: %s: %s: method "%s" not found on its handler',
+        node.owner, #node.path > 0 and format('option "%s"', concat(node.path, ".")) or "the options table", value))
     end
 
     return method(handler, Options.info(node), ...)
@@ -287,8 +287,20 @@ function Options.call(node, field, ...)
   return value
 end
 
+local function guarded(node, field)
+  local ok, value = pcall(Options.call, node, field)
+
+  if not ok then
+    Lib.report(value)
+
+    return nil
+  end
+
+  return value
+end
+
 function Options.name(node)
-  local name = Options.call(node, "name")
+  local name = guarded(node, "name")
 
   return type(name) == "string" and name or tostring(name or "")
 end
@@ -299,11 +311,11 @@ function Options.desc(node)
   return type(desc) == "string" and desc ~= "" and desc or nil
 end
 
-function Options.isHidden(node)
+local function covered(node, field)
   local at = node
 
   while at do
-    if at.option.hidden ~= nil and Options.call(at, "hidden") then
+    if at.option[field] ~= nil and guarded(at, field) then
       return true
     end
 
@@ -313,12 +325,16 @@ function Options.isHidden(node)
   return false
 end
 
+function Options.isHidden(node)
+  return covered(node, "hidden")
+end
+
 function Options.isDisabled(node)
-  return Options.call(node, "disabled") and true or false
+  return covered(node, "disabled")
 end
 
 function Options.order(node)
-  local order = Options.call(node, "order")
+  local order = guarded(node, "order")
 
   return type(order) == "number" and order or DEFAULT_ORDER
 end
@@ -334,7 +350,7 @@ function Options.children(node)
   for key, option in pairs(args) do
     local child = Options.node(node.owner, option, node, key)
 
-    if not (option.hidden ~= nil and Options.call(child, "hidden")) then
+    if not (option.hidden ~= nil and guarded(child, "hidden")) then
       child.sortOrder = Options.order(child)
       child.sortName = lower(Options.name(child))
       list[#list + 1] = child
@@ -370,23 +386,38 @@ function Options.values(node)
     sorting = sorting(Options.info(node))
   end
 
+  local listed = {}
+
   if type(sorting) == "table" then
     for _, key in ipairs(sorting) do
-      if values[key] ~= nil then
+      if values[key] ~= nil and not listed[key] then
+        listed[key] = true
         list[#list + 1] = { key = key, text = tostring(values[key]) }
       end
     end
-
-    return list
   end
+
+  local rest = {}
 
   for key, text in pairs(values) do
-    list[#list + 1] = { key = key, text = tostring(text) }
+    if not listed[key] then
+      rest[#rest + 1] = { key = key, text = tostring(text) }
+    end
   end
 
-  sort(list, function(a, b)
-    return lower(a.text) < lower(b.text)
+  sort(rest, function(a, b)
+    local first, second = lower(a.text), lower(b.text)
+
+    if first ~= second then
+      return first < second
+    end
+
+    return tostring(a.key) < tostring(b.key)
   end)
+
+  for _, entry in ipairs(rest) do
+    list[#list + 1] = entry
+  end
 
   return list
 end

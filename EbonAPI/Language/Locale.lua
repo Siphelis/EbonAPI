@@ -2,7 +2,6 @@ EbonAPI = EbonAPI or {}
 EbonAPI.Locale = {}
 
 local Locale = EbonAPI.Locale
-local Lib = EbonAPI.Lib
 local Handle = EbonAPI.Handle
 
 local type, pairs, setmetatable, error = type, pairs, setmetatable, error
@@ -18,6 +17,8 @@ Locale.BASE_LANGUAGE = BASE_LANGUAGE
 local registries = {}
 local tables = {}
 local activeLanguage = BASE_LANGUAGE
+local wantedLanguage = BASE_LANGUAGE
+local follow
 
 local WEAK = { __mode = "k" }
 local boundOwner = setmetatable({}, WEAK)
@@ -62,12 +63,12 @@ end
 
 function Locale.register(owner, translations)
   if type(owner) ~= "string" then
-    error("EbonAPI: Locale.register expects an addon name, got " .. type(owner), 3)
+    error("EbonAPI: Locale.register expects an addon name, got " .. type(owner), 2)
   end
 
   if type(translations) ~= "table" then
-    error("EbonAPI: the translations of '" .. owner .. "' must be a table, got "
-      .. type(translations), 3)
+    error("EbonAPI: " .. owner .. ": api:Locale expects a table of translations, got "
+      .. type(translations), 2)
   end
 
   local registry = registries[owner]
@@ -94,6 +95,7 @@ function Locale.register(owner, translations)
   end
 
   fill(owner)
+  follow()
 
   return tables[owner]
 end
@@ -106,24 +108,45 @@ function Locale.current()
   return activeLanguage
 end
 
+local function nameIn(registry, code)
+  local entries = registry and registry[code]
+  local name = entries and entries.LOCALE_NAME
+
+  return type(name) == "string" and name ~= "" and name or nil
+end
+
 function Locale.available()
-  local seen = {}
+  local codes = {}
   local list = {}
 
   for _, registry in pairs(registries) do
-    for code, entries in pairs(registry) do
-      if not seen[code] then
-        seen[code] = true
-        list[#list + 1] = {
-          code = code,
-          name = (type(entries) == "table" and entries.LOCALE_NAME) or code,
-        }
-      end
+    for code in pairs(registry) do
+      codes[code] = true
     end
   end
 
+  for code in pairs(codes) do
+    local name = nameIn(registries[EbonAPI.name], code)
+
+    if not name then
+      for _, registry in pairs(registries) do
+        local other = nameIn(registry, code)
+
+        if other and (not name or other < name) then
+          name = other
+        end
+      end
+    end
+
+    list[#list + 1] = { code = code, name = name or code }
+  end
+
   table.sort(list, function(a, b)
-    return a.name < b.name
+    if a.name ~= b.name then
+      return a.name < b.name
+    end
+
+    return a.code < b.code
   end)
 
   return list
@@ -155,6 +178,18 @@ function Locale.refreshWidgets()
   end
 end
 
+follow = function()
+  local code = canonical(wantedLanguage)
+
+  if code ~= activeLanguage and Locale.isAvailable(code) then
+    activeLanguage = code
+
+    fillAll()
+    Locale.refreshWidgets()
+    EbonAPI:Emit("LANGUAGE_CHANGED", code)
+  end
+end
+
 function EbonAPI:SetLanguage(code, persist)
   code = canonical(code)
 
@@ -162,20 +197,23 @@ function EbonAPI:SetLanguage(code, persist)
     return false
   end
 
-  if code == activeLanguage then
-    return true
-  end
+  local changed = code ~= activeLanguage
 
+  wantedLanguage = code
   activeLanguage = code
 
-  fillAll()
-  Locale.refreshWidgets()
+  if changed then
+    fillAll()
+    Locale.refreshWidgets()
+  end
 
   if persist ~= false and EbonAPI.DB.isAttached() then
     EbonAPI.DB.shared().account.language = code
   end
 
-  self:Emit("LANGUAGE_CHANGED", code)
+  if changed then
+    self:Emit("LANGUAGE_CHANGED", code)
+  end
 
   return true
 end
@@ -195,15 +233,9 @@ end
 function Locale.applyPersisted()
   local saved = EbonAPI.DB.shared().account.language
 
-  if type(saved) == "string" and Locale.isAvailable(saved) then
-    if saved ~= activeLanguage then
-      activeLanguage = saved
-      fillAll()
-      Locale.refreshWidgets()
-      EbonAPI:Emit("LANGUAGE_CHANGED", saved)
-    end
-
-    return saved
+  if type(saved) == "string" then
+    wantedLanguage = saved
+    follow()
   end
 
   return activeLanguage
@@ -211,11 +243,12 @@ end
 
 function Locale.bind(owner, widget, key)
   if type(key) ~= "string" then
-    error("EbonAPI: Localized expects a translation key, got " .. type(key), 3)
+    error("EbonAPI: " .. owner .. ": api:Localized expects a translation key, got " .. type(key), 2)
   end
 
-  if not widget or not widget.SetText then
-    error("EbonAPI: Localized expects a widget with SetText for the key '" .. key .. "'", 3)
+  if type(widget) ~= "table" or type(widget.SetText) ~= "function" then
+    error("EbonAPI: " .. owner .. ": api:Localized expects a widget with SetText for the key '" .. key
+      .. "', got " .. type(widget), 2)
   end
 
   boundOwner[widget] = owner
@@ -229,12 +262,16 @@ end
 
 Locale.register("EbonAPI", EbonAPILocales or {})
 
-local clientLanguage = canonical((GetLocale and GetLocale()) or BASE_LANGUAGE)
+wantedLanguage = (GetLocale and GetLocale()) or BASE_LANGUAGE
+
+local clientLanguage = canonical(wantedLanguage)
 
 if Locale.isAvailable(clientLanguage) then
   activeLanguage = clientLanguage
   fillAll()
 end
+
+EbonAPI:Emit("LANGUAGE_CHANGED", activeLanguage)
 
 EbonAPI.L = tables["EbonAPI"]
 

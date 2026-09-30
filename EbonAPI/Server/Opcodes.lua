@@ -1,7 +1,5 @@
 EbonAPI = EbonAPI or {}
 
-local Lib = EbonAPI.Lib
-
 EbonAPI.SS = {
   SEND_LOADOUTS                 = 3,
   INSTANCE_ENTERED              = 9,

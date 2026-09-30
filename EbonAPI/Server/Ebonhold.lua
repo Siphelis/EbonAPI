@@ -35,6 +35,16 @@ local function service(name)
   return nil
 end
 
+local function frame(name)
+  local value = _G[name]
+
+  if type(value) == "table" then
+    return value
+  end
+
+  return nil
+end
+
 function Ebonhold.IsPresent()
   return root() ~= nil
 end
@@ -110,11 +120,11 @@ function Ebonhold.OptionsService()
 end
 
 function Ebonhold.PerkFrame()
-  return _G.ProjectEbonholdPerkFrame
+  return frame("ProjectEbonholdPerkFrame")
 end
 
 function Ebonhold.SkillTreeImportButton()
-  return _G.skillTreeImportButton
+  return frame("skillTreeImportButton")
 end
 
 function Ebonhold.CanRequestLoadout()
@@ -127,10 +137,14 @@ function Ebonhold.RequestLoadout()
   local pe = root()
 
   if not pe or type(pe.RequestLoadoutFromServer) ~= "function" then
-    return false
+    return false, "no_request"
   end
 
-  return Lib.safeCall(pe.RequestLoadoutFromServer)
+  if not Lib.safeCall(pe.RequestLoadoutFromServer) then
+    return false, "error"
+  end
+
+  return true
 end
 
 function Ebonhold.CurrentHardmodeTier()
@@ -144,7 +158,7 @@ function Ebonhold.CurrentHardmodeTier()
 end
 
 function Ebonhold.SkillTreeFrame()
-  return _G.skillTreeFrame
+  return frame("skillTreeFrame")
 end
 
 function Ebonhold.TalentDatabase()
@@ -210,13 +224,13 @@ function Ebonhold.SendToServer(opcodeName, body)
     return false, "no_opcode"
   end
 
-  local ok = Lib.safeCall(pe.sendToServer, opcode, body)
-
-  if ok then
-    Log.trace("send", "EbonAPI", "PE:" .. tostring(opcodeName))
+  if not Lib.safeCall(pe.sendToServer, opcode, body) then
+    return false, "error"
   end
 
-  return ok
+  Log.trace("send", "EbonAPI", "PE:" .. tostring(opcodeName))
+
+  return true
 end
 
 local hooked = {}
@@ -234,13 +248,17 @@ function Ebonhold.Hook(path, key, wrapper)
   end
 
   if type(target) ~= "table" or type(target[key]) ~= "function" then
-    return false
+    return false, "no_target"
+  end
+
+  if type(wrapper) ~= "function" then
+    return false, "no_wrapper"
   end
 
   local marker = tostring(path) .. "." .. tostring(key)
 
   if hooked[marker] then
-    return false
+    return false, "already_hooked"
   end
 
   local original = target[key]
@@ -277,10 +295,12 @@ end
 function Ebonhold.OpenLink(url)
   local method = Ebonhold.LinkMethod()
 
-  if method == "open" then
-    _G.EbonholdOpenURL(url)
-  elseif method == "copy" then
-    _G.CopyToClipboard(url)
+  if not method then
+    return nil
+  end
+
+  if not Lib.safeCall(method == "open" and _G.EbonholdOpenURL or _G.CopyToClipboard, url) then
+    return nil
   end
 
   return method
@@ -299,12 +319,22 @@ function Ebonhold.LinkTip()
 end
 
 local function badUrl(url)
-  return type(url) ~= "string" or url == ""
+  if url == "" then
+    return "an empty string"
+  end
+
+  if type(url) ~= "string" then
+    return type(url)
+  end
+
+  return nil
 end
 
 function EbonAPI:OpenLink(url)
-  if badUrl(url) then
-    error("EbonAPI:OpenLink expects a URL text, got " .. type(url), 2)
+  local bad = badUrl(url)
+
+  if bad then
+    error("EbonAPI:OpenLink expects a URL text, got " .. bad, 2)
   end
 
   return Ebonhold.OpenLink(url)
@@ -319,8 +349,10 @@ function EbonAPI:LinkTip()
 end
 
 function Handle:OpenLink(url)
-  if badUrl(url) then
-    error("EbonAPI: " .. self.addonName .. ": api:OpenLink expects a URL text, got " .. type(url), 2)
+  local bad = badUrl(url)
+
+  if bad then
+    error("EbonAPI: " .. self.addonName .. ": api:OpenLink expects a URL text, got " .. bad, 2)
   end
 
   return Ebonhold.OpenLink(url)
@@ -335,26 +367,28 @@ function Handle:LinkTip()
 end
 
 local PROBES = {
-  ProjectEbonhold = Ebonhold.IsPresent,
-  Objectives = Ebonhold.Objectives,
-  Checkpoints = Ebonhold.Checkpoints,
-  Hardmode = Ebonhold.Hardmode,
-  Perks = Ebonhold.Perks,
-  PerkDatabase = Ebonhold.PerkDatabase,
-  PerkUI = Ebonhold.PerkUI,
-  Orbs = Ebonhold.Orbs,
-  EchoJournal = Ebonhold.EchoJournal,
-  PlayerRun = Ebonhold.PlayerRun,
-  SkillTree = Ebonhold.SkillTree,
-  SkillTreeFrame = Ebonhold.SkillTreeFrame,
-  TalentDatabase = Ebonhold.TalentDatabase,
-  Utils = Ebonhold.Utils,
-  RequestLoadout = Ebonhold.CanRequestLoadout,
+  { "ProjectEbonhold", Ebonhold.IsPresent },
+  { "Objectives", Ebonhold.Objectives },
+  { "Checkpoints", Ebonhold.Checkpoints },
+  { "Hardmode", Ebonhold.Hardmode },
+  { "Perks", Ebonhold.Perks },
+  { "PerkDatabase", Ebonhold.PerkDatabase },
+  { "PerkUI", Ebonhold.PerkUI },
+  { "Orbs", Ebonhold.Orbs },
+  { "EchoJournal", Ebonhold.EchoJournal },
+  { "PlayerRun", Ebonhold.PlayerRun },
+  { "SkillTree", Ebonhold.SkillTree },
+  { "SkillTreeFrame", Ebonhold.SkillTreeFrame },
+  { "TalentDatabase", Ebonhold.TalentDatabase },
+  { "Utils", Ebonhold.Utils },
+  { "RequestLoadout", Ebonhold.CanRequestLoadout },
 }
 
 function Ebonhold.Detect()
-  for name, probe in pairs(PROBES) do
-    EbonAPI:RegisterFeature(name, Lib.safeGet(probe) and true or false)
+  for index = 1, #PROBES do
+    local probe = PROBES[index]
+
+    EbonAPI:RegisterFeature(probe[1], Lib.safeGet(probe[2]) and true or false)
   end
 
   EbonAPI:RegisterFeature("sendToServer",

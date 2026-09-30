@@ -6,11 +6,12 @@ local Lib = EbonAPI.Lib
 local Log = EbonAPI.Log
 local Handle = EbonAPI.Handle
 
-local type, pairs, error = type, pairs, error
+local type, pairs, ipairs, error = type, pairs, ipairs, error
 local setmetatable, pcall = setmetatable, pcall
 
-DB.SCHEMA_VERSION = 1
 DB.repaired = 0
+
+local DEFAULT_PARTS = { "account", "character" }
 
 local root = nil
 local characterKey = nil
@@ -55,23 +56,40 @@ local function ensureTable(container, key)
   return container[key]
 end
 
-local function shape(db)
-  local shared = ensureTable(db, "shared")
+local function ensureBucket(container, key)
+  local bucket = ensureTable(container, key)
 
-  ensureTable(shared, "account")
-  ensureTable(shared, "characters")
-  ensureTable(db, "addons")
+  ensureTable(bucket, "account")
+  ensureTable(bucket, "characters")
+
+  return bucket
+end
+
+local function shape(db)
+  local addons = ensureTable(db, "addons")
+
+  ensureBucket(db, "shared")
   ensureTable(db, "migrations")
 
-  if type(db.version) ~= "number" then
-    db.version = DB.SCHEMA_VERSION
+  for name in pairs(addons) do
+    ensureBucket(addons, name)
   end
 
   return db
 end
 
 function DB.attach(saved)
-  root = shape(type(saved) == "table" and saved or {})
+  if type(saved) ~= "table" then
+    if saved ~= nil then
+      DB.repaired = DB.repaired + 1
+      Log.trace("repair", "EbonAPI", "EbonAPIDB")
+    end
+
+    saved = {}
+  end
+
+  root = shape(saved)
+  _G.EbonAPIDB = root
 
   for _, store in pairs(stores) do
     store:Rebind()
@@ -82,8 +100,7 @@ end
 
 function DB.root()
   if not root then
-    DB.attach(_G.EbonAPIDB or {})
-    _G.EbonAPIDB = root
+    DB.attach(_G.EbonAPIDB)
   end
 
   return root
@@ -115,12 +132,7 @@ local function bucketFor(owner)
     return db.shared
   end
 
-  local bucket = ensureTable(db.addons, owner)
-
-  ensureTable(bucket, "account")
-  ensureTable(bucket, "characters")
-
-  return bucket
+  return ensureBucket(db.addons, owner)
 end
 
 function Store:Rebind()
@@ -155,14 +167,19 @@ function Store:ResetCharacter()
     return false
   end
 
-  self.bucket.characters[characterKey] = {}
+  local entry = ensureTable(self.bucket.characters, characterKey)
+
+  for key in pairs(entry) do
+    entry[key] = nil
+  end
+
   self:Rebind()
 
   return true
 end
 
 local function markerKey(owner, key, perCharacter)
-  local base = (owner or "shared") .. "/" .. key
+  local base = (owner or "*shared*") .. "/" .. key
 
   if perCharacter then
     return base .. "@" .. (characterKey or "?")
@@ -198,7 +215,7 @@ local function migrate(store, key, legacy, fn, perCharacter)
     return false
   end
 
-  if result == nil then
+  if not result then
     return false
   end
 
@@ -220,9 +237,18 @@ function Store:IsMigrated(key, perCharacter)
 end
 
 function DB.store(owner, defaults)
-  if defaults ~= nil and type(defaults) ~= "table" then
-    error("EbonAPI: the defaults of '" .. (owner or "shared") .. "' must be a table, got "
-      .. type(defaults), 3)
+  if defaults ~= nil then
+    if type(defaults) ~= "table" then
+      error("EbonAPI: the defaults of '" .. (owner or "shared") .. "' must be a table, got "
+        .. type(defaults), 3)
+    end
+
+    for _, part in ipairs(DEFAULT_PARTS) do
+      if defaults[part] ~= nil and type(defaults[part]) ~= "table" then
+        error("EbonAPI: the " .. part .. " defaults of '" .. (owner or "shared") .. "' must be a table, got "
+          .. type(defaults[part]), 3)
+      end
+    end
   end
 
   local key = owner or "*shared*"
@@ -243,8 +269,8 @@ function DB.store(owner, defaults)
   local store = setmetatable({
     owner = owner,
     defaults = {
-      account = defaults.account or {},
-      character = defaults.character or {},
+      account = Lib.applyDefaults({}, defaults.account or {}),
+      character = Lib.applyDefaults({}, defaults.character or {}),
     },
   }, Store)
 
@@ -261,10 +287,10 @@ end
 function DB.dump()
   local db = DB.root()
   local lines = {
-    "EbonAPIDB schema=" .. db.version .. "  character=" .. (characterKey or "not resolved"),
+    "EbonAPIDB  character=" .. (characterKey or "not resolved"),
   }
 
-  for _, name in pairs(Lib.sortedKeys(db.addons)) do
+  for _, name in ipairs(Lib.sortedKeys(db.addons)) do
     local bucket = db.addons[name]
 
     lines[#lines + 1] = "  " .. name
@@ -291,7 +317,7 @@ function Handle:DB(defaults)
   if not store then
     store = DB.store(self.addonName, defaults)
     self._store = store
-  elseif defaults then
+  elseif defaults ~= nil then
     DB.store(self.addonName, defaults)
   end
 

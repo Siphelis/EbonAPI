@@ -32,7 +32,6 @@ EbonAPI:RegisterSkin("VSCode", {
     title = 0xFFFFFF,
     heading = 0xE7E7E7,
     menu = 0x0078D4,
-    shadow = 0x000000,
     focus = 0x0078D4,
     rowHover = 0x2A2D2E,
     headerBg = { 0x181818, 0 },
@@ -43,7 +42,7 @@ EbonAPI:RegisterSkin("VSCode", {
 
   fonts = {
     small = { file = "Fonts\\ARIALN.TTF", size = 11 },
-    normal = { file = "Fonts\\ARIALN.TTF", size = 12 },
+    normal = { file = "Fonts\\ARIALN.TTF" },
     large = { file = "Fonts\\ARIALN.TTF", size = 18 },
     button = { file = "Fonts\\ARIALN.TTF", size = 12, outline = "NONE" },
     shadow = { alpha = 0 },
@@ -56,7 +55,6 @@ EbonAPI:RegisterSkin("VSCode", {
   window = {
     padding = 5,
     spacing = 5,
-    card = { border = "border" },
     shadow = { base = 6, spread = 16, alphaBase = 0.2, alphaSpread = 0.4, y = -2 },
   },
 
@@ -66,22 +64,20 @@ EbonAPI:RegisterSkin("VSCode", {
     spacing = 0,
     title = { x = 8, y = 9, font = "normal", color = "text" },
     version = { gap = 6, y = 0 },
-    search = { position = "CENTER", width = 300, height = 20, inset = 8, insetY = 1 },
-    close = { brick = "flat", size = 30, width = 40, y = 0, glyph = "×", hover = 0xE81123 },
-    minimize = { show = true, glyph = "—" },
-    sidebar = { show = true, size = 14 },
+    search = { position = "CENTER", width = 300, height = 20, insetY = 1 },
+    close = { brick = "flat", size = 30, width = 40, y = 0, glyph = "×" },
+    minimize = { show = true, width = 40, glyph = "—" },
+    sidebar = { show = true, size = 14, width = 24 },
     history = { show = true, back = "←", forward = "→", width = 24 },
     rule = { show = false },
   },
 
   footer = {
     show = true,
-    height = 22,
     rule = false,
-    badge = { show = true, color = "focus", text = "selectedText", padding = 8 },
+    badge = { show = true },
     items = true,
     gap = 12,
-    icon = 12,
   },
 
   nav = {
@@ -89,14 +85,10 @@ EbonAPI:RegisterSkin("VSCode", {
     inset = 0,
     padding = 6,
     frame = "LARGE",
-    divider = { size = 0 },
-    rail = {
-      show = true, width = 36, gap = 5, icon = 20, spacing = 6, indicator = 2,
-      color = "headerBg", desaturate = true, dim = 0.55, filter = true,
-    },
-    tree = { collapsible = true, expanded = true, guides = true, chevron = 10 },
-    section = { x = 8, height = 26, before = 6, after = 2, upper = false, color = "text", font = "normal" },
-    tab = { brick = "list", height = 22, gap = 0, indent = 12, align = "LEFT", font = "normal", padding = 20 },
+    rail = { show = true, gap = 5, spacing = 6, dim = 0.55 },
+    tree = { collapsible = true, guides = true },
+    section = { x = 8, height = 26, color = "text", font = "normal" },
+    tab = { brick = "list", height = 22, gap = 0, align = "LEFT", font = "normal", padding = 20 },
   },
 
   page = {
@@ -105,24 +97,20 @@ EbonAPI:RegisterSkin("VSCode", {
     gutter = 12,
     top = 40,
     frame = "LARGE",
+    close = { size = 30, width = 40, glyph = "×" },
     inset = { x = 22, y = 10 },
     title = { y = 0, color = "title" },
-    description = { gap = 4, below = 2, color = "muted" },
+    description = { gap = 4, below = 2 },
     unit = 240,
     gap = { x = 12, y = 16 },
     layout = "LIST",
     descriptions = "INLINE",
-    strip = {
-      show = true, height = 30, padding = 12, border = 1, tabs = 6, close = 16,
-      color = "card", tab = "pageBg", idle = "card", idleText = "muted", separator = "border",
-      accent = "focus", text = "title",
-    },
-    crumbs = { show = true, height = 22, separator = "›", color = "muted" },
+    strip = { show = true, height = 30, tabs = 6, color = "card", idle = "card", separator = "border" },
+    crumbs = { show = true, height = 22, separator = "›" },
   },
 
   widgets = {
-    button = { height = 22, padding = 10 },
-    execute = { height = 24 },
+    button = { padding = 10 },
     toggle = {
       height = 20, size = 14, gap = 8, mark = -3,
       markTexture = "Interface\\Buttons\\UI-CheckBox-Check",
@@ -132,9 +120,8 @@ EbonAPI:RegisterSkin("VSCode", {
       thumb = { width = 6, height = 12 },
       edit = { width = 50, height = 18 },
     },
-    select = { height = 40, top = 16, padding = 8 },
-    menu = { brick = "list", row = 20, gap = 0, padding = 2, inset = 10, title = { align = "LEFT" } },
-    input = { top = 16, field = 22 },
+    select = { height = 40 },
+    menu = { brick = "list", gap = 0, padding = 2, inset = 10, title = { align = "LEFT" } },
     heading = { lines = "NONE", color = "title", height = 26 },
     group = { brick = "plain", padding = 0, title = 22, titleX = 0, color = "title", frame = "FLAT" },
     scroll = { width = 8, thumb = 30, trackAlpha = 0 },

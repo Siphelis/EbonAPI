@@ -6,8 +6,9 @@ local Lib = EbonAPI.Lib
 local Listeners = EbonAPI.Listeners
 local Handle = EbonAPI.Handle
 
-local type, error, pairs = type, error, pairs
+local type, error, pairs, pcall = type, error, pairs, pcall
 local remove = table.remove
+local report = Lib.report
 
 local frame = CreateFrame("Frame", "EbonAPIBusFrame")
 local handlers = {}
@@ -33,16 +34,8 @@ end
 local function dispatch(_, event, ...)
   local own = core[event]
 
-  if own and own.n > 0 then
-    own.busy = own.busy + 1
-
-    local fns = own.fns
-
-    for index = 1, own.n do
-      fns[index](...)
-    end
-
-    own.busy = own.busy - 1
+  if own then
+    own:fire(...)
   end
 
   local list = handlers[event]
@@ -54,7 +47,7 @@ end
 
 frame:SetScript("OnEvent", dispatch)
 
-local function subscribe(registry, event, fn, who)
+local function subscribe(registry, event, fn, who, owner)
   if type(event) ~= "string" then
     error(who .. " expects an event name, got " .. type(event), 3)
   end
@@ -72,7 +65,7 @@ local function subscribe(registry, event, fn, who)
 
   local wasListening = listening(event)
 
-  if not list:add(fn) then
+  if not list:add(fn, owner) then
     return false
   end
 
@@ -83,10 +76,10 @@ local function subscribe(registry, event, fn, who)
   return true
 end
 
-local function unsubscribe(registry, event, fn)
+local function unsubscribe(registry, event, fn, owner)
   local list = registry[event]
 
-  if not list or not list:remove(fn) then
+  if not list or not list:remove(fn, owner) then
     return false
   end
 
@@ -101,12 +94,12 @@ local function unsubscribe(registry, event, fn)
   return true
 end
 
-function Bus.on(event, fn)
-  return subscribe(handlers, event, fn, "EbonAPI.Bus.on")
+function Bus.on(event, fn, owner)
+  return subscribe(handlers, event, fn, "EbonAPI.Bus.on", owner)
 end
 
-function Bus.off(event, fn)
-  return unsubscribe(handlers, event, fn)
+function Bus.off(event, fn, owner)
+  return unsubscribe(handlers, event, fn, owner)
 end
 
 function Bus.onCore(event, fn)
@@ -171,14 +164,27 @@ onUpdate = function(_, elapsed)
     local ticker = tickers[index]
 
     if ticker and not ticker.dead then
-      local nextAt = ticker.left - elapsed
+      local left = ticker.left - elapsed
 
-      if nextAt <= 0 then
-        nextAt = ticker.every
-        Lib.safeCall(ticker.fn, ticker.every)
+      if left <= 0 then
+        local every = ticker.every
+
+        left = left + every
+
+        if left <= 0 then
+          left = every
+        end
+
+        ticker.left = left
+
+        local ok, err = pcall(ticker.fn, every)
+
+        if not ok then
+          report(err, ticker.owner)
+        end
+      else
+        ticker.left = left
       end
-
-      ticker.left = nextAt
     end
   end
 
@@ -189,27 +195,34 @@ onUpdate = function(_, elapsed)
   end
 end
 
-function Bus.tick(id, every, fn)
+local function checkTicker(who, id, every, fn)
   if type(id) ~= "string" then
-    error("EbonAPI.Bus.tick expects a ticker id, got " .. type(id), 2)
+    error(who .. " expects a ticker id, got " .. type(id), 3)
   end
 
   if type(fn) ~= "function" then
-    error("EbonAPI.Bus.tick expects a function for '" .. id .. "', got " .. type(fn), 2)
+    error(who .. " expects a function for '" .. id .. "', got " .. type(fn), 3)
   end
 
-  every = Lib.num(every, 1)
-
-  if every <= 0 then
-    error("EbonAPI.Bus.tick: invalid interval for '" .. id .. "'", 2)
+  if type(every) ~= "number" or not (every > 0) then
+    error(who .. ": invalid interval for '" .. id .. "', expected a number above 0, got " .. tostring(every), 3)
   end
+end
+
+function Bus.tick(id, every, fn, owner)
+  checkTicker("EbonAPI.Bus.tick", id, every, fn)
 
   for index = 1, tickerCount do
     local ticker = tickers[index]
 
     if ticker.id == id then
+      if ticker.every ~= every then
+        ticker.left = every
+      end
+
       ticker.every = every
       ticker.fn = fn
+      ticker.owner = owner
 
       if ticker.dead then
         ticker.dead = nil
@@ -222,7 +235,7 @@ function Bus.tick(id, every, fn)
   end
 
   tickerCount = tickerCount + 1
-  tickers[tickerCount] = { id = id, every = every, left = every, fn = fn }
+  tickers[tickerCount] = { id = id, every = every, left = every, fn = fn, owner = owner }
 
   refreshTicker()
 
@@ -268,7 +281,7 @@ function Bus.tickerCount()
 end
 
 function Handle:OnEvent(event, fn)
-  if not Bus.on(event, fn) then
+  if not Bus.on(event, fn, self) then
     return false
   end
 
@@ -297,13 +310,15 @@ function Handle:OffEvent(event, fn)
     end
   end
 
-  return Bus.off(event, fn)
+  return Bus.off(event, fn, self)
 end
 
 function Handle:Tick(id, every, fn)
+  checkTicker("EbonAPI:Tick", id, every, fn)
+
   local scoped = self.addonName .. ":" .. id
 
-  Bus.tick(scoped, every, fn)
+  Bus.tick(scoped, every, fn, self.addonName)
 
   local owned = self._busTickers
 
@@ -320,6 +335,10 @@ function Handle:Tick(id, every, fn)
 end
 
 function Handle:Untick(id)
+  if type(id) ~= "string" then
+    error("EbonAPI:Untick expects a ticker id, got " .. type(id), 2)
+  end
+
   local scoped = self.addonName .. ":" .. id
 
   if self._busTickers then
@@ -334,7 +353,7 @@ EbonAPI:AddTeardown(function(handle)
 
   if owned then
     for index = #owned - 1, 1, -2 do
-      Bus.off(owned[index], owned[index + 1])
+      Bus.off(owned[index], owned[index + 1], handle)
       owned[index + 1] = nil
       owned[index] = nil
     end

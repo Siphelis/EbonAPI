@@ -67,9 +67,29 @@ local loadout = nil
 
 local runFields = {}
 local intensityFields = {}
+local publishedRun = {}
 local publishedIntensity = {}
 
+local DERIVED = {
+  { "countCanAcceptedRezs", "acceptedRezsMax", "acceptedRezs" },
+  { "countCanSelfRezs", "selfRezsMax", "selfRezs" },
+  { "countCanClassRezs", "classRezsMax", "classRezs" },
+  { "countCanAvoidFatalAttacks", "avoidedFatalAttacksMax", "avoidedFatalAttacks" },
+  { "remainingRerolls", "totalRerolls", "usedRerolls" },
+  { "remainingFreezes", "totalFreezes", "usedFreezes" },
+}
+
 State.rejected = 0
+
+local function derive(data)
+  for index = 1, #DERIVED do
+    local entry = DERIVED[index]
+
+    if data[entry[1]] == nil then
+      data[entry[1]] = max(0, Lib.num(data[entry[2]]) - Lib.num(data[entry[3]]))
+    end
+  end
+end
 
 function State.parseRun(body)
   local fields, count = Lib.split(body, ";", runFields)
@@ -79,7 +99,7 @@ function State.parseRun(body)
     return nil
   end
 
-  local data = run or {}
+  local data = {}
 
   for index = 1, #RUN_FIELDS do
     data[RUN_FIELDS[index]] = tonumber(fields[index]) or 0
@@ -90,13 +110,9 @@ function State.parseRun(body)
   end
 
   data.hasReachedMaxLevel = data.hasReachedMaxLevel == 1
-  data.countCanAcceptedRezs = max(0, data.acceptedRezsMax - data.acceptedRezs)
-  data.countCanSelfRezs = max(0, data.selfRezsMax - data.selfRezs)
-  data.countCanClassRezs = max(0, data.classRezsMax - data.classRezs)
-  data.countCanAvoidFatalAttacks = max(0, data.avoidedFatalAttacksMax - data.avoidedFatalAttacks)
-  data.remainingRerolls = max(0, data.totalRerolls - data.usedRerolls)
-  data.remainingFreezes = max(0, data.totalFreezes - data.usedFreezes)
   data.fieldCount = count
+
+  derive(data)
 
   return data
 end
@@ -104,14 +120,14 @@ end
 function State.parseIntensity(body)
   local fields, count = Lib.split(body, ";", intensityFields)
 
-  if count < 2 then
+  if count < 2 or tonumber(fields[1]) == nil then
     State.rejected = State.rejected + 1
     return nil
   end
 
-  local data = intensity or {}
+  local data = {}
 
-  data.intensity = tonumber(fields[1]) or 0
+  data.intensity = tonumber(fields[1])
   data.areaName = fields[2]
   data.onCooldown = fields[3] == "1"
 
@@ -124,7 +140,7 @@ function State.parseBank(body)
     return nil
   end
 
-  local spendable, committed = match(body, "(%d+),(%d+)")
+  local spendable, committed = match(body, "^(%d+),(%d+)$")
 
   if spendable then
     spendable, committed = readAsh(spendable), readAsh(committed)
@@ -195,6 +211,11 @@ function State.parseBuildList(body)
     end
   end
 
+  if first then
+    State.rejected = State.rejected + 1
+    return nil
+  end
+
   return parsed
 end
 
@@ -260,7 +281,7 @@ function State.parseLoadouts(body)
     return nil
   end
 
-  local globalPart, loadoutsPart = match(body, "([^_]+)_?(.*)")
+  local globalPart, loadoutsPart = match(body, "^([^_]+)_?(.*)$")
 
   if not globalPart then
     State.rejected = State.rejected + 1
@@ -270,7 +291,7 @@ function State.parseLoadouts(body)
   local result = { nodes = {}, count = 0 }
   local selectedId = tonumber(match(globalPart, "^(%d+),"))
 
-  local spendable, committed = match(globalPart, "^%d+,(%d+),(%d+)")
+  local spendable, committed = match(globalPart, "^%d+,(%d+),(%d+),?%d*$")
 
   if spendable then
     spendable, committed = readAsh(spendable), readAsh(committed)
@@ -303,8 +324,7 @@ function State.parseLoadouts(body)
         result.count = result.count + 1
 
         if selectedId and id == selectedId then
-          exact = parts
-          break
+          exact = exact or parts
         elseif id == 0 and not fallback then
           fallback = parts
         end
@@ -329,7 +349,7 @@ function State.parseLoadouts(body)
   result.name = name
 
   for index = 4, #chosen do
-    local nodeId, rank = match(chosen[index], "(%d+):(%d+)")
+    local nodeId, rank = match(chosen[index], "^(%d+):(%d+)$")
 
     nodeId = tonumber(nodeId)
     rank = tonumber(rank)
@@ -342,6 +362,20 @@ function State.parseLoadouts(body)
   return result
 end
 
+local function fromPublished(source)
+  for key in pairs(publishedRun) do
+    publishedRun[key] = nil
+  end
+
+  for key, value in pairs(source) do
+    publishedRun[key] = value
+  end
+
+  derive(publishedRun)
+
+  return publishedRun
+end
+
 function State.GetRun()
   if run then
     return run
@@ -350,7 +384,7 @@ function State.GetRun()
   local published = EbonAPI.Ebonhold.PublishedRunData()
 
   if published then
-    return published
+    return fromPublished(published)
   end
 
   local service = EbonAPI.Ebonhold.PlayerRun()
@@ -359,7 +393,7 @@ function State.GetRun()
     local data = Lib.safeGet(service.GetCurrentData)
 
     if type(data) == "table" and next(data) ~= nil then
-      return data
+      return fromPublished(data)
     end
   end
 
@@ -432,7 +466,7 @@ local function onRunData(body)
   end
 
   run = data
-  EbonAPI:Emit("SERVER_RUN_DATA", data)
+  EbonAPI:Emit("SERVER_RUN_DATA", Lib.copyDeep(data))
 end
 
 local function onIntensity(body)
@@ -443,7 +477,7 @@ local function onIntensity(body)
   end
 
   intensity = data
-  EbonAPI:Emit("SERVER_INTENSITY", data)
+  EbonAPI:Emit("SERVER_INTENSITY", Lib.copyDeep(data))
 end
 
 local function onBank(body)
@@ -456,12 +490,19 @@ local function onBank(body)
   local held, changed = setAsh(spendable, committed, SS.COMMITTED_SOUL_POINTS)
 
   if changed then
-    EbonAPI:Emit("SERVER_ASH", held)
+    EbonAPI:Emit("SERVER_ASH", Lib.copyDeep(held))
   end
 end
 
 local function onMultiplier(body)
-  multiplier = tonumber(body) or 0
+  local value = tonumber(body)
+
+  if not value then
+    State.rejected = State.rejected + 1
+    return
+  end
+
+  multiplier = value
   EbonAPI:Emit("SERVER_MULTIPLIER", multiplier)
 end
 
@@ -483,6 +524,12 @@ local function onBuildActive(body)
     return
   end
 
+  if not builds.slots[slot] then
+    State.rejected = State.rejected + 1
+    return
+  end
+
+  builds = Lib.copyDeep(builds)
   builds.active = slot
   EbonAPI:Emit("SERVER_BUILD_ACTIVE", slot, builds)
 end
@@ -500,7 +547,7 @@ local function onLoadouts(body)
     local held, changed = setAsh(parsed.spendable, parsed.committed, SS.SEND_LOADOUTS)
 
     if changed then
-      EbonAPI:Emit("SERVER_ASH", held)
+      EbonAPI:Emit("SERVER_ASH", Lib.copyDeep(held))
     end
   end
 

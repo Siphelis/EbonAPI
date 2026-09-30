@@ -27,11 +27,12 @@ local ipairs = ipairs
 local format, concat = string.format, table.concat
 
 local ALL = "*"
+local NAME = EbonAPI.name
 
 local shown = nil
 local perfTarget = ALL
 local traceKind = ALL
-local debugTarget = "EbonAPI"
+local debugTarget = NAME
 
 local function T(key)
   return function()
@@ -191,34 +192,6 @@ local function perfOwners()
   return { perfTarget }
 end
 
-local PERF_TEXT = {
-  measure = function(entry)
-    if entry.summary then
-      return Perf.describeSummary(entry.summary)
-    end
-
-    return Perf.describe(entry.sample)
-  end,
-  reset = function(entry)
-    local lines = {}
-
-    for _, owner in ipairs(entry.owners) do
-      lines[#lines + 1] = format(L.PERF_RESET, owner)
-    end
-
-    return lines
-  end,
-  gc = function(entry)
-    local lines = {}
-
-    for _, row in ipairs(entry.rows) do
-      lines[#lines + 1] = format(L.PERF_FOR, row.owner, Perf.describeGc(row.before, row.after))
-    end
-
-    return lines
-  end,
-}
-
 function Settings.output()
   if not shown then
     return nil
@@ -228,7 +201,15 @@ function Settings.output()
     return REPORTS[shown.report]()
   end
 
-  return concat(PERF_TEXT[shown.perf](shown), "\n")
+  local lines = {}
+
+  for _, item in ipairs(shown.reports) do
+    for _, line in ipairs(Perf.describeReport(item.owner, item.report)) do
+      lines[#lines + 1] = line
+    end
+  end
+
+  return concat(lines, "\n")
 end
 
 function Settings.show(name)
@@ -238,35 +219,40 @@ function Settings.show(name)
 end
 
 function Settings.perf(action)
-  local entry = { perf = action }
+  local reports = {}
+
+  local function keep(owner, report)
+    reports[#reports + 1] = { owner = owner, report = Perf.record(owner, report) }
+  end
 
   if action == "measure" then
     if perfTarget == ALL then
-      entry.summary = Perf.summarySample()
+      for _, row in ipairs(Perf.summarySample()) do
+        keep(row.owner, { summary = row })
+      end
     else
-      local _, sample = Perf.measure(perfTarget)
+      local _, _, report = Perf.measure(perfTarget)
 
-      entry.sample = sample
+      reports[1] = { owner = perfTarget, report = report }
     end
   elseif action == "reset" then
-    entry.owners = perfOwners()
-
-    for _, owner in ipairs(entry.owners) do
+    for _, owner in ipairs(perfOwners()) do
       Perf.reset(owner)
+      keep(owner, { reset = true })
     end
   elseif action == "gc" then
-    entry.rows = {}
-
     for _, owner in ipairs(perfOwners()) do
       local before, after = Perf.gc(owner)
 
-      entry.rows[#entry.rows + 1] = { owner = owner, before = before, after = after }
+      keep(owner, { before = before, after = after })
     end
   else
+    shown = nil
+
     return nil
   end
 
-  shown = entry
+  shown = { reports = reports }
 
   return Settings.output()
 end
@@ -280,7 +266,7 @@ function Settings.setTraceKind(kind)
 end
 
 function Settings.setDebugTarget(name)
-  debugTarget = name or "EbonAPI"
+  debugTarget = name or NAME
 end
 
 local function addonValues(withAll)
@@ -315,18 +301,22 @@ local function perfAction(order, key, action)
   }
 end
 
-local function range(order, key, name, step, percent, desc)
+local function range(order, key, name, desc)
   local entry = Parameters.entry(name)
 
   return {
     type = "range", order = order, name = T(key), desc = desc and T(desc) or nil,
-    min = entry.min, max = entry.max, step = step, isPercent = percent,
+    min = entry.min, max = entry.max, step = entry.step, isPercent = entry.isPercent,
   }
+end
+
+local function noAddons()
+  return { type = "description", order = 1, fontSize = "medium", name = T("UI_ADDONS_NONE") }
 end
 
 Settings.tree = {
   type = "group",
-  name = "EbonAPI",
+  name = T("UI_NAME"),
   args = {
     general = {
       type = "group", order = 1, name = T("UI_GENERAL"),
@@ -364,16 +354,16 @@ Settings.tree = {
             lock = {
               type = "toggle", order = 2, name = T("UI_MINIMAP_LOCK"),
               get = function()
-                return Buttons.isLocked("EbonAPI")
+                return Buttons.isLocked(NAME)
               end,
               set = function(_, value)
-                Buttons.setLocked("EbonAPI", value)
+                Buttons.setLocked(NAME, value)
               end,
             },
             reset = {
               type = "execute", order = 3, name = T("UI_MINIMAP_RESET"),
               func = function()
-                Buttons.reset("EbonAPI")
+                Buttons.reset(NAME)
               end,
             },
           },
@@ -393,7 +383,7 @@ Settings.tree = {
           type = "group", inline = true, order = 0, name = T("UI_SKIN"),
           args = {
             choice = {
-              type = "select", order = 1, name = T("UI_SKIN"), desc = T("UI_SKIN_DESC"),
+              type = "select", order = 1, name = T("UI_SKIN_ACTIVE"), desc = T("UI_SKIN_DESC"),
               values = function()
                 local values = {}
 
@@ -449,10 +439,10 @@ Settings.tree = {
         windows = {
           type = "group", inline = true, order = 2, name = T("UI_WINDOWS"),
           args = {
-            scale = range(1, "UI_SCALE", "scale", 0.05, true),
-            opacity = range(2, "UI_OPACITY", "opacity", 0.01, true),
-            shadow = range(3, "UI_SHADOW", "shadow", 0.05, true),
-            corners = range(4, "UI_CORNERS", "corners", 1, false, "UI_CORNERS_DESC"),
+            scale = range(1, "UI_SCALE", "scale"),
+            opacity = range(2, "UI_OPACITY", "opacity"),
+            shadow = range(3, "UI_SHADOW", "shadow"),
+            corners = range(4, "UI_CORNERS", "corners", "UI_CORNERS_DESC"),
           },
         },
         layout = {
@@ -478,7 +468,7 @@ Settings.tree = {
     },
     addons = {
       type = "group", order = 3, name = T("UI_ADDONS"),
-      args = {},
+      args = { none = noAddons() },
     },
     diagnostic = {
       type = "group", order = 4, name = T("UI_DIAGNOSTIC"),
@@ -749,7 +739,7 @@ function Settings.rebuildAddons()
   local names = EbonAPI:AddonNames()
 
   if #names == 0 then
-    args.none = { type = "description", order = 1, fontSize = "medium", name = T("UI_ADDONS_NONE") }
+    args.none = noAddons()
   end
 
   for index, name in ipairs(names) do
@@ -769,7 +759,7 @@ EbonAPI:On("ADDON_CONNECTED", addonsChanged)
 EbonAPI:On("READY", addonsChanged)
 EbonAPI:On("UPDATE_AVAILABLE", addonsChanged)
 
-local problem = Options.register("EbonAPI", Settings.tree)
+local problem = Options.register(NAME, Settings.tree)
 
 if problem then
   error("EbonAPI: its own options are invalid: " .. problem)

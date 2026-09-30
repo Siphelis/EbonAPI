@@ -84,14 +84,14 @@ local function widthOf(option, available)
   if width == "full" then
     return available
   elseif width == "half" then
-    return floor(unit / 2)
+    return min(available, floor(unit / 2))
   elseif width == "double" then
     return min(available, unit * 2)
   elseif type(width) == "number" then
     return min(available, floor(unit * width))
   end
 
-  return unit
+  return min(available, unit)
 end
 
 local builders = {}
@@ -174,11 +174,7 @@ function builders.color(node, parent, available, pools)
   widget.hasAlpha = node.option.hasAlpha and true or false
   widget.tipTitle, widget.tipBody = name, desc
   widget.onPick = function(nr, ng, nb, na)
-    local ok, err = pcall(Options.set, node, nr, ng, nb, na)
-
-    if not ok then
-      report(err)
-    end
+    apply(node, nr, ng, nb, na)
   end
 
   local width = min(available, max(widthOf(node.option, available), widget:TextWidth()))
@@ -341,7 +337,7 @@ layoutList = function(list, parent, left, top, width, skipNavGroups, pools)
 
           if desc then
             local note = pools.description:acquire(parent)
-            local noteHeight = note:SetContent(desc, width, "small", S("page.description.color"))
+            local noteHeight = note:SetContent(desc, width, S("page.description.font"), S("page.description.color"))
 
             note:SetPoint("TOPLEFT", parent, "TOPLEFT", left, -(top + y + below))
             y = y + below + noteHeight
@@ -485,9 +481,7 @@ local function pageName(owner, key)
     return nil
   end
 
-  local ok, name = pcall(Options.name, node)
-
-  return ok and name or nil
+  return Options.name(node)
 end
 
 local function remember(owner, key)
@@ -544,9 +538,7 @@ local function crumbsOf(node)
   local at = node
 
   while at do
-    local ok, name = pcall(Options.name, at)
-
-    parts[#parts + 1] = ok and name or at.owner
+    parts[#parts + 1] = Options.name(at)
     at = at.parent
   end
 
@@ -569,7 +561,7 @@ local function stripTab(strip)
   tab.fill = blockBackground(tab, S("page.strip.idle"))
   tab.separator = tab:CreateTexture(nil, "ARTWORK")
   tab.separator:SetTexture(Bricks.media("solid"))
-  tab.separator:SetWidth(1)
+  tab.separator:SetWidth(S("page.strip.separatorWidth"))
   tab.separator:SetPoint("TOPRIGHT", tab, "TOPRIGHT", 0, 0)
   tab.separator:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
   Bricks.paint(tab.separator, "SetVertexColor", S("page.strip.separator"))
@@ -583,7 +575,7 @@ local function stripTab(strip)
     Bricks.paint(tab.accent, "SetVertexColor", S("page.strip.accent"))
   end
 
-  tab.text = Bricks.text(tab, "button", S("page.strip.idleText"))
+  tab.text = Bricks.text(tab, S("page.strip.font"), S("page.strip.idleText"))
   tab.text:SetPoint("LEFT", tab, "LEFT", padding, 0)
 
   local function hover(state)
@@ -596,7 +588,7 @@ local function stripTab(strip)
     tab.close:SetWidth(closeWidth)
     tab.close:SetHeight(closeWidth)
     tab.close:SetPoint("RIGHT", tab, "RIGHT", -floor(padding / 2), 0)
-    tab.close:SetLabel(S("header.close.glyph"))
+    tab.close:SetLabel(S("page.close.glyph"))
     tab.close.tipTitle = L.UI_CLOSE
     tab.close:HookScript("OnEnter", function()
       hover(true)
@@ -731,7 +723,7 @@ local function newView(id, parent, closable, card)
   if crumbsHeight > 0 then
     local middle = -(edge + stripHeight + crumbsHeight / 2)
 
-    view.crumbs = Bricks.text(frame, "small", S("page.crumbs.color"))
+    view.crumbs = Bricks.text(frame, S("page.crumbs.font"), S("page.crumbs.color"))
     view.crumbs:SetPoint("LEFT", frame, "TOPLEFT", left, middle)
     view.crumbs:SetPoint("RIGHT", frame, "TOPRIGHT", -left, middle)
     view.crumbs:SetJustifyH("LEFT")
@@ -745,16 +737,16 @@ local function newView(id, parent, closable, card)
   if closable then
     local close = Bricks.create("close", frame)
 
-    close:SetWidth(S("header.close.width"))
-    close:SetHeight(S("header.close.size"))
+    close:SetWidth(S("page.close.width"))
+    close:SetHeight(S("page.close.size"))
     close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -left, -top)
-    close:SetLabel(S("header.close.glyph"))
+    close:SetLabel(S("page.close.glyph"))
     close.onClick = function()
       parent:Hide()
     end
     close.tipTitle = L.UI_CLOSE
     view.close = close
-    title:SetPoint("TOPRIGHT", close, "TOPLEFT", -S("header.search.gap"), -S("page.title.y"))
+    title:SetPoint("TOPRIGHT", close, "TOPLEFT", -S("page.close.gap"), -S("page.title.y"))
   else
     title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -left, titleY)
   end
@@ -764,7 +756,7 @@ local function newView(id, parent, closable, card)
   end
 
   local gap = S("page.description.gap")
-  local desc = Bricks.text(frame, "small", S("page.description.color"))
+  local desc = Bricks.text(frame, S("page.description.font"), S("page.description.color"))
 
   desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -gap)
   desc:SetPoint("TOPRIGHT", title, "BOTTOMRIGHT", 0, -gap)
@@ -808,7 +800,7 @@ local function renderSearch(view)
 
   if #results == 0 then
     local widget = view.pools.description:acquire(child)
-    local height = widget:SetContent(format(L.UI_SEARCH_NONE, query), width, "medium")
+    local height = widget:SetContent(format(L.UI_SEARCH_NONE, query), width, S("page.description.font"))
 
     widget:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
 
@@ -853,26 +845,26 @@ local function tabEntries()
 
   openTab(shown.owner, shown.key)
 
-  for index = #openTabs, 1, -1 do
-    if not pageName(openTabs[index].owner, openTabs[index].key) then
-      remove(openTabs, index)
+  for _, entry in ipairs(openTabs) do
+    local owner, key = entry.owner, entry.key
+    local text = pageName(owner, key)
+
+    if text then
+      entries[#entries + 1] = {
+        text = text,
+        active = owner == shown.owner and key == shown.key,
+        onClick = function()
+          Window.select(owner, key)
+        end,
+        onClose = function()
+          Window.closeTab(owner, key)
+        end,
+      }
     end
   end
 
-  for _, entry in ipairs(openTabs) do
-    local owner, key = entry.owner, entry.key
-
-    entries[#entries + 1] = {
-      text = pageName(owner, key),
-      active = owner == shown.owner and key == shown.key,
-      closable = #openTabs > 1,
-      onClick = function()
-        Window.select(owner, key)
-      end,
-      onClose = function()
-        Window.closeTab(owner, key)
-      end,
-    }
+  for _, entry in ipairs(entries) do
+    entry.closable = #entries > 1
   end
 
   return entries
@@ -898,10 +890,9 @@ local function renderView(view)
     end
 
     if node then
-      local ok, title = pcall(Options.name, node)
       local okDesc, desc = pcall(Options.desc, node)
 
-      view.title:SetText(ok and title or node.owner)
+      view.title:SetText(Options.name(node))
       view.desc:SetText(okDesc and desc or "")
       crumbs = crumbsOf(node)
       height = layoutList(Options.children(node), view.scroll.child, 0, 0, view.childWidth, node.parent == nil, view.pools)
@@ -1032,13 +1023,13 @@ end
 
 local function decorateTab(button, entry)
   local size = S("nav.tree.chevron")
-  local offset = max(2, floor((S("nav.tab.padding") - size) / 2))
+  local offset = max(S("nav.tree.margin"), floor((S("nav.tab.padding") - size) / 2))
 
   if entry.branch and S("nav.tree.collapsible") then
     if not button.chevron then
       button.chevron = button:CreateTexture(nil, "OVERLAY")
       button.chevron:SetTexture(Bricks.media("chevron"))
-      Bricks.paint(button.chevron, "SetVertexColor", "text")
+      Bricks.paint(button.chevron, "SetVertexColor", S("nav.tree.chevronColor"))
     end
 
     button.chevron:SetWidth(size)
@@ -1057,8 +1048,8 @@ local function decorateTab(button, entry)
     if not button.guide then
       button.guide = button:CreateTexture(nil, "ARTWORK")
       button.guide:SetTexture(Bricks.media("solid"))
-      button.guide:SetWidth(1)
-      Bricks.paint(button.guide, "SetVertexColor", "borderDim")
+      button.guide:SetWidth(S("nav.tree.guideWidth"))
+      Bricks.paint(button.guide, "SetVertexColor", S("nav.tree.guideColor"))
     end
 
     button.guide:ClearAllPoints()
@@ -1091,8 +1082,21 @@ local function railIcon(owner)
   return owner == "EbonAPI" and Bricks.media("icon") or Bricks.media("addonIcon")
 end
 
+local function isNavHere()
+  return not S("windows.detach.nav")
+end
+
+local function isPageHere()
+  return page ~= nil and not S("windows.detach.page")
+end
+
+local function navOnRight()
+  return Parameters.value(nil, "tabs") == "RIGHT" and isNavHere() and isPageHere()
+end
+
 local function railItem(rail)
   local size, iconSize = S("nav.rail.width"), S("nav.rail.icon")
+  local crop = S("nav.rail.crop")
   local item = CreateFrame("Button", nil, rail)
 
   item:SetWidth(size)
@@ -1101,11 +1105,11 @@ local function railItem(rail)
   item.icon:SetWidth(iconSize)
   item.icon:SetHeight(iconSize)
   item.icon:SetPoint("CENTER", item, "CENTER", 0, 0)
-  item.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  item.icon:SetTexCoord(crop, 1 - crop, crop, 1 - crop)
   item.indicator = item:CreateTexture(nil, "OVERLAY")
   item.indicator:SetTexture(Bricks.media("solid"))
-  item.indicator:SetWidth(max(1, S("nav.rail.indicator")))
-  Bricks.paint(item.indicator, "SetVertexColor", "focus")
+  item.indicator:SetWidth(S("nav.rail.indicator"))
+  Bricks.paint(item.indicator, "SetVertexColor", S("nav.rail.indicatorColor"))
 
   item:SetScript("OnEnter", function(self)
     self.hovered = true
@@ -1145,21 +1149,19 @@ local function buildRail()
   end
 
   local size, spacing = S("nav.rail.width"), S("nav.rail.spacing")
-  local outer = rail.outer or "LEFT"
+  local outer = navOnRight() and "RIGHT" or "LEFT"
   local owners = Options.owners()
   local y = spacing
 
   for index, owner in ipairs(owners) do
     local item = rail.items[index]
-    local ok, name = pcall(Options.name, Options.root(owner))
-
     if not item then
       item = railItem(rail)
       rail.items[index] = item
     end
 
     item.owner = owner
-    item.tipTitle = ok and name or owner
+    item.tipTitle = Options.name(Options.root(owner))
     item.icon:SetTexture(railIcon(owner))
     item:ClearAllPoints()
     item:SetPoint("TOP", rail, "TOP", 0, -y)
@@ -1220,9 +1222,7 @@ function Window.buildNav()
       button.entry = entry
       button.onClick = function()
         if entry.branch and S("nav.tree.collapsible") then
-          local current = shown.owner == entry.owner and shown.key == entry.key
-
-          if current or isCollapsed(entry.owner) then
+          if shown.owner == entry.owner or isCollapsed(entry.owner) then
             collapsed[entry.owner] = not isCollapsed(entry.owner)
           end
         end
@@ -1274,7 +1274,6 @@ local function layoutNav(right)
   nav:SetWidth(navSpan())
 
   if rail then
-    rail.outer = outer
     rail:ClearAllPoints()
     rail:SetPoint("TOP" .. outer, nav, "TOP" .. outer, 0, 0)
     rail:SetPoint("BOTTOM" .. outer, nav, "BOTTOM" .. outer, 0, 0)
@@ -1305,17 +1304,26 @@ local function layoutNav(right)
   end
 end
 
+local function rollUp()
+  for _, block in ipairs({ nav, page, footer }) do
+    if block and block:GetParent() == main then
+      block:Hide()
+    end
+  end
+
+  main:Resize(main:GetWidth(), S("header.height"))
+end
+
 local function arrange()
   local pad, spacing = S("window.padding"), S("window.spacing")
   local navWidth, pageWidth, pageHeight = navSpan(), S("page.width"), S("page.height")
   local headerHeight = S("header.height")
   local headerHere = header ~= nil and not S("windows.detach.header")
-  local navHere = not S("windows.detach.nav")
-  local pageHere = page ~= nil and not S("windows.detach.page")
+  local navHere, pageHere = isNavHere(), isPageHere()
   local navShown = navHere and navWidth > 0
   local columns = navShown or pageHere
   local top = headerHere and (headerHeight + spacing) or pad
-  local right = Parameters.value(nil, "tabs") == "RIGHT" and navHere and pageHere
+  local right = navOnRight()
   local width, height = pad * 2 + spacing + S("nav.width") + pageWidth, 0
 
   if navShown and pageHere then
@@ -1338,7 +1346,6 @@ local function arrange()
 
   main:Resize(width, height)
   main.used = headerHere or columns
-  shaded = false
 
   if header then
     local host = headerHere and main or blockHost("header")
@@ -1350,7 +1357,7 @@ local function arrange()
     header:SetHeight(headerHeight)
 
     if not headerHere then
-      host:Resize(pad * 2 + spacing + S("nav.width") + pageWidth, headerHeight)
+      host:Resize(width, headerHeight)
     end
   end
 
@@ -1379,6 +1386,10 @@ local function arrange()
     else
       nav.panel.divider:Hide()
     end
+  end
+
+  if shaded then
+    rollUp()
   end
 end
 
@@ -1434,16 +1445,45 @@ local function placeAll()
   end
 end
 
-local function detachedHost(id, name, index)
-  local pad = S("window.padding")
-  local host = Windows.create(id, name)
+local function freeSlot()
+  local used = {}
+
+  for _, host in pairs(pageWindows) do
+    if host:IsShown() then
+      used[host.slot] = true
+    end
+  end
+
+  if searchWindow and searchWindow:IsShown() then
+    used[searchWindow.slot] = true
+  end
+
+  local slot = 1
+
+  while used[slot] do
+    slot = slot + 1
+  end
+
+  return slot
+end
+
+local function placeDetached(host)
   local anchor = besideNav()
   local gap, cascade = S("windows.gap"), S("windows.cascade")
+  local slot = freeSlot()
+
+  host.slot = slot
+  Windows.place(host, function(frame)
+    frame:SetPoint("TOPLEFT", anchor, "TOPRIGHT", gap + cascade * (slot - 1), -cascade * (slot - 1))
+  end)
+end
+
+local function detachedHost(id, name)
+  local pad = S("window.padding")
+  local host = Windows.create(id, name)
 
   host:Resize(S("page.width") + pad * 2, S("page.height") + pad * 2)
-  Windows.place(host, function(frame)
-    frame:SetPoint("TOPLEFT", anchor, "TOPRIGHT", gap + cascade * (index - 1), -cascade * (index - 1))
-  end)
+  placeDetached(host)
   host:HookScript("OnHide", function()
     if installed then
       Window.buildNav()
@@ -1459,7 +1499,7 @@ local function openPageWindow(owner, key)
 
   if not host then
     pageCount = pageCount + 1
-    host = detachedHost("page:" .. id, NAME .. "Page" .. pageCount, pageCount)
+    host = detachedHost("page:" .. id, NAME .. "Page" .. pageCount)
 
     local view = newView(id, host, true)
     local pad = S("window.padding")
@@ -1468,6 +1508,8 @@ local function openPageWindow(owner, key)
     view.frame:SetPoint("TOPLEFT", host, "TOPLEFT", pad, -pad)
     host.view = view
     pageWindows[id] = host
+  elseif not host:IsShown() then
+    placeDetached(host)
   end
 
   host:Show()
@@ -1478,7 +1520,7 @@ end
 
 local function openSearchWindow()
   if not searchWindow then
-    searchWindow = detachedHost("search", NAME .. "Search", 1)
+    searchWindow = detachedHost("search", NAME .. "Search")
 
     local view = newView("search", searchWindow, true)
     local pad = S("window.padding")
@@ -1486,6 +1528,8 @@ local function openSearchWindow()
     view.search = true
     view.frame:SetPoint("TOPLEFT", searchWindow, "TOPLEFT", pad, -pad)
     searchWindow.view = view
+  elseif not searchWindow:IsShown() then
+    placeDetached(searchWindow)
   end
 
   searchWindow:Show()
@@ -1541,7 +1585,7 @@ local function setQuery(text)
   query = text
   refreshSearchHint()
 
-  if query ~= "" and not mainView then
+  if query ~= "" and not mainView and Windows.anyShown() then
     openSearchWindow()
   elseif query == "" and searchWindow then
     searchWindow:Hide()
@@ -1577,7 +1621,7 @@ local function buildHeader()
   local titleX, titleY = pad + S("header.title.x"), -S("header.title.y")
   local versionGap, versionY = S("header.version.gap"), S("header.version.y")
 
-  title:SetText("EbonAPI")
+  title:SetText(L.UI_NAME)
   version:SetText(EbonAPI.version)
 
   if S("header.title.align") == "CENTER" then
@@ -1644,7 +1688,7 @@ local function buildHeader()
   end
 
   if S("header.minimize.show") then
-    local minimize = control("minimize", S("header.close.width"))
+    local minimize = control("minimize", S("header.minimize.width"))
 
     minimize:SetLabel(S("header.minimize.glyph"))
     minimize.onClick = function()
@@ -1653,7 +1697,7 @@ local function buildHeader()
   end
 
   if S("header.sidebar.show") then
-    local toggle = control("sidebar", S("header.history.width"))
+    local toggle = control("sidebar", S("header.sidebar.width"))
     local size = S("header.sidebar.size")
 
     frame.sidebar = toggle:CreateTexture(nil, "OVERLAY")
@@ -1789,7 +1833,7 @@ local function refreshFooter()
   if footer.badge then
     x = footer.badge:GetWidth()
   elseif footer.version then
-    x = S("window.padding") + S("header.title.x") + (footer.version:GetStringWidth() or 0) + S("footer.gap")
+    x = S("window.padding") + S("footer.inset") + (footer.version:GetStringWidth() or 0) + S("footer.gap")
   end
 
   for _, item in ipairs({ items.errors, items.warnings }) do
@@ -1887,7 +1931,7 @@ local function buildFooter()
   if S("footer.rule") then
     frame.rule = frame:CreateTexture(nil, "ARTWORK")
     frame.rule:SetTexture(Bricks.media("solid"))
-    frame.rule:SetHeight(S("header.rule.size"))
+    frame.rule:SetHeight(S("footer.ruleSize"))
     frame.rule:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     frame.rule:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     Bricks.paint(frame.rule, "SetVertexColor", "borderDim")
@@ -1900,7 +1944,7 @@ local function buildFooter()
     badge.fill = blockBackground(badge, S("footer.badge.color"))
     badge.text = Bricks.text(badge, "small", S("footer.badge.text"))
     badge.text:SetPoint("LEFT", badge, "LEFT", padding, 0)
-    badge.text:SetText("EbonAPI " .. EbonAPI.version)
+    badge.text:SetText(L.UI_NAME .. " " .. EbonAPI.version)
     badge:SetWidth((badge.text:GetStringWidth() or 0) + padding * 2)
     badge:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     badge:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
@@ -1910,7 +1954,7 @@ local function buildFooter()
     frame.badge = badge
   elseif S("footer.version") then
     frame.version = Bricks.text(frame, "small", "muted")
-    frame.version:SetPoint("LEFT", frame, "LEFT", S("window.padding") + S("header.title.x"), 0)
+    frame.version:SetPoint("LEFT", frame, "LEFT", S("window.padding") + S("footer.inset"), 0)
     frame.version:SetText(EbonAPI.version)
   end
 
@@ -1922,7 +1966,7 @@ local function buildFooter()
       addons = statusItem(frame),
       updates = statusItem(frame),
     }
-    local elapsed = 0
+    local elapsed, refresh = 0, S("footer.refresh")
 
     items.errors.onClick = function()
       openReport("error")
@@ -1941,7 +1985,7 @@ local function buildFooter()
     frame:SetScript("OnUpdate", function(_, delta)
       elapsed = elapsed + (delta or 0)
 
-      if elapsed >= 1 then
+      if elapsed >= refresh then
         elapsed = 0
         refreshFooter()
       end
@@ -2099,8 +2143,15 @@ local function travel(step)
   cursor = cursor + step
   traveling = true
   clearQuery()
-  showPage(target.owner, target.key)
+
+  local ok, err = pcall(showPage, target.owner, target.key)
+
   traveling = false
+
+  if not ok then
+    error(err, 0)
+  end
+
   Window.buildNav()
   Window.render()
 
@@ -2123,13 +2174,17 @@ function Window.openTabs()
   return openTabs
 end
 
+local function shownTab(entry)
+  return entry and pageName(entry.owner, entry.key) and entry or nil
+end
+
 function Window.closeTab(owner, key)
   for index, entry in ipairs(openTabs) do
     if entry.owner == owner and entry.key == key then
       remove(openTabs, index)
 
       if shown.owner == owner and shown.key == key then
-        local nearby = openTabs[index] or openTabs[index - 1]
+        local nearby = shownTab(openTabs[index]) or shownTab(openTabs[index - 1])
 
         if nearby then
           Window.select(nearby.owner, nearby.key)
@@ -2216,25 +2271,18 @@ end
 
 function Window.shade()
   if not main or not header or header:GetParent() ~= main then
-    return false
+    return nil
   end
 
   if shaded then
+    shaded = false
     arrange()
-
-    return false
+  else
+    shaded = true
+    rollUp()
   end
 
-  for _, block in ipairs({ nav, page, footer }) do
-    if block and block:GetParent() == main then
-      block:Hide()
-    end
-  end
-
-  main:Resize(main:GetWidth(), S("header.height"))
-  shaded = true
-
-  return true
+  return shaded
 end
 
 function Window.isShaded()
@@ -2292,9 +2340,11 @@ function Window.searchWindow()
 end
 
 function Window.pool(kind, id)
-  local view = views[id or "main"]
+  if id then
+    return views[id] and views[id].pools[kind]
+  end
 
-  return (view and view.pools[kind]) or navPools[kind]
+  return (views.main and views.main.pools[kind]) or navPools[kind]
 end
 
 local function hideMenus()
@@ -2322,19 +2372,20 @@ local function installPanel()
 
   local panel = CreateFrame("Frame", nil, UIParent)
 
-  panel.name = "EbonAPI"
+  panel.name = L.UI_NAME
 
+  local margin = S("panel.margin")
   local text = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 
-  text:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -16)
-  text:SetPoint("RIGHT", panel, "RIGHT", -16, 0)
+  text:SetPoint("TOPLEFT", panel, "TOPLEFT", margin, -margin)
+  text:SetPoint("RIGHT", panel, "RIGHT", -margin, 0)
   text:SetJustifyH("LEFT")
 
   local open = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 
-  open:SetWidth(240)
-  open:SetHeight(24)
-  open:SetPoint("TOPLEFT", text, "BOTTOMLEFT", 0, -12)
+  open:SetWidth(S("panel.button.width"))
+  open:SetHeight(S("panel.button.height"))
+  open:SetPoint("TOPLEFT", text, "BOTTOMLEFT", 0, -S("panel.gap"))
   open:SetScript("OnClick", function()
     hideMenus()
     Window.open()
@@ -2365,18 +2416,30 @@ local function installGameMenu()
 
   local padding = nil
 
+  local function isChained()
+    local at = logout
+
+    while at do
+      local _, relative = at:GetPoint(1)
+
+      if relative == button then
+        return true
+      end
+
+      at = relative
+    end
+
+    return false
+  end
+
   local function place()
     local point, relative, relativePoint, x, y = logout:GetPoint(1)
 
-    if relative and relative ~= button then
-      local _, relativeAbove = relative:GetPoint(1)
-
-      if relativeAbove ~= button then
-        button:ClearAllPoints()
-        button:SetPoint("TOP", relative, "BOTTOM", 0, -1)
-        logout:ClearAllPoints()
-        logout:SetPoint(point, button, relativePoint, x, y)
-      end
+    if relative and not isChained() then
+      button:ClearAllPoints()
+      button:SetPoint("TOP", relative, "BOTTOM", 0, -S("gamemenu.gap"))
+      logout:ClearAllPoints()
+      logout:SetPoint(point, button, relativePoint, x, y)
     end
   end
 
@@ -2436,7 +2499,7 @@ end
 
 function Window.paintMenuButton()
   if Window.menuButton then
-    Window.menuButton:SetText(Palette.code("menu") .. "EbonAPI|r")
+    Window.menuButton:SetText(Palette.code("menu") .. L.UI_NAME .. "|r")
   end
 end
 
@@ -2473,14 +2536,22 @@ function Window.install()
   installGameMenu()
 end
 
+local function requireOptions(owner)
+  if not Options.has(owner) then
+    error("EbonAPI: " .. tostring(owner) .. ": OpenOptions needs options registered with api:Options first", 3)
+  end
+end
+
 function EbonAPI:OpenOptions(owner, key)
+  if owner then
+    requireOptions(owner)
+  end
+
   return Window.open(owner, key)
 end
 
 function Handle:OpenOptions(key)
-  if not Options.has(self.addonName) then
-    error("EbonAPI: " .. self.addonName .. ": OpenOptions needs options registered with api:Options first", 2)
-  end
+  requireOptions(self.addonName)
 
   return Window.open(self.addonName, key)
 end

@@ -2,8 +2,7 @@ EbonAPI = EbonAPI or {}
 EbonAPI.Profile = {}
 
 local Profile = EbonAPI.Profile
-local Lib = EbonAPI.Lib
-local Log = EbonAPI.Log
+local Hash = EbonAPI.Hash
 local Bus = EbonAPI.Bus
 local DB = EbonAPI.DB
 local Bridge = EbonAPI.Bridge
@@ -13,8 +12,8 @@ local Session = EbonAPI.Session
 local CS = EbonAPI.CS
 local Handle = EbonAPI.Handle
 
-local type, tonumber, tostring, pairs, ipairs, next, error = type, tonumber, tostring, pairs, ipairs, next, error
-local match, gmatch, byte, sub, len, concat, sort = string.match, string.gmatch, string.byte, string.sub, string.len, table.concat, table.sort
+local type, tonumber, pairs, ipairs, next, error = type, tonumber, pairs, ipairs, next, error
+local match, gmatch, byte, sub, len, concat, sort, format = string.match, string.gmatch, string.byte, string.sub, string.len, table.concat, table.sort, string.format
 local floor = math.floor
 
 local LETTER = "EbonAPI"
@@ -70,10 +69,6 @@ local packed = {}
 local chars = {}
 local lockedIds = {}
 
-local function now()
-  return (GetTime and GetTime()) or 0
-end
-
 function Profile.ClassIndex(token)
   return CLASS_INDEX[token]
 end
@@ -93,26 +88,7 @@ function Profile.PlayerClass()
 end
 
 function Profile.Signature(text)
-  local h = 0
-
-  for i = 1, len(text) do
-    h = (h * 31 + byte(text, i)) % 2147483647
-  end
-
-  local out = {}
-
-  for i = 6, 1, -1 do
-    out[i] = encode[h % 64]
-    h = floor(h / 64)
-  end
-
-  local n = len(text)
-
-  if n > 4095 then
-    n = 4095
-  end
-
-  return encode[floor(n / 64)] .. encode[n % 64] .. concat(out)
+  return Hash.digest(text)
 end
 
 function Profile.EncodeEchoes(raw)
@@ -188,7 +164,7 @@ local function encodeIds(list, limit)
     if id then
       id = id - ECHO_BASE
 
-      if id >= 0 and id < ECHO_SPAN and count < limit then
+      if id >= 0 and id < ECHO_SPAN and id == floor(id) and count < limit then
         count = count + 1
         values[count] = id
       end
@@ -532,9 +508,15 @@ end
 
 Profile.flush = flush
 
-function Profile.SetBans(lists)
+function Profile.SetBans(addon, lists)
   if type(lists) ~= "table" then
-    error("EbonAPI.Profile.SetBans expects a table of lists, got " .. type(lists), 2)
+    error(format("EbonAPI: %s: SetProfileBans expects a table of lists, got %s", addon, type(lists)), 2)
+  end
+
+  for i = 1, #lists do
+    if type(lists[i]) ~= "table" then
+      error(format("EbonAPI: %s: SetProfileBans expects a table of lists of echo ids, list %d is a %s", addon, i, type(lists[i])), 2)
+    end
   end
 
   local class = Profile.PlayerClass()
@@ -548,7 +530,9 @@ function Profile.SetBans(lists)
   bansText = text
   bansHash = Profile.Signature(class .. ":" .. text)
 
-  return flush()
+  flush()
+
+  return true
 end
 
 local function onBuilds()
@@ -636,5 +620,5 @@ function Profile.reference()
 end
 
 function Handle:SetProfileBans(lists)
-  return Profile.SetBans(lists)
+  return Profile.SetBans(self.addonName, lists)
 end

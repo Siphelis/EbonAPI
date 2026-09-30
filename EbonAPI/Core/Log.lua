@@ -50,7 +50,7 @@ local filled = 0
 
 local debugOwners = {}
 local debugAll = false
-local kindsSeen = {}
+local counts = {}
 
 function Log.trace(kind, owner, a, b, at)
   cursor = cursor % CAPACITY + 1
@@ -60,7 +60,7 @@ function Log.trace(kind, owner, a, b, at)
   tOwner[cursor] = owner
   tA[cursor] = a
   tB[cursor] = b
-  kindsSeen[kind] = true
+  counts[kind] = (counts[kind] or 0) + 1
 
   if filled < CAPACITY then
     filled = filled + 1
@@ -68,19 +68,11 @@ function Log.trace(kind, owner, a, b, at)
 end
 
 function Log.count(kind)
-  local total = 0
-
-  for index = 1, filled do
-    if tKind[index] == kind then
-      total = total + 1
-    end
-  end
-
-  return total
+  return counts[kind] or 0
 end
 
 function Log.kinds()
-  return Lib.sortedKeys(kindsSeen)
+  return Lib.sortedKeys(counts)
 end
 
 function Log.isDebug(owner)
@@ -95,7 +87,7 @@ function Log.setDebug(owner, enabled)
 
   debugOwners[owner] = enabled and true or nil
 
-  return debugOwners[owner] == true
+  return Log.isDebug(owner)
 end
 
 local function describe(a, b)
@@ -168,11 +160,11 @@ function Log.error(owner, ...)
   local text = join(...)
 
   Log.trace("error", owner, text)
-  Lib.report("[" .. (owner or "EbonAPI") .. "] " .. text)
+  Lib.display("[" .. (owner or "EbonAPI") .. "] " .. text)
 end
 
 function Log.debug(owner, ...)
-  if not (debugAll or debugOwners[owner]) then
+  if not Log.isDebug(owner) then
     return
   end
 

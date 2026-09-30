@@ -1,5 +1,6 @@
 EbonAPI = EbonAPI or {}
 
+local Lib = EbonAPI.Lib
 local Log = EbonAPI.Log
 local Bus = EbonAPI.Bus
 local DB = EbonAPI.DB
@@ -17,6 +18,7 @@ local Bricks = EbonAPI.Bricks
 local Window = EbonAPI.Window
 
 local ADDON_NAME = "EbonAPI"
+local safeCall = Lib.safeCall
 
 local onAddonLoaded, onPlayerLogin
 
@@ -27,12 +29,13 @@ onAddonLoaded = function(name)
 
   Bus.offCore("ADDON_LOADED", onAddonLoaded)
 
-  EbonAPIDB = EbonAPIDB or {}
   DB.attach(EbonAPIDB)
 
   Locale.applyPersisted()
   Skins.resolve()
   Bricks.apply()
+
+  safeCall(State.enable)
 
   Log.trace("boot", ADDON_NAME, "database attached")
 end
@@ -40,18 +43,17 @@ end
 onPlayerLogin = function()
   Bus.offCore("PLAYER_LOGIN", onPlayerLogin)
 
-  DB.bindCharacter()
-  Session.begin()
-  Ebonhold.Detect()
+  safeCall(DB.bindCharacter)
+  safeCall(Session.begin)
+  safeCall(Ebonhold.Detect)
 
-  Bridge.enable()
-  State.enable()
+  safeCall(Bridge.enable)
 
-  Channel.enable()
-  Profile.enable()
-  Version.enable()
-  Share.enable()
-  Window.install()
+  safeCall(Channel.enable)
+  safeCall(Profile.enable)
+  safeCall(Version.enable)
+  safeCall(Share.enable)
+  safeCall(Window.install)
 
   EbonAPI._ready = true
   EbonAPI:Emit("READY", EbonAPI.version)

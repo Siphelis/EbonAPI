@@ -12,7 +12,7 @@ local Channel = EbonAPI.Channel
 local Whisper = EbonAPI.Whisper
 local Handle = EbonAPI.Handle
 
-local type, pairs, next, error, tostring, tonumber, pcall = type, pairs, next, error, tostring, tonumber, pcall
+local type, pairs, next, error, tonumber, pcall = type, pairs, next, error, tonumber, pcall
 local match, gmatch, len, format, concat, sort = string.match, string.gmatch, string.len, string.format, table.concat, table.sort
 local random = math.random
 
@@ -26,6 +26,7 @@ local REPLY_MIN, REPLY_MAX = 1, 5
 local ROUND_INTERVAL = 120
 local PEER_TTL = 600
 local FETCH_TIMEOUT = 30
+local SERVE_WINDOW = 30
 local REQUEST_COOLDOWN = 10
 
 Share.PREFIX = PREFIX
@@ -41,7 +42,7 @@ local store = nil
 local enabled = false
 local ticking = false
 local rounding = false
-local awaitingServe = false
+local serveUntil = nil
 local announceAt = nil
 local lastManual = nil
 local peers = {}
@@ -87,6 +88,10 @@ function Share.set(addon, name, state, text)
   local held = texts()
   local own = held[addon]
 
+  if Keys.get(addon, name) == state and ((own and own[name]) or "") ~= text then
+    error(format('EbonAPI: %s: share "%s": text differs but the state is still %s (raise the state to share a new text)', addon, name, state), 2)
+  end
+
   if not own then
     own = {}
     held[addon] = own
@@ -130,10 +135,20 @@ end
 
 local function line()
   local addons = Keys.addons()
+  local room = Channel.bodyMax(NAME, "F")
   local out = {}
+  local size = -1
 
   for i = 1, #addons do
-    out[i] = addons[i] .. "=" .. Keys.part(addons[i])
+    local item = addons[i] .. "=" .. Keys.part(addons[i])
+
+    size = size + len(item) + 1
+
+    if size > room then
+      break
+    end
+
+    out[i] = item
   end
 
   return concat(out, ",")
@@ -206,14 +221,18 @@ local function idle()
 end
 
 local function announce()
-  announceAt = nil
-
-  if not Channel.isJoined() or not Channel.say(NAME, "F", line()) then
+  if not Channel.isJoined() then
+    announceAt = nil
     return false
   end
 
+  if not Channel.say(NAME, "F", line()) then
+    return false
+  end
+
+  announceAt = nil
   Share.sent.lines = Share.sent.lines + 1
-  awaitingServe = true
+  serveUntil = now() + SERVE_WINDOW
   Log.trace("share", nil, "F")
 
   return true
@@ -326,10 +345,11 @@ local function onLineStream(sender, body, _, op)
   local parts = remember(sender, body)
 
   if op == "F" then
-    if awaitingServe then
-      awaitingServe = false
+    if serveUntil and now() <= serveUntil then
       Channel.say(NAME, "S", "")
     end
+
+    serveUntil = nil
 
     whisperLine(sender, "f")
   end
@@ -354,20 +374,26 @@ local function onQueryStream(sender, body)
   end
 
   for addon in gmatch(body, "[%w_]+") do
-    if Whisper.stream(PREFIX, sender, "K", addon, keysText(addon)) then
+    local text = keysText(addon)
+
+    if text ~= "" and Whisper.stream(PREFIX, sender, "K", addon, text) then
       Share.sent.keys = Share.sent.keys + 1
     end
   end
 end
 
 local function wanted(addon, name, theirs, mine)
+  if mine == theirs then
+    return false
+  end
+
   local rule = rules[addon]
 
   if rule then
     local ok, result = pcall(rule, name, theirs, mine)
 
     if not ok then
-      Lib.report(result)
+      Lib.report(result, addon)
       return false
     end
 
@@ -401,7 +427,7 @@ local function onKeysStream(sender, body, addon)
     if state then
       local mine = Keys.get(addon, name)
 
-      if mine ~= state and wanted(addon, name, state, mine) then
+      if wanted(addon, name, state, mine) then
         requestData(sender, addon, name)
       end
     end
@@ -420,8 +446,8 @@ local function onWhisper(sender, text)
 
     local held, state = Share.get(addon, name)
 
-    if held and state then
-      if Whisper.stream(PREFIX, sender, "D", rest, state .. "|" .. held) then
+    if state then
+      if Whisper.stream(PREFIX, sender, "D", rest, state .. "|" .. (held or "")) then
         Share.sent.data = Share.sent.data + 1
       end
     else
@@ -452,7 +478,7 @@ local function onDataStream(sender, body, id)
     state = Keys.read(name, state)
   end
 
-  if not addon or not state or len(text) > TEXT_MAX then
+  if not addon or not state or len(text) > TEXT_MAX or not wanted(addon, name, state, Keys.get(addon, name)) then
     Share.refused = Share.refused + 1
     return
   end
@@ -612,7 +638,7 @@ function Share.disable()
 
   ticking = false
   rounding = false
-  awaitingServe = false
+  serveUntil = nil
   announceAt = nil
 
   return true

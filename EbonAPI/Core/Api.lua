@@ -2,21 +2,29 @@ EbonAPI = EbonAPI or {}
 
 local Lib = EbonAPI.Lib
 
-local type, pairs, tostring = type, pairs, tostring
+local type, pairs, tostring, tonumber = type, pairs, tostring, tonumber
 local setmetatable, pcall, error = setmetatable, pcall, error
 local report = Lib.report
 
 EbonAPI.name = "EbonAPI"
-EbonAPI.MAJOR = 1
-EbonAPI.MINOR = 0
-EbonAPI.PATCH = 0
-EbonAPI.version = "1.0.0"
+
+local VERSION = GetAddOnMetadata(EbonAPI.name, "Version")
+local MAJOR, MINOR, PATCH = string.match(VERSION, "^(%d+)%.(%d+)%.(%d+)")
+
+EbonAPI.MAJOR = tonumber(MAJOR)
+EbonAPI.MINOR = tonumber(MINOR)
+EbonAPI.PATCH = tonumber(PATCH)
+EbonAPI.version = VERSION
 
 local NAME_MAX = 32
 
 EbonAPI.NAME_MAX = NAME_MAX
 
-local runFns, runIndex, runCount
+local runFns, runOwners, runIndex, runCount
+
+local function ownerName(owner)
+  return owner and (owner.addonName or owner.name)
+end
 
 local function runner(...)
   while runIndex <= runCount do
@@ -27,14 +35,14 @@ local function runner(...)
   end
 end
 
-function EbonAPI.fanout(fns, count, ...)
+function EbonAPI.fanout(fns, owners, count, ...)
   if count == 0 then
     return 0
   end
 
-  local savedFns, savedIndex, savedCount = runFns, runIndex, runCount
+  local savedFns, savedOwners, savedIndex, savedCount = runFns, runOwners, runIndex, runCount
 
-  runFns, runIndex, runCount = fns, 1, count
+  runFns, runOwners, runIndex, runCount = fns, owners, 1, count
 
   while runIndex <= runCount do
     local ok, err = pcall(runner, ...)
@@ -43,10 +51,10 @@ function EbonAPI.fanout(fns, count, ...)
       break
     end
 
-    report(err)
+    report(err, ownerName(runOwners[runIndex - 1]))
   end
 
-  runFns, runIndex, runCount = savedFns, savedIndex, savedCount
+  runFns, runOwners, runIndex, runCount = savedFns, savedOwners, savedIndex, savedCount
 
   return count
 end
@@ -90,11 +98,11 @@ end
 
 local function subscribe(owner, event, fn)
   if type(event) ~= "string" then
-    error("EbonAPI: the event name must be a string, got " .. type(event), 3)
+    error("EbonAPI: the event name must be a string, got " .. type(event), 2)
   end
 
   if type(fn) ~= "function" then
-    error("EbonAPI: the callback for '" .. event .. "' must be a function, got " .. type(fn), 3)
+    error("EbonAPI: the callback for '" .. event .. "' must be a function, got " .. type(fn), 2)
   end
 
   local list = listFor(event)
@@ -120,7 +128,7 @@ local function subscribe(owner, event, fn)
       local ok, err = pcall(fn, event, held[1], held[2], held[3], held[4], held[5], held[6])
 
       if not ok then
-        report(err)
+        report(err, ownerName(owner))
       end
     end
   end
@@ -190,7 +198,7 @@ function EbonAPI:Emit(event, a, b, c, d, e, f)
 
   list.busy = list.busy + 1
 
-  local served = fanout(list.fns, count, event, a, b, c, d, e, f)
+  local served = fanout(list.fns, list.owners, count, event, a, b, c, d, e, f)
 
   list.busy = list.busy - 1
 
@@ -274,7 +282,11 @@ function Handle:OffAll()
   local teardowns = EbonAPI._teardowns
 
   for index = 1, #teardowns do
-    teardowns[index](self)
+    local ok, err = pcall(teardowns[index], self)
+
+    if not ok then
+      report(err, self.addonName)
+    end
   end
 end
 
@@ -314,17 +326,29 @@ local function connectionProblem(name, info)
     return "the fourth argument must be a table (icon, updates, url, version), got " .. type(info)
   end
 
-  for key, value in pairs(info) do
+  local keys = Lib.sortedKeys(info)
+
+  for index = 1, #keys do
+    local key = keys[index]
+    local value = info[key]
     local kind = CONNECTION[key]
 
     if not kind then
       return 'unknown connection option "' .. tostring(key) .. '" (known: icon, updates, url, version)'
     end
 
-    if type(value) ~= kind or value == "" then
+    if type(value) ~= kind then
       return 'connection option "' .. key .. '" expects a ' .. (kind == "string" and "non-empty text" or kind)
         .. ", got " .. type(value)
     end
+
+    if value == "" then
+      return 'connection option "' .. key .. '" expects a non-empty text, got an empty text'
+    end
+  end
+
+  if info.version and not info.updates then
+    return 'connection option "version" needs updates = true'
   end
 
   if info.updates then
@@ -348,8 +372,21 @@ local function connect(handle, name, info)
   end
 
   if info.updates then
-    EbonAPI.Version.register(name, info.version or GetAddOnMetadata(name, "Version"), handle.link)
+    EbonAPI.Version.register(name, info.version or GetAddOnMetadata(name, "Version"))
   end
+end
+
+local function requiredNumber(name, part, value)
+  if value == nil then
+    return nil
+  end
+
+  if type(value) ~= "number" then
+    error('EbonAPI:NewAddon: "' .. name .. '": the required ' .. part .. " version must be a number, got "
+      .. type(value), 3)
+  end
+
+  return value
 end
 
 function EbonAPI:NewAddon(name, needMajor, needMinor, info)
@@ -370,8 +407,8 @@ function EbonAPI:NewAddon(name, needMajor, needMinor, info)
     end
   end
 
-  needMajor = needMajor or self.MAJOR
-  needMinor = needMinor or 0
+  needMajor = requiredNumber(name, "major", needMajor) or self.MAJOR
+  needMinor = requiredNumber(name, "minor", needMinor) or 0
 
   if needMajor > self.MAJOR or (needMajor == self.MAJOR and needMinor > self.MINOR) then
     versionRefusal(name, needMajor, needMinor)

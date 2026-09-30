@@ -16,7 +16,6 @@ local match, find, sub, len = string.match, string.find, string.sub, string.len
 local ceil = math.ceil
 
 local TAG = "EAS"
-local LINE_MAX = 255
 local PART_MAX = 400
 local STREAM_TIMEOUT = 30
 local STREAM_SWEEP = 5
@@ -33,7 +32,7 @@ local serial = 0
 local baseName = Queue.baseName
 
 Whisper.received = 0
-Whisper.drops = { tag = 0, bounds = 0, expired = 0 }
+Whisper.drops = { tag = 0, bounds = 0, unknown = 0, expired = 0 }
 
 local drops = Whisper.drops
 
@@ -46,7 +45,7 @@ local streams = Assembler.new("EbonAPI:whispers", STREAM_TIMEOUT, STREAM_SWEEP, 
 end)
 
 local function clean(text)
-  return match(text, "^|c%x%x%x%x%x%x%x%x%[[^%]]*%]|r%s*(.*)$") or match(text, "^%[[^%]]*%]%s+(.*)$") or text
+  return match(text, "^|c%x%x%x%x%x%x%x%x%[[^%]]*%]|r%s*(.*)$") or text
 end
 
 local function keyFor(prefix, op)
@@ -54,7 +53,7 @@ local function keyFor(prefix, op)
 end
 
 local function onAddonMessage(prefix, text, distribution, sender)
-  if not prefixes[prefix] or type(text) ~= "string" then
+  if distribution ~= "WHISPER" or not prefixes[prefix] or type(text) ~= "string" then
     return
   end
 
@@ -66,17 +65,18 @@ local function onAddonMessage(prefix, text, distribution, sender)
 
   text = clean(text)
 
-  if sub(text, 1, 4) == "EAS:" then
-    local op, id, k, n, slice = match(text, "^(%w+):([^:]+):(%d+)/(%d+):(.*)$", 5)
+  local reserved = sub(text, 1, 4) == "EAS:"
+  local op, id, k, n, slice
 
-    if not op then
-      drops.tag = drops.tag + 1
-      return
-    end
+  if reserved then
+    op, id, k, n, slice = match(text, "^(%w+):([^:]+):(%d+)/(%d+):(.*)$", 5)
+  end
 
+  if op then
     local entry = streamed[keyFor(prefix, op)]
 
     if not entry then
+      drops.unknown = drops.unknown + 1
       return
     end
 
@@ -101,6 +101,8 @@ local function onAddonMessage(prefix, text, distribution, sender)
     Whisper.received = Whisper.received + 1
     Log.trace("wisp", nil, prefix, len(text))
     list:fire(sender, text, distribution, prefix)
+  elseif reserved then
+    drops.tag = drops.tag + 1
   end
 end
 
@@ -147,7 +149,7 @@ local function unregister(prefix)
   end
 end
 
-function Whisper.on(prefix, fn)
+function Whisper.on(prefix, fn, handle)
   checkPrefix(prefix, "on")
 
   if type(fn) ~= "function" then
@@ -166,6 +168,18 @@ function Whisper.on(prefix, fn)
   end
 
   register(prefix)
+
+  if handle then
+    local owned = handle._whisper
+
+    if not owned then
+      owned = {}
+      handle._whisper = owned
+    end
+
+    owned[#owned + 1] = prefix
+    owned[#owned + 1] = fn
+  end
 
   return true
 end
@@ -186,7 +200,7 @@ function Whisper.off(prefix, fn)
   return true
 end
 
-function Whisper.onStream(prefix, op, fn, onPart)
+function Whisper.onStream(prefix, op, fn, onPart, handle)
   checkPrefix(prefix, "onStream")
   checkOp(op, "onStream")
 
@@ -198,7 +212,7 @@ function Whisper.onStream(prefix, op, fn, onPart)
   local entry = streamed[key]
 
   if not entry then
-    entry = { list = Listeners.new(), parts = Listeners.new() }
+    entry = { list = Listeners.new(), parts = Listeners.new(), partOf = {} }
     streamed[key] = entry
   end
 
@@ -208,14 +222,26 @@ function Whisper.onStream(prefix, op, fn, onPart)
 
   if type(onPart) == "function" then
     entry.parts:add(onPart)
+    entry.partOf[fn] = onPart
   end
 
   register(prefix)
 
+  if handle then
+    local owned = handle._whisperStreams
+
+    if not owned then
+      owned = {}
+      handle._whisperStreams = owned
+    end
+
+    owned[#owned + 1] = { prefix, op, fn }
+  end
+
   return true
 end
 
-function Whisper.offStream(prefix, op, fn, onPart)
+function Whisper.offStream(prefix, op, fn)
   local key = keyFor(prefix, op)
   local entry = streamed[key]
 
@@ -223,8 +249,11 @@ function Whisper.offStream(prefix, op, fn, onPart)
     return false
   end
 
+  local onPart = entry.partOf[fn]
+
   if onPart then
     entry.parts:remove(onPart)
+    entry.partOf[fn] = nil
   end
 
   if entry.list.n == 0 then
@@ -251,26 +280,31 @@ function Whisper.stream(prefix, target, op, id, body)
     error("EbonAPI.Whisper.stream: invalid stream id for " .. prefix .. ":" .. op, 2)
   end
 
-  target = baseName(target)
-
-  if not target then
-    return false
-  end
-
   local head = TAG .. ":" .. op .. ":" .. id .. ":"
-  local budget = LINE_MAX - len(prefix) - 1 - len(head) - 8
+  local budget = Channel.LINE_MAX - len(prefix) - 1 - len(head) - 8
 
   if budget < 1 then
     error("EbonAPI.Whisper.stream: header too long for " .. prefix .. ":" .. op, 2)
   end
 
-  if ceil(len(body) / budget) > PART_MAX then
-    return false
+  local length = len(body)
+  local parts = {}
+  local total = PART_MAX + 1
+
+  if ceil(length / budget) <= PART_MAX then
+    local _, count = Lib.splitUtf8(body, budget, parts)
+
+    total = count
   end
 
-  local parts, total = Lib.splitUtf8(body, budget, {})
-
   if total > PART_MAX then
+    error("EbonAPI.Whisper.stream: body of " .. length .. " bytes for " .. prefix .. ":" .. op
+      .. ", the limit is " .. (PART_MAX * budget) .. " bytes", 2)
+  end
+
+  target = baseName(target)
+
+  if not target then
     return false
   end
 
@@ -286,25 +320,11 @@ function Whisper.streamCount()
 end
 
 function Whisper.droppedTotal()
-  return drops.tag + drops.bounds + drops.expired
+  return drops.tag + drops.bounds + drops.unknown + drops.expired
 end
 
 function Handle:OnWhisper(prefix, fn)
-  if not Whisper.on(prefix, fn) then
-    return false
-  end
-
-  local owned = self._whisper
-
-  if not owned then
-    owned = {}
-    self._whisper = owned
-  end
-
-  owned[#owned + 1] = prefix
-  owned[#owned + 1] = fn
-
-  return true
+  return Whisper.on(prefix, fn, self)
 end
 
 function Handle:OffWhisper(prefix, fn)
@@ -323,23 +343,10 @@ function Handle:OffWhisper(prefix, fn)
 end
 
 function Handle:OnWhisperStream(prefix, op, fn, onPart)
-  if not Whisper.onStream(prefix, op, fn, onPart) then
-    return false
-  end
-
-  local owned = self._whisperStreams
-
-  if not owned then
-    owned = {}
-    self._whisperStreams = owned
-  end
-
-  owned[#owned + 1] = { prefix, op, fn, onPart }
-
-  return true
+  return Whisper.onStream(prefix, op, fn, onPart, self)
 end
 
-function Handle:OffWhisperStream(prefix, op, fn, onPart)
+function Handle:OffWhisperStream(prefix, op, fn)
   local owned = self._whisperStreams
 
   if owned then
@@ -352,7 +359,7 @@ function Handle:OffWhisperStream(prefix, op, fn, onPart)
     end
   end
 
-  return Whisper.offStream(prefix, op, fn, onPart)
+  return Whisper.offStream(prefix, op, fn)
 end
 
 function Handle:WhisperStream(prefix, target, op, id, body)
@@ -376,7 +383,7 @@ EbonAPI:AddTeardown(function(handle)
     for i = #streamsOwned, 1, -1 do
       local entry = streamsOwned[i]
 
-      Whisper.offStream(entry[1], entry[2], entry[3], entry[4])
+      Whisper.offStream(entry[1], entry[2], entry[3])
       streamsOwned[i] = nil
     end
   end
