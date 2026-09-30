@@ -6,19 +6,20 @@ Every value a skin can set, with the values it accepts and its value in Azeroth,
 | --- | --- |
 | [Player settings](#player-settings) | 8 |
 | [Palette](#palette) | 31 |
-| [Contrast](#contrast) | 4 |
+| [Contrast](#contrast) | 7 |
 | [Fonts](#fonts) | 16 |
 | [Media](#media) | 13 |
 | [Borders](#borders) | 15 |
-| [Window](#window) | 28 |
+| [Window](#window) | 29 |
 | [Windows](#windows) | 8 |
-| [Header](#header) | 42 |
-| [Footer](#footer) | 11 |
-| [Column](#column) | 37 |
-| [Page](#page) | 38 |
-| [Controls](#controls) | 87 |
-| [Kit](#kit) | 58 |
-| [Chat](#chat) | 7 |
+| [Game menu](#game-menu) | 5 |
+| [Header](#header) | 50 |
+| [Footer](#footer) | 14 |
+| [Column](#column) | 45 |
+| [Page](#page) | 46 |
+| [Controls](#controls) | 88 |
+| [Kit](#kit) | 85 |
+| [Chat](#chat) | 10 |
 
 ## Player settings
 
@@ -79,12 +80,17 @@ How far EbonAPI lightens or darkens colors to keep text readable. See [What the 
 
 `contrast.light` and `contrast.dark` are the two greys, from 0 (black) to 1 (white), that EbonAPI uses for the text of buttons and of selected items: the lighter one when the text must stand out on a dark color, the darker one on a light color.
 
+When a color must be lightened or darkened, it moves a share of the way toward white or black at each try. `contrast.step` is that share, from 0.01 to 1, and `contrast.attempts` is the most tries, from 1 to 200. `contrast.mutedStep` is how much more opaque `muted` becomes at each try after a change of background.
+
 | Parameter | Accepts | Default |
 | --- | --- | --- |
 | `contrast.minimum` | number, 1 to 21 | `4.5` |
 | `contrast.enforce` | `true` or `false` | `true` |
 | `contrast.light` | number, 0 to 1 | `0.96` |
 | `contrast.dark` | number, 0 to 1 | `0.04` |
+| `contrast.step` | number, 0.01 to 1 | `0.15` |
+| `contrast.attempts` | whole number, 1 to 200 | `30` |
+| `contrast.mutedStep` | number, 0.01 to 1 | `0.05` |
 
 ## Fonts
 
@@ -153,7 +159,7 @@ The borders of frames: flat, rounded with the player's `corners`, or drawn from 
 
 ## Window
 
-The EbonAPI window: margins, layer, background texture and gradient, shadow, frosted glass, fading and sounds.
+The EbonAPI window: margins, layer, background texture and gradient, shadow, frosted glass, fading and sounds. When `window.glass.enabled` is `true`, `window.glass.edgeSize` is the thickness, in pixels, of the four glass edge lines, from 1 to 8.
 
 | Parameter | Accepts | Default |
 | --- | --- | --- |
@@ -164,7 +170,7 @@ The EbonAPI window: margins, layer, background texture and gradient, shadow, fro
 | `window.texture` | texture path, or `""` for none | `""` |
 | `window.textureAlpha` | number, 0 to 1 | `1` |
 | `window.gradient.orientation` | `HORIZONTAL`, `NONE`, `VERTICAL` | `"NONE"` |
-| `window.gradient.color` | color `0xRRGGBB` | `0xFFFFFF` |
+| `window.gradient.color` | palette name | `"text"` |
 | `window.gradient.from` | number, 0 to 1 | `0` |
 | `window.gradient.to` | number, 0 to 1 | `0.06` |
 | `window.shadow.base` | number, 0 to 64 | `4` |
@@ -182,6 +188,7 @@ The EbonAPI window: margins, layer, background texture and gradient, shadow, fro
 | `window.glass.sheen` | number, 0 to 1 | `0.08` |
 | `window.glass.sheenHeight` | number, 0 to 1 | `0.4` |
 | `window.glass.edge` | number, 0 to 1 | `0.12` |
+| `window.glass.edgeSize` | whole number, 1 to 8 | `1` |
 | `window.fade` | number, 0 to 2 | `0` |
 | `window.sound.open` | sound file or game sound name, or `""` for none | `""` |
 | `window.sound.close` | sound file or game sound name, or `""` for none | `""` |
@@ -200,6 +207,18 @@ Which parts of the EbonAPI window open in windows of their own, and how windows 
 | `windows.gap` | whole number, 0 to 60 | `8` |
 | `windows.snap` | whole number, 0 to 60 | `12` |
 | `windows.cascade` | whole number, 0 to 120 | `24` |
+
+## Game menu
+
+The EbonAPI button in the game's Esc menu, and the EbonAPI page of the game's interface options.
+
+| Parameter | Accepts | Default |
+| --- | --- | --- |
+| `panel.button.width` | whole number, 40 to 600 | `240` |
+| `panel.button.height` | whole number, 16 to 60 | `24` |
+| `panel.margin` | number, 0 to 60 | `16` |
+| `panel.gap` | number, 0 to 60 | `12` |
+| `gamemenu.gap` | number, 0 to 20 | `1` |
 
 ## Header
 
@@ -235,8 +254,9 @@ The title bar of the EbonAPI window: title, banner, version, search box, close b
 | `header.close.y` | number, -60 to 160 | `4` |
 | `header.close.brick` | brick name, slot `close` | `"native"` |
 | `header.close.width` | whole number, 10 to 120 | `32` |
-| `header.close.glyph` | text | `"X"` |
+| `header.close.glyph` | text | `""` |
 | `header.close.hover` | color `0xRRGGBB` | `0xE81123` |
+| `header.close.ink` | color `0xRRGGBB` | `0x4D0000` |
 | `header.inset` | number, -60 to 60 | `-14` |
 | `header.spacing` | whole number, 0 to 40 | `4` |
 | `header.history.show` | `true` or `false` | `false` |
@@ -244,9 +264,16 @@ The title bar of the EbonAPI window: title, banner, version, search box, close b
 | `header.history.forward` | text | `">"` |
 | `header.history.width` | whole number, 10 to 80 | `22` |
 | `header.minimize.show` | `true` or `false` | `false` |
+| `header.minimize.width` | whole number, 10 to 120 | `32` |
 | `header.minimize.glyph` | text | `"-"` |
+| `header.minimize.color` | color `0xRRGGBB` | `0xFEBC2E` |
+| `header.minimize.ink` | color `0xRRGGBB` | `0x995700` |
+| `header.zoom.glyph` | text | `"+"` |
+| `header.zoom.color` | color `0xRRGGBB` | `0x28C840` |
+| `header.zoom.ink` | color `0xRRGGBB` | `0x006500` |
 | `header.sidebar.show` | `true` or `false` | `false` |
 | `header.sidebar.size` | whole number, 6 to 40 | `16` |
+| `header.sidebar.width` | whole number, 10 to 120 | `22` |
 | `header.rule.show` | `true` or `false` | `false` |
 | `header.rule.size` | whole number, 1 to 8 | `1` |
 
@@ -260,6 +287,9 @@ The status bar at the bottom of the EbonAPI window.
 | `footer.height` | whole number, 8 to 80 | `22` |
 | `footer.version` | `true` or `false` | `true` |
 | `footer.rule` | `true` or `false` | `true` |
+| `footer.ruleSize` | whole number, 1 to 8 | `1` |
+| `footer.inset` | number, -60 to 60 | `2` |
+| `footer.refresh` | number, 0.1 to 60 | `1` |
 | `footer.badge.show` | `true` or `false` | `false` |
 | `footer.badge.color` | palette name | `"focus"` |
 | `footer.badge.text` | palette name | `"selectedText"` |
@@ -287,6 +317,8 @@ The column of tabs of the EbonAPI window: width, frame, icon rail, tree, section
 | `nav.rail.spacing` | whole number, 0 to 40 | `4` |
 | `nav.rail.indicator` | whole number, 0 to 8 | `2` |
 | `nav.rail.color` | palette name | `"headerBg"` |
+| `nav.rail.crop` | number, 0 to 0.45 | `0.08` |
+| `nav.rail.indicatorColor` | palette name | `"focus"` |
 | `nav.rail.desaturate` | `true` or `false` | `true` |
 | `nav.rail.dim` | number, 0 to 1 | `0.6` |
 | `nav.rail.filter` | `true` or `false` | `true` |
@@ -294,6 +326,10 @@ The column of tabs of the EbonAPI window: width, frame, icon rail, tree, section
 | `nav.tree.expanded` | `true` or `false` | `true` |
 | `nav.tree.guides` | `true` or `false` | `false` |
 | `nav.tree.chevron` | whole number, 4 to 40 | `10` |
+| `nav.tree.chevronColor` | palette name | `"text"` |
+| `nav.tree.guideColor` | palette name | `"borderDim"` |
+| `nav.tree.guideWidth` | whole number, 1 to 8 | `1` |
+| `nav.tree.margin` | whole number, 0 to 20 | `2` |
 | `nav.section.brick` | brick name, slot `section` | `"default"` |
 | `nav.section.show` | `true` or `false` | `true` |
 | `nav.section.x` | number, -20 to 60 | `2` |
@@ -311,6 +347,8 @@ The column of tabs of the EbonAPI window: width, frame, icon rail, tree, section
 | `nav.tab.bar` | whole number, 1 to 16 | `3` |
 | `nav.tab.font` | `small`, `normal`, `large` or `button` | `"normal"` |
 | `nav.tab.padding` | number, 0 to 60 | `8` |
+| `nav.tab.glow.selected` | number, 0 to 1 | `1` |
+| `nav.tab.glow.hover` | number, 0 to 1 | `0.5` |
 
 ## Page
 
@@ -338,6 +376,7 @@ The page of the EbonAPI window: size, title, descriptions, the layout of options
 | `page.title.color` | palette name | `"heading"` |
 | `page.title.font` | `small`, `normal`, `large` or `button` | `"large"` |
 | `page.description.color` | palette name | `"text"` |
+| `page.description.font` | `small`, `normal`, `large` or `button` | `"small"` |
 | `page.strip.show` | `true` or `false` | `false` |
 | `page.strip.height` | whole number, 10 to 80 | `26` |
 | `page.strip.padding` | number, 0 to 60 | `12` |
@@ -351,11 +390,18 @@ The page of the EbonAPI window: size, title, descriptions, the layout of options
 | `page.strip.idleText` | palette name | `"muted"` |
 | `page.strip.separator` | palette name | `"borderDim"` |
 | `page.strip.close` | whole number, 0 to 40 | `16` |
+| `page.strip.font` | `small`, `normal`, `large` or `button` | `"button"` |
+| `page.strip.separatorWidth` | whole number, 1 to 8 | `1` |
+| `page.close.size` | whole number, 10 to 60 | `32` |
+| `page.close.width` | whole number, 10 to 120 | `32` |
+| `page.close.gap` | number, 0 to 60 | `10` |
+| `page.close.glyph` | text | `""` |
 | `page.frame` | `LARGE`, `NONE`, `SMALL` | `"NONE"` |
 | `page.crumbs.show` | `true` or `false` | `false` |
 | `page.crumbs.height` | whole number, 8 to 60 | `20` |
 | `page.crumbs.separator` | text | `">"` |
 | `page.crumbs.color` | palette name | `"muted"` |
+| `page.crumbs.font` | `small`, `normal`, `large` or `button` | `"small"` |
 
 ## Controls
 
@@ -386,8 +432,8 @@ The controls of the pages and of the Kit: tooltips, buttons, check boxes, slider
 | `widgets.range.top` | number, 0 to 60 | `16` |
 | `widgets.range.bar` | whole number, 4 to 60 | `17` |
 | `widgets.range.track` | whole number, 1 to 30 | `4` |
-| `widgets.range.thumb.width` | whole number, 2 to 60 | `8` |
-| `widgets.range.thumb.height` | whole number, 2 to 60 | `14` |
+| `widgets.range.thumb.width` | whole number, 2 to 60 | `32` |
+| `widgets.range.thumb.height` | whole number, 2 to 60 | `32` |
 | `widgets.range.labels` | number, 0 to 30 | `3` |
 | `widgets.range.edit.width` | whole number, 20 to 200 | `60` |
 | `widgets.range.edit.height` | whole number, 10 to 60 | `16` |
@@ -428,6 +474,7 @@ The controls of the pages and of the Kit: tooltips, buttons, check boxes, slider
 | `widgets.input.lines` | whole number, 2 to 30 | `4` |
 | `widgets.input.linePad` | whole number, 0 to 40 | `8` |
 | `widgets.input.bottom` | whole number, 0 to 40 | `2` |
+| `widgets.input.gap` | whole number, 0 to 20 | `2` |
 | `widgets.heading.brick` | brick name, slot `heading` | `"default"` |
 | `widgets.heading.height` | whole number, 10 to 80 | `22` |
 | `widgets.heading.gap` | number, 0 to 60 | `8` |
@@ -462,17 +509,27 @@ Sizes and colors of the [Kit](../guides/kit.md): margins, icons, badges, progres
 | `kit.inset` | whole number, 0 to 20 | `4` |
 | `kit.gap` | whole number, 0 to 20 | `2` |
 | `kit.columns` | whole number, 1 to 20 | `4` |
+| `kit.wrap` | whole number, 40 to 2000 | `320` |
+| `kit.text.font` | `small`, `normal`, `large` or `button` | `"small"` |
+| `kit.bar.color` | palette name | `"card"` |
+| `kit.bar.border` | palette name | `"borderDim"` |
 | `kit.header` | whole number, 12 to 60 | `30` |
 | `kit.control` | whole number, 8 to 60 | `22` |
 | `kit.icon.size` | whole number, 12 to 96 | `32` |
 | `kit.icon.inset` | whole number, 0 to 12 | `2` |
 | `kit.icon.trim` | number, 0 to 0.2 | `0.08` |
+| `kit.icon.color` | palette name | `"checkbox"` |
+| `kit.icon.border` | palette name | `"buttonBorder"` |
+| `kit.icon.hover` | palette name | `"buttonHover"` |
+| `kit.icon.checked` | palette name | `"checked"` |
 | `kit.badge.size` | whole number, 6 to 40 | `14` |
 | `kit.badge.level` | whole number, 1 to 10 | `3` |
 | `kit.badge.color` | palette name | `"focus"` |
 | `kit.badge.text` | palette name | `"selectedText"` |
 | `kit.progress.height` | whole number, 4 to 60 | `14` |
 | `kit.progress.color` | palette name | `"checked"` |
+| `kit.progress.background` | palette name | `"bgSoft"` |
+| `kit.progress.border` | palette name | `"borderDim"` |
 | `kit.row` | whole number, 10 to 60 | `20` |
 | `kit.slot` | whole number, 10 to 80 | `24` |
 | `kit.indent` | whole number, 0 to 60 | `12` |
@@ -482,26 +539,42 @@ Sizes and colors of the [Kit](../guides/kit.md): margins, icons, badges, progres
 | `kit.table.row` | whole number, 10 to 60 | `18` |
 | `kit.table.sort` | whole number, 4 to 24 | `8` |
 | `kit.table.column` | whole number, 10 to 200 | `20` |
+| `kit.table.selected` | palette name | `"selected"` |
+| `kit.table.hover` | palette name | `"rowHover"` |
 | `kit.toast.width` | whole number, 100 to 600 | `260` |
 | `kit.toast.duration` | number, 1 to 30 | `4` |
 | `kit.toast.top` | whole number, 0 to 600 | `120` |
 | `kit.toast.icon` | whole number, 12 to 64 | `24` |
 | `kit.toast.fade` | number, 0 to 5 | `0.5` |
 | `kit.drag` | whole number, 0 to 60 | `12` |
+| `kit.ghost.width` | whole number, 20 to 600 | `170` |
+| `kit.ghost.color` | palette name | `"selected"` |
+| `kit.ghost.border` | palette name | `"focus"` |
 | `kit.handle` | whole number, 6 to 40 | `12` |
+| `kit.dot.color` | palette name | `"thumb"` |
+| `kit.dot.hover` | palette name | `"buttonHover"` |
 | `kit.pointer` | whole number, 16 to 160 | `48` |
+| `kit.aim.every` | number, 0.01 to 1 | `0.05` |
+| `kit.timer.every` | number, 0.01 to 1 | `0.1` |
+| `kit.timer.font` | `small`, `normal`, `large` or `button` | `"small"` |
 | `kit.chart.color` | palette name | `"checked"` |
 | `kit.chart.height` | whole number, 20 to 400 | `60` |
+| `kit.chart.background` | palette name | `"bgSoft"` |
+| `kit.chart.border` | palette name | `"borderDim"` |
 | `kit.dialog.width` | whole number, 160 to 800 | `320` |
 | `kit.dialog.copy` | whole number, 20 to 400 | `80` |
 | `kit.dialog.button` | whole number, 20 to 200 | `80` |
 | `kit.dialog.choices` | whole number, 1 to 20 | `6` |
+| `kit.dialog.offset` | number, -600 to 600 | `120` |
+| `kit.dialog.field.color` | palette name | `"bgSoft"` |
+| `kit.dialog.field.border` | palette name | `"borderDim"` |
 | `kit.dialog.title.font` | `small`, `normal`, `large` or `button` | `"normal"` |
 | `kit.dialog.title.color` | palette name | `"heading"` |
 | `kit.dialog.title.align` | `CENTER`, `LEFT`, `RIGHT` | `"CENTER"` |
 | `kit.minimap.brick` | brick name, slot `minimap` | `"native"` |
 | `kit.minimap.size` | whole number, 16 to 48 | `31` |
 | `kit.minimap.inset` | whole number, 0 to 16 | `4` |
+| `kit.minimap.ring` | whole number, 0 to 12 | `2` |
 | `kit.minimap.offset` | number, -40 to 60 | `10` |
 | `kit.minimap.corner` | number, 0 to 40 | `10` |
 | `kit.minimap.angle` | number, 0 to 360 | `225` |
@@ -515,6 +588,7 @@ Sizes and colors of the [Kit](../guides/kit.md): margins, icons, badges, progres
 | `kit.model.zoom.max` | number, 0 to 10 | `3` |
 | `kit.combatAlpha` | number, 0 to 1 | `0.3` |
 | `kit.animation` | number, 0 to 2 | `0.15` |
+| `kit.rescale.delay` | number, 0 to 1 | `0.01` |
 
 ## Chat
 
@@ -529,3 +603,6 @@ The colors of the chat lines EbonAPI prints. Addons read them, as color codes, i
 | `chat.success` | color `0xRRGGBB` | `0x40FF40` |
 | `chat.highlight` | color `0xRRGGBB` | `0xFFD200` |
 | `chat.muted` | color `0xRRGGBB` | `0x9090A0` |
+| `chat.gold` | color `0xRRGGBB` | `0xFFD700` |
+| `chat.silver` | color `0xRRGGBB` | `0xC7C7CF` |
+| `chat.copper` | color `0xRRGGBB` | `0xEDA55F` |

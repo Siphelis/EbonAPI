@@ -135,6 +135,8 @@ The methods that send to players tell you with their return value whether the me
 | `true` | queued; it leaves in order |
 | `false` | refused: the channel is not joined yet (the message is not kept), the queue is full, or the player is known to be offline |
 
+`api:Say` also tells you why when it queues nothing: it returns `false, "not_joined"` when the channel is not joined yet, and `false, "full"` when the queue has no room for the whole body.
+
 `api:SendServer` always returns `true`. `api:RequestServer` returns `false` when the same request was already sent less than its minimum interval ago.
 
 Two events report what happened after queuing: `SEND_FAILED` when the client refused a message, `PEER_OFFLINE` when a whispered player turned out to be offline.

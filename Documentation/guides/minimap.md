@@ -52,7 +52,9 @@ Your button sits on the minimap edge. The player drags it, locks it, puts it in 
 | `badge` | | a mark on the corner: a text, a number, `true` for a dot |
 | `display` | `"BUTTON"` | where it appears: `"BUTTON"`, `"GROUP"` or `"HIDDEN"` |
 | `hidden` | | `true`, or a function that returns it, is the same as `display = "HIDDEN"` |
-| `angle` | the skin's, 225 | its first place around the minimap, in degrees |
+| `angle` | the skin's, 225 | its first place around the minimap, in degrees; a number |
+
+EbonAPI sets the size, the place and the state of the button, so `width`, `height`, `point` and `disabled` are refused.
 
 The default first line is the name of your addon followed by the `## Version` of its `.toc` file. Functions given as `icon`, `text`, `hidden` or `badge` receive the button.
 
@@ -63,7 +65,7 @@ When a newer version of your addon was seen, the tooltip shows `Version 1.3.0 av
 | Method | Effect |
 | --- | --- |
 | `button:Refresh()` | reads the functions again, for an icon or a badge that changes; returns the button |
-| `button:SetAngle(angle)` | moves the button to `angle`, in degrees, and saves it as the player's place; returns the button |
+| `button:SetAngle(angle)` | moves the button to `angle`, a number of degrees, and saves it as the player's place; returns the button |
 
 `angle` counts counter-clockwise from the right of the minimap: 0 is to the right, 90 is at the top.
 
@@ -95,16 +97,19 @@ The minimap button emits no event.
 
 | Method | Arguments | Returns | Raises when |
 | --- | --- | --- | --- |
-| `api:MinimapButton(fields?)` | fields | the button | fields not a table; `display` not `BUTTON`, `GROUP` or `HIDDEN` |
+| `api:MinimapButton(fields?)` | fields | the button | fields not a table; `display` not `BUTTON`, `GROUP` or `HIDDEN`; `angle` not a number; `width`, `height`, `point` or `disabled` given |
 | `button:Refresh()` | | the button | |
-| `button:SetAngle(angle)` | angle in degrees | the button | |
+| `button:SetAngle(angle)` | angle in degrees | the button | angle not a number |
 
 The messages, with your addon's name in place of `MyAddon`:
 
 - `EbonAPI: MyAddon: api:MinimapButton expects a table, got <type>`
 - `EbonAPI: MyAddon: api:MinimapButton display expects BUTTON, GROUP or HIDDEN, got <value>`
+- `EbonAPI: MyAddon: api:MinimapButton angle expects a number, got <value>`
+- `EbonAPI: MyAddon: api:MinimapButton does not take <field>, EbonAPI sets the size, place and state of the button`
+- `EbonAPI: MyAddon: button:SetAngle expects a number, got <value>`
 
-Both are listed in [Errors](../reference/errors.md#minimap-button). An error inside one of your functions is reported in the game's error display.
+All are listed in [Errors](../reference/errors.md#minimap-button). An error inside one of your functions is reported in the game's error display.
 
 ## Limits
 

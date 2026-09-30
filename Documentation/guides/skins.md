@@ -53,7 +53,7 @@ EbonAPI:RegisterSkin("B", { ["header.title.align"] = "SIDE" })
 
 Two keys are not skin parameters: `parent` and `bricks`. Every other key is a skin parameter name, or the start of one.
 
-Skin parameter names are in English and never translated. [Skin parameters](../reference/skin-parameters.md) lists all 403 skin parameters, with the values each one accepts and its value in the default skin.
+Skin parameter names are in English and never translated. [Skin parameters](../reference/skin-parameters.md) lists all 470 skin parameters, with the values each one accepts and its value in the default skin.
 
 | Kind | Written as |
 | --- | --- |
@@ -73,7 +73,7 @@ Skin parameter names are in English and never translated. [Skin parameters](../r
 
 **Media.** A font, texture or sound file named without a backslash is looked for in the skin's folder: `"Night.ttf"` in the skin `Night` is `Interface\AddOns\EbonAPI\Skins\Night\Night.ttf`. A path with a backslash, such as `"Interface\\Buttons\\WHITE8X8"`, is used as it is. So is the name of a game sound, which has no dot.
 
-A value that does not fit is left out and reported, and the rest of the skin is kept. `EbonAPI:RegisterSkin` then returns `false`. The messages are listed in [Errors](../reference/errors.md#skins).
+A skin with a value that does not fit is refused. Every problem is reported, nothing of the skin is registered, and `EbonAPI:RegisterSkin` returns `false`. The name stays free, so you can register the corrected table under the same name. The messages are listed in [Errors](../reference/errors.md#skins).
 
 ### Parents
 
@@ -179,7 +179,7 @@ A brick is a function `(parent, B)` that builds a widget on `parent` and returns
 | `range` | `SetTitle(text)`, `SetRange(min, max, step, percent)`, `SetValue(value)`, `SetDisabledState(state)`, `SetFormat(fn)` | | `self.onCommit(value)` when the player sets a value |
 | `select` | `SetTitle(text)`, `SetItems(items)`, `SetValue(key)`, `SetDisabledState(state)` | | `self.onPick(key)` |
 | `color` | `SetLabel(text)`, `SetColor(r, g, b, a)`, `SetDisabledState(state)`, `TextWidth()` | | `self.onPick(r, g, b, a)` |
-| `input` | `SetTitle(text)`, `SetLines(count)`, `SetValue(text)`, `SetDisabledState(state)` | | `self.onCommit(text)` when the player validates the text |
+| `input` | `SetTitle(text)`, `SetLines(count)`, `SetValue(text)`, `SetDisabledState(state)` | | `self.onCommit(text)` when the player validates the text or leaves the field |
 | `heading` | `SetLabel(text)` | | |
 | `text` | `SetContent(text, width, size, color)` | | |
 | `group` | `SetLabel(text)`, `SetInnerHeight(height)` | `box`, the frame that holds the content | |
@@ -189,11 +189,11 @@ A brick is a function `(parent, B)` that builds a widget on `parent` and returns
 What the methods mean:
 
 - `TextWidth()` returns the width the widget needs for its text, in pixels. `Fit(width)` sets the width of a button; without a width, it uses `TextWidth()`. `SetPadding(padding)` sets the space between the edge of a tab and its label.
-- `SetItems(items)` receives a list of tables, each with a `key`, the `text` to show, and `disabled = true` for a greyed one. `SetValue(key)` shows the text of the item that has this key, and `onPick(key)` gives back the key of the chosen one.
+- `SetItems(items)` receives a list of tables, each with a `key`, the `text` to show, and `disabled = true` for a greyed one. `SetValue(key)` shows the text of the item that has this key, and `onPick(key)` gives back the key of the chosen one. `SetItems(items)` also refreshes the text shown for the current value, so `SetValue(key)` may come before `SetItems(items)`.
 - `SetTextKey(name)` gives the label a palette color, or the usual one with `nil`.
-- `SetRange(min, max, step, percent)` sets the bounds of a slider; with `percent` set, values show as percentages. `SetFormat(fn)` gives a function that turns a value into the text shown.
+- `SetRange(min, max, step, percent)` sets the bounds of a slider; with `percent` set, values show as percentages. `SetFormat(fn)` gives a function that turns a value into the text shown. The number field shows up to six decimals, without trailing zeros. `SetValue(value)` rounds the value to the step, counted from `min`, and keeps it between `min` and `max`; `SetRange` does the same to the value the widget holds. Neither calls `onCommit`. A value the player types is rounded and kept in the range before `onCommit` receives it, and a disabled range ignores what is typed. When the function given to `SetFormat` raises an error, `EbonAPI: range formatter failed: <error>` is reported once, and the value shows with the usual rules.
 - `SetContent(text, width, size, color)` fills a `text` brick and returns its height. `size` is `"small"`, `"medium"` or `"large"`; `color` is a palette name.
-- `SetMode(mode)` of a `scroll` brick takes `"VERTICAL"`, `"HORIZONTAL"` or `"BOTH"`, and raises `EbonAPI: the scroll brick expects VERTICAL, HORIZONTAL or BOTH, got <mode>` for anything else. `Wheel(delta, horizontal)` returns `true` when the widget used the mouse wheel.
+- `SetMode(mode)` of a `scroll` brick takes `"VERTICAL"`, `"HORIZONTAL"` or `"BOTH"`, and raises `EbonAPI: the scroll brick expects VERTICAL, HORIZONTAL or BOTH, got <mode>` for anything else. `Wheel(delta, horizontal)` returns `true` when the widget used the mouse wheel. A scroll that is frozen passes the wheel to the scroll that holds it, and returns `true` when there is none.
 - A `minimap` brick receives the minimap button itself instead of a parent, dresses it and returns it.
 
 #### Helpers
@@ -220,7 +220,7 @@ The player picks the skin under **Esc → EbonAPI → Appearance → Skin**, for
 
 | Method | Arguments | Returns | Raises when |
 | --- | --- | --- | --- |
-| `EbonAPI:RegisterSkin(name, values)` | skin name, table | `true`, or `false` when something in the table was left out | name not a non-empty string, values not a table, name already taken |
+| `EbonAPI:RegisterSkin(name, values)` | skin name, table | `true`, or `false` when something in the table did not fit and the skin was refused | name not a non-empty string, values not a table, name already taken |
 
 The parameters the player changes are read with `api:GetParameter`, see [Interface](interface.md#api).
 
@@ -234,7 +234,7 @@ The parameters the player changes are read with `api:GetParameter`, see [Interfa
 
 | | Value |
 | --- | --- |
-| Skin parameters | 403, listed in [Skin parameters](../reference/skin-parameters.md) |
+| Skin parameters | 470, listed in [Skin parameters](../reference/skin-parameters.md) |
 | Palette colors | 31 |
 | Brick slots | 16 |
 | Parameters the player changes | 8 |

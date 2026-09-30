@@ -123,9 +123,9 @@ api:MinimapButton({
 ## What happens
 
 1. `SERVER_RUN_DATA` fires at every run update from the server. It is sticky (a sticky event keeps its last value and gives it at once to a handler added later): if your addon subscribes after a run message has already arrived, your handler is called at once with the last data.
-2. The run table is updated in place by EbonAPI. `State.snapshot("run")` keeps a copy of the previous message, which lets the next one be compared to it.
+2. The table your handler receives is its own copy: a later message never rewrites it. `State.snapshot("run")` keeps a copy of the current run state, which lets the next message be compared to it.
 3. `db.char.best` lives in the character scope: each character keeps its own record.
-4. At `READY`, your character's saved data is available, so `api:Window` creates the summary window there. The window starts hidden: the minimap button opens it with `win:Toggle()`. Each line is a `text` element whose text is a function: EbonAPI calls it again at every refresh, and the handler refreshes the window after each run message. A `hidden` function hides the line while it returns `true` and shows it while it returns `false`.
+4. At `READY`, your character's saved data is available, so `api:Window` creates the summary window there. The window starts hidden: the minimap button opens it with `win:Toggle()`. Each line is a `text` element whose text is a function: EbonAPI calls it again at every refresh, and the handler refreshes the window after each run message. A `hidden` function hides the line while it returns `true` and shows it while it returns `false` or `nil`.
 5. The summary reads the current run through `State.GetRun()`, which also works before any message when ProjectEbonhold publishes run data itself. Until there is run data, the window says so.
 6. `Format.number` groups thousands (1 234 567); `Format.pair` prints `current / maximum`, shortening values from 10 000 up (12.3k, 1.20M).
 7. The minimap button opens and closes the window. The window title, the lines and the tooltip follow the player's language.

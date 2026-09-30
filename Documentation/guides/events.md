@@ -127,7 +127,7 @@ A callback subscribed while the event is being delivered is not part of that del
 
 #### Errors in callbacks
 
-An error in a callback is reported through the game's error display. The other callbacks still run, and the addon that emitted the event never sees the error. A broken addon cannot stop the others from hearing an event.
+An error in a callback is reported through the game's error display and recorded in the trace as an `error` under your addon name. The other callbacks still run, and the addon that emitted the event never sees the error. A broken addon cannot stop the others from hearing an event.
 
 #### Features
 
@@ -173,7 +173,7 @@ api:Untick(id)
 - Calling `api:Tick` again with the same id replaces the interval and the function.
 - `every` is a number of seconds, greater than zero.
 - A ticker runs at most once per screen refresh.
-- An error inside `fn` is reported through the game's error display and the ticker keeps running.
+- An error inside `fn` is reported through the game's error display, recorded in the trace as an `error` under your addon name, and the ticker keeps running.
 - `api:Untick(id)` returns `true` when the ticker existed. Removing a ticker from inside its own callback is safe.
 
 ```lua
@@ -207,7 +207,7 @@ end)
 | `api:IsReady()` | | `true` after `READY` | |
 | `api:OnEvent(event, fn)` | WoW event name, function | `true`, or `false` if already registered | event is not a string, fn is not a function |
 | `api:OffEvent(event, fn)` | WoW event name, function | `true` if something was removed | |
-| `api:Tick(id, every, fn)` | id, seconds, function | `true` | fn is not a function, `every` is zero or negative |
+| `api:Tick(id, every, fn)` | id, seconds, function | `true` | `id` is not a string, fn is not a function, `every` is not a number above zero |
 | `api:Untick(id)` | id | `true` if the ticker existed | |
 | `EbonAPI:DeclareSticky(event)` | event name | | |
 | `EbonAPI:ClearSticky(event?)` | event name, or nothing for all | | |
@@ -220,10 +220,9 @@ The messages raised, exactly:
 | `api:On` | `EbonAPI: the callback for '<event>' must be a function, got <type>` |
 | `api:OnEvent` | `EbonAPI.Bus.on expects an event name, got <type>` |
 | `api:OnEvent` | `EbonAPI.Bus.on expects a function for '<event>', got <type>` |
-| `api:Tick` | `EbonAPI.Bus.tick expects a function for '<id>', got <type>` |
-| `api:Tick` | `EbonAPI.Bus.tick: invalid interval for '<id>'` |
-
-Through `api:Tick`, `<id>` in these two messages reads `<your addon name>:<id>`, for example `'MyAddon:poll'`.
+| `api:Tick` | `EbonAPI:Tick expects a ticker id, got <type>` |
+| `api:Tick` | `EbonAPI:Tick expects a function for '<id>', got <type>` |
+| `api:Tick` | `EbonAPI:Tick: invalid interval for '<id>', expected a number above 0, got <value>` |
 
 ## Events
 

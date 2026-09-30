@@ -40,7 +40,7 @@ sequenceDiagram
 
 **Joining.** EbonAPI joins the channel once an addon uses it, shortly after login. `CHANNEL_JOINED` then fires with the channel's number; it is sticky, so subscribing late still calls you at once. If the game drops the channel, `CHANNEL_LOST` fires and EbonAPI joins again on its own. If the player already uses every channel slot the game allows, EbonAPI keeps trying, prints this warning in chat and records it in **Diagnostics → Reports → Trace**: `channel ebonapi not joined after 4 requests: the client may have no channel slot left; still trying`.
 
-**Sending.** `api:Say(op, body)` returns `true` when your body is queued. It returns `false` when nothing was sent: the channel is not joined yet, or the queue has no room for the whole body. Wait for `CHANNEL_JOINED` before you call it, as the example does. A queued body leaves at one item every 0.15 seconds. An item is one part of a body, so a long body takes several items and a moment to go out.
+**Sending.** `api:Say(op, body)` returns `true` when your body is queued. When nothing is queued it returns `false` and a second value that says why: `"not_joined"` when the channel is not joined yet (your body is not kept; EbonAPI asks to join), or `"full"` when the queue has no room for the whole body. Wait for `CHANNEL_JOINED` before you call it, as the example does. A body that breaks a rule below raises an error whatever the state of the channel. A queued body leaves at one item every 0.15 seconds. An item is one part of a body, so a long body takes several items and a moment to go out.
 
 **Receiving.** Your function gets `fn(sender, body, addon, op)`. `sender` is the character name without the realm. A long body is delivered once, complete. If its parts stop arriving for 30 seconds, it is discarded.
 
@@ -52,7 +52,7 @@ sequenceDiagram
 
 - A string, without the `|` character: the client would read it as a formatting code. Numbers and tables need your own encoding.
 - Any text, accents included.
-- Up to about 3,600 bytes with a short addon name and op. A longer body is a contract error whose message gives the exact limit.
+- Up to about 3,600 bytes with a short addon name and op. A longer body is a contract error whose message gives the exact limit in bytes.
 - Keep the op short: the longer your addon name and op, the less room is left for the body.
 - The addon name is always your handle's own name. You cannot send under another name.
 
@@ -62,7 +62,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `api:OnChannel(op, fn)` | op, `fn(sender, body, addon, op)` | `true`, or `false` if this function is already registered for this op | op is not a string of letters and digits, fn is not a function |
 | `api:OffChannel(op, fn)` | op, function | `true` if something was removed | |
-| `api:Say(op, body?)` | op, string (empty when omitted) | `true` when queued, `false` when nothing was sent | op invalid, body not a string, body contains `\|`, body too long, op too long |
+| `api:Say(op, body?)` | op, string (empty when omitted) | `true` when queued; otherwise `false` and a reason, `"not_joined"` or `"full"` | op invalid, body not a string, body contains `\|`, body too long, op too long |
 | `api:IsChannelJoined()` | | `true` while the channel is joined | |
 
 ## Events
@@ -89,7 +89,7 @@ sequenceDiagram
 | `EbonAPI.Channel.on expects a function for MyAddon:HELLO, got <type>` | `OnChannel` without a function |
 | `EbonAPI.Channel.say expects a text body for MyAddon:HELLO, got <type>` | `Say` with a body that is not a string |
 | `EbonAPI.Channel.say: the body of MyAddon:HELLO contains '\|'` | `Say` with a `\|` in the body |
-| `EbonAPI.Channel.say: body of <length> characters for MyAddon:HELLO, the limit is <limit>` | the body is too long |
+| `EbonAPI.Channel.say: body of <length> bytes for MyAddon:HELLO, the limit is <limit> bytes` | the body is too long |
 | `EbonAPI.Channel.say: op too long for MyAddon:HELLO` | the addon name and op leave no room for a body |
 
 `Say` with an invalid op raises the same op message as `OnChannel`, starting with `EbonAPI.Channel.say`.

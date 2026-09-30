@@ -51,7 +51,7 @@ The **Result** area shows the report you chose. **Status** and **Senders** are i
 
 | Line | Meaning |
 | --- | --- |
-| `version 1.0.0` | EbonAPI's version |
+| `version 2.0.0` | EbonAPI's version |
 | `consumers: AutoCallboard, MyAddon` | the addons that called `NewAddon`; `no consumer registered` when there is none |
 | `server bridge: 42 messages received, last 3s ago` | server messages seen this session; `server bridge: no message received yet` before the first |
 | `sent=5 queued=0 streams=0` | messages sent to the server, messages waiting to be sent, and multi-part server messages being put together |
@@ -59,7 +59,7 @@ The **Result** area shows the report you chose. **Status** and **Senders** are i
 | `queue: server=0 peers=3  sent channel=12 whispers=40` | lines waiting for the server and for other players, then channel lines and whispers sent |
 | `refused: offline=2 queue full=0 failed=0  lines dropped=0` | only when something was refused |
 | `profile: sent P=1 D=3 X=0, received 8, rejected 0` | echo profile announcements sent, received, and rejected as malformed |
-| `versions: EbonAPI 1.0.0, MyAddon 1.2.0 (1.3.0 available)` | every addon that declared a version, EbonAPI included |
+| `versions: EbonAPI 2.0.0, MyAddon 1.2.0 (1.3.0 available)` | every addon that declared a version, EbonAPI included |
 | `shares: 4 key(s) from 2 addon(s), 6 player(s) seen, 3 received, 0 refused` | the sharing service |
 | `rejected=...` and `unreadable bodies=...` | only when a server message or a saved entry had to be dropped or repaired |
 | `ProjectEbonhold: detected` | or `absent`; followed by the features present, then the missing ones in grey after `none:` |

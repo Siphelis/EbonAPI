@@ -44,7 +44,7 @@ end)
 
 **Your own profile.** You do not send anything yourself. As soon as an addon uses EbonAPI, EbonAPI announces the layout of your build slots and each build, every time the server's build list changes (`SERVER_BUILDS`) and when the channel is joined. A build is announced again only when its content changed.
 
-**Ban lists.** `api:SetProfileBans(lists)` records your ban lists, a list of lists of echo spell ids, and announces them when they differ from the last announcement. There is one set of ban lists per player, not one per addon: the last call replaces the previous one. EbonAPI does not keep the lists between sessions, so call it again at every login. It returns `true` when the lists were queued or were already announced. It returns `false` when nothing could be queued now: if the channel is not joined or your builds are not known yet, the lists are kept and go out on their own; if your class is unknown, they are not kept, so call again.
+**Ban lists.** `api:SetProfileBans(lists)` records your ban lists, a list of lists of echo spell ids, and announces them when they differ from the last announcement. There is one set of ban lists per player, not one per addon: the last call replaces the previous one. EbonAPI does not keep the lists between sessions, so call it again at every login. It returns `true` when the lists are kept, even when they cannot be sent yet: if the channel is not joined or your builds are not known yet, they go out on their own as soon as they can. It returns `false` when your class is not known yet: nothing is kept, so call again.
 
 **Other players.** Each announcement received becomes an event. Your own announcements do not come back to you. `hash` is a fingerprint of the content: two builds with the same `hash` have the same echoes and the same locked echoes. Keep the last `hash` per player and slot, and you can skip the decoding when it did not change:
 
@@ -89,7 +89,7 @@ end)
 
 | Method | Arguments | Returns | Raises when |
 | --- | --- | --- | --- |
-| `api:SetProfileBans(lists)` | list of lists of spell ids | `true` when the lists were queued or were already announced; `false` when nothing could be queued now (channel not joined or builds not known yet: kept, sent on their own; class unknown: not kept, call again) | lists is not a table: `EbonAPI.Profile.SetBans expects a table of lists, got <type>` |
+| `api:SetProfileBans(lists)` | list of lists of spell ids | `true` when the lists are kept, even when they cannot be sent yet; `false` when your class is not known yet (nothing is kept, call again) | `EbonAPI: <addonName>: SetProfileBans expects a table of lists, got <type>`; `EbonAPI: <addonName>: SetProfileBans expects a table of lists of echo ids, list <n> is a <type>` |
 
 ## Events
 

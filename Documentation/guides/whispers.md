@@ -50,15 +50,15 @@ api:WhisperStream(PREFIX, "Alice", "ROUTE", "frostfire", routeText)
 
 **Prefix.** The prefix is the label the game attaches to every hidden message, so that each addon recognizes its own. Pick one that no other addon uses, and keep it short: it takes room from your text.
 
-**Plain whispers.** `api:Whisper(prefix, target, text)` queues one message. The receiver's function gets `fn(sender, text, distribution, prefix)`; `distribution` is the game's name for how the message arrived: `"WHISPER"` for a whisper; `"PARTY"`, `"RAID"` or `"GUILD"` when another addon sends on your prefix to a group, and your function is called for those too. The text must fit in 255 bytes minus the length of the prefix minus one. A longer text is a contract error.
+**Plain whispers.** `api:Whisper(prefix, target, text)` queues one message. The receiver's function gets `fn(sender, text, distribution, prefix)`; `distribution` is the game's name for how the message arrived: it is always `"WHISPER"`, because your function is called for whispers only. The text must fit in 255 bytes minus the length of the prefix minus one. A longer text is a contract error.
 
-**Streams.** `api:WhisperStream(prefix, target, op, id, body)` queues the whole body or nothing. The **op** is a short word of letters and digits, chosen by you, that says what kind of stream it is. The receiver's function gets `fn(sender, body, id, op)` once the whole body has arrived. The optional `onPart(sender, id, op)` is called for every part that arrives before the last one. If the parts stop arriving for 30 seconds, the body is discarded.
+**Streams.** `api:WhisperStream(prefix, target, op, id, body)` queues the whole body or nothing. A body too large for 400 parts is a contract error. The **op** is a short word of letters and digits, chosen by you, that says what kind of stream it is. The receiver's function gets `fn(sender, body, id, op)` once the whole body has arrived. The optional `onPart(sender, id, op)` is called for every part that arrives before the last one. If the parts stop arriving for 30 seconds, the body is discarded.
 
 **Stream id.** The `id` is yours: pass a string without `:` to name the stream, or `nil` to let EbonAPI number it. The receiver sees it, which makes replies easy to match.
 
 **Pace.** Whispers leave through a queue shared with the channel, one item every 0.15 seconds. An item is one part of a message, so a body that needs 100 parts takes at least 15 seconds, and longer when other addons are sending at the same time.
 
-**Offline players.** When the game answers that the player is not found, EbonAPI drops every whisper still waiting for that player, fires `PEER_OFFLINE(name, dropped)`, and refuses new whispers to that player for 60 seconds. `api:Whisper`, `api:WhisperAll` and `api:WhisperStream` return `false` during that time. The game's "player not found" line does not show in chat for these whispers.
+**Offline players.** When the game answers that the player is not found, EbonAPI drops every whisper still waiting for that player, fires `PEER_OFFLINE(name, dropped)`, and refuses new whispers to that player for 60 seconds. `api:Whisper`, `api:WhisperAll` and `api:WhisperStream` return `false` during that time. The game's "player not found" line does not show in chat when it answers a whisper EbonAPI sent within the last 5 seconds. The case of the player's name does not matter, and `PEER_OFFLINE` carries the name as the game wrote it.
 
 **Names.** Targets and senders are character names without the realm.
 
@@ -71,10 +71,10 @@ api:WhisperStream(PREFIX, "Alice", "ROUTE", "frostfire", routeText)
 | `api:OnWhisper(prefix, fn)` | prefix, `fn(sender, text, distribution, prefix)` | `true`, or `false` if this function is already registered for this prefix | prefix is not a non-empty string, fn is not a function |
 | `api:OffWhisper(prefix, fn)` | prefix, function | `true` if something was removed | |
 | `api:Whisper(prefix, target, text)` | prefix, player name, string | `true` when queued, `false` when refused | prefix invalid, text missing or too long |
-| `api:WhisperAll(prefix, target, parts, count?)` | prefix, player name, list of strings, how many of them to send (all by default) | `true` when all are queued, `false` when none was queued | same as `Whisper` |
+| `api:WhisperAll(prefix, target, parts, count?)` | prefix, player name, list of strings, how many of them to send (all by default) | `true` when all are queued, `false` when none was queued | prefix invalid, or any of the parts to send missing or too long (nothing is queued then) |
 | `api:OnWhisperStream(prefix, op, fn, onPart?)` | prefix, op, `fn(sender, body, id, op)`, `onPart(sender, id, op)` | `true`, or `false` if `fn` is already registered for this prefix and op | prefix invalid, op not alphanumeric, fn is not a function |
-| `api:OffWhisperStream(prefix, op, fn, onPart?)` | same | `true` if something was removed | |
-| `api:WhisperStream(prefix, target, op, id, body)` | prefix, player name, op, string or `nil`, string | `true` when queued, `false` when the player is offline, the queue has no room or the body needs more than 400 parts | prefix invalid, op invalid, body not a string, id invalid, prefix and op leave no room |
+| `api:OffWhisperStream(prefix, op, fn)` | prefix, op, function | `true` if something was removed; the `onPart` given with `fn` is removed with it | |
+| `api:WhisperStream(prefix, target, op, id, body)` | prefix, player name, op, string or `nil`, string | `true` when queued, `false` when the player is offline or the queue has no room | prefix invalid, op invalid, body not a string, id invalid, prefix and op leave no room, body needs more than 400 parts |
 
 `api:WhisperAll` sends several plain messages to one player as a block: either every message is queued, or none. With `count` at 0 it returns `true` and sends nothing.
 
@@ -103,11 +103,14 @@ api:WhisperStream(PREFIX, "Alice", "ROUTE", "frostfire", routeText)
 | `EbonAPI.Whisper.onStream expects an alphanumeric op, got <value>` | `OnWhisperStream` or `WhisperStream` with an invalid op (`stream` for the second) |
 | `EbonAPI.Whisper.on expects a function for MyAddonW, got <type>` | `OnWhisper` without a function |
 | `EbonAPI.Whisper.onStream expects a function for MyAddonW:ROUTE, got <type>` | `OnWhisperStream` without a function |
-| `EbonAPI.Channel.whisper expects a prefix, got <value>` | `Whisper` or `WhisperAll` with an invalid prefix |
+| `EbonAPI.Channel.whisper expects a prefix, got <value>` | `Whisper` with an invalid prefix |
 | `EbonAPI.Channel.whisper: text missing or beyond <room> bytes for prefix MyAddonW` | the text is not a string or too long |
+| `EbonAPI.Channel.whisperAll expects a prefix, got <value>` | `WhisperAll` with an invalid prefix |
+| `EbonAPI.Channel.whisperAll: text missing or beyond <room> bytes for prefix MyAddonW` | one of the parts to send is not a string or too long; nothing is queued |
 | `EbonAPI.Whisper.stream expects a text body for MyAddonW:ROUTE, got <type>` | `WhisperStream` with a body that is not a string |
 | `EbonAPI.Whisper.stream: invalid stream id for MyAddonW:ROUTE` | the id is empty, not a string, or contains `:` |
 | `EbonAPI.Whisper.stream: header too long for MyAddonW:ROUTE` | the prefix, op and id leave no room for a body |
+| `EbonAPI.Whisper.stream: body of <length> bytes for MyAddonW:ROUTE, the limit is <limit> bytes` | the body needs more than 400 parts |
 
 !!! tip "🎮 Try it"
     In the EbonAPI window, **Diagnostics → Reports → Trace** with the **Trace filter** on `wisp` lists the messages and streams received. The queue lines of **Status** read `queue: server=0 peers=0  sent channel=0 whispers=3`, and, when something was refused or dropped, `refused: offline=1 queue full=0 failed=0  lines dropped=0`.

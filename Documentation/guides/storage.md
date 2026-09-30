@@ -9,7 +9,7 @@ EbonAPI owns one saved variable, `EbonAPIDB`, and gives every addon its own buck
 - `db.account`: shared by every character of the account.
 - `db.char`: the current character. It exists from `READY` on.
 
-Defaults fill the missing keys on every load, including inside nested tables. A value the player already has is kept. The one exception: where your default is a table and the saved value is not a table, it is replaced by a table with your defaults.
+Defaults fill the missing keys on every load, including inside nested tables. A value the player already has is kept, whatever its type.
 
 The store is yours alone: other addons have their own. `api:DB()` returns the same store every time you call it.
 
@@ -40,7 +40,7 @@ No `## SavedVariables` line in your `.toc`: EbonAPI's own saved variable carries
 | Account | `db.account` | as soon as `api:DB` returns | every character of the account |
 | Character | `db.char` | from `READY` on; `nil` before | this character only, keyed `Name-Realm` |
 
-Read `db.account` and `db.char` each time you need them. Do not keep them in a local variable: `db.char` is `nil` before the character is known, and `db.char` is replaced by a new table after `db:ResetCharacter()`.
+Read `db.char` each time you need it. Do not keep it in a local variable: it is `nil` before the character is known. After `db:ResetCharacter()`, `db.char` is still the same table, emptied and filled with the defaults again.
 
 Other characters of the account can be read:
 
@@ -53,7 +53,7 @@ end
 
 `db:CharacterAt(key)` gives the table as it was saved. The defaults are applied only to the current character, so another character's table can lack a key that is new in your defaults. Read it with a fallback, as above.
 
-`db:ResetCharacter()` wipes the current character's data and applies the defaults again. It returns `true`, or `false` when the character is not known yet. The account data and the migrations already done are kept: a per-character migration that ran is not run again.
+`db:ResetCharacter()` empties the current character's table and applies the defaults again. It returns `true`, or `false` when the character is not known yet. The account data and the migrations already done are kept: a per-character migration that ran is not run again.
 
 ### Defaults
 
@@ -64,12 +64,13 @@ api:DB({
 })
 ```
 
-- A default is used only when the key is missing. A saved `false` stays `false`. The one exception: where your default is a table and the saved value is not a table, the saved value is replaced by a table with your defaults.
+- A default is used only when the key is missing. A saved `false` stays `false`, and so does any saved value that is not a table where your default is a table.
 - Table defaults are applied recursively, so a new key inside `account.options` reaches existing players.
 - Both parts are optional. `api:DB()` with no argument returns the store with the defaults given so far.
 - Several files can call `api:DB(defaults)`. The defaults add up and the same store comes back. When two calls give a default for the same key, the first one stays.
 - Removing a default later never removes what the player has already saved.
-- Give `account` and `character` as tables. `api:DB(defaults)` raises `EbonAPI: the defaults of 'MyAddon' must be a table, got <type>` when `defaults` itself is not a table.
+- The store keeps its own copy of your defaults. Your tables are never modified, and changing them later changes nothing.
+- Give `account` and `character` as tables. `api:DB(defaults)` raises `EbonAPI: the defaults of 'MyAddon' must be a table, got <type>` when `defaults` is given and is not a table (`false` included, on every call). It raises `EbonAPI: the account defaults of 'MyAddon' must be a table, got <type>` or `EbonAPI: the character defaults of 'MyAddon' must be a table, got <type>` when one of the two parts is not. The error points at your call, and nothing is stored.
 
 ### Migrations
 
@@ -85,15 +86,15 @@ db:MigrateOnce("import-legacy", MyAddonLegacyDB, function(store, legacy)
     store.account.routes[id] = route
   end
 
-  return true                            -- any value except nil marks it done
+  return true                            -- any value except nil or false marks it done
 end)
 ```
 
 - The key names the migration. It runs at most once per account, whatever the character.
 - `fn(store, legacy, characterName, characterKey)` receives your store, the value you passed as `legacy`, and the current character.
-- Return `nil` to say "not now": the migration stays pending and runs again next time. Return anything else to mark it done.
+- Return `nil` or `false` to say "not now": the migration stays pending and runs again next time. Return anything else to mark it done.
 - An error inside `fn` is reported as `[MyAddon] migration 'import-legacy' failed: <error text>`, and the migration stays pending.
-- `MigrateOnce` returns `true, result` when it ran and completed, where `result` is the value `fn` returned. It returns `false` when the migration was already done, when `fn` returned `nil`, or when `fn` raised an error.
+- `MigrateOnce` returns `true, result` when it ran and completed, where `result` is the value `fn` returned. It returns `false` when the migration was already done, when `fn` returned `nil` or `false`, or when `fn` raised an error.
 - `key` must be a string and `fn` a function. Otherwise it raises `EbonAPI: the migration key must be a string, got <type>` or `EbonAPI: migration '<key>' expects a function, got <type>`.
 
 `db:MigrateOncePerCharacter(key, legacy, fn)` does the same once per character. It returns `false`, without running `fn`, while the character is not known yet.
@@ -109,7 +110,6 @@ This is what you find in the `EbonAPI.lua` file of the `SavedVariables` folder, 
 
 ```text
 EbonAPIDB
-├─ version                         layout version
 ├─ shared
 │  ├─ account                      the language shared by every addon (language)
 │  └─ characters
@@ -129,13 +129,13 @@ EbonAPIDB
 
 The character key is the character name, a dash and the realm name.
 
-When EbonAPI finds something other than a table where a table belongs, for example after a hand edit of the file, it replaces it with an empty table and counts a repair. **Diagnostics → Reports → Saved data** shows that count.
+When EbonAPI finds something other than a table where a table belongs, for example after a hand edit of the file, it replaces it with an empty table and counts a repair. This includes `EbonAPIDB` itself and every entry of `addons`. **Diagnostics → Reports → Saved data** shows that count.
 
 ## API
 
 | Method | Arguments | Returns | Raises when |
 | --- | --- | --- | --- |
-| `api:DB(defaults?)` | `{ account = {...}, character = {...} }` | the store | `defaults` is given and is not a table |
+| `api:DB(defaults?)` | `{ account = {...}, character = {...} }` | the store | `defaults` is given and is not a table, or its `account` or `character` part is given and is not a table |
 | `db.account` | | table | |
 | `db.char` | | table, or `nil` before `READY` | |
 | `db:CharacterKeys()` | | sorted list of `Name-Realm` keys | |
@@ -150,7 +150,6 @@ When EbonAPI finds something other than a table where a table belongs, for examp
 Saved values are limited to strings, numbers, booleans and tables of those.
 
 - `db.char` is `nil` until the character is known. It is set by the time `READY` fires.
-- A migration returning `false` counts as done: only `nil` leaves it pending.
 
 !!! tip "🎮 Try it"
     **Diagnostics → Reports → Saved data**, in the EbonAPI window, shows one line per addon with its number of account keys and characters, then the total of migrations applied and of entries repaired at load.

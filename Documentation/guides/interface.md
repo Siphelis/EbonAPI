@@ -163,10 +163,10 @@ While a page is drawn, an option whose `get`, `desc`, `disabled` or `values` rai
 | `api:GetParameter(name)` | parameter name | the value that applies to your addon | the name is unknown |
 | `api:GetParameters()` | | a table, name to value | |
 | `api:SetParameter(name, value)` | name, value or `nil` to remove yours | the value that applies, the player's when set | the name is unknown or the value out of range |
-| `EbonAPI:OpenOptions(addon?, key?)` | optional addon and group | the window | |
+| `EbonAPI:OpenOptions(addon?, key?)` | optional addon and group | the window | the named addon has no options registered with `api:Options` |
 | `EbonAPI:GetParameter(name)` | parameter name | the value in the EbonAPI window | the name is unknown |
 
-`api:OpenOptions` opens the window on your tab. The messages of the errors are in [Errors](../reference/errors.md#interface).
+`api:OpenOptions` opens the window on your tab. `EbonAPI:OpenOptions()` without an addon opens the EbonAPI page. The messages of the errors are in [Errors](../reference/errors.md#interface).
 
 ## Events
 

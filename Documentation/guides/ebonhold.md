@@ -46,7 +46,7 @@ end)
 
 Each feature says whether one piece of ProjectEbonhold is there. `api:HasFeature(name)` returns the last answer, `true` or `false`; an unknown name gives `false`. `FEATURE_CHANGED(name, available)` fires when an answer differs from the previous one. EbonAPI checks at login, before `READY`, and again every time the player enters the world. `Ebonhold.Detect()` checks now and returns a copy of the whole table, feature name to boolean.
 
-The first check has no previous answer, so at login `FEATURE_CHANGED` fires once for every feature, the missing ones included.
+The first check has no previous answer, so at login `FEATURE_CHANGED` fires once for every feature, the missing ones included, in the order of the table below.
 
 | Feature | Present when |
 | --- | --- |
@@ -70,7 +70,7 @@ The first check has no previous answer, so at login `FEATURE_CHANGED` fires once
 
 ## Accessors
 
-`api:Ebonhold()` returns the module; `EbonAPI.Ebonhold` is the same table. Most accessors return the object or `nil`; the table below says what each one returns. `PerkFrame()`, `SkillTreeImportButton()` and `SkillTreeFrame()` return the game's own object as it is. Test the result, or test the feature first.
+`api:Ebonhold()` returns the module; `EbonAPI.Ebonhold` is the same table. Most accessors return the object or `nil`; the table below says what each one returns. `PerkFrame()`, `SkillTreeImportButton()` and `SkillTreeFrame()` return the game's own object as it is when it is a table, and `nil` otherwise. Test the result, or test the feature first.
 
 | Function | Returns |
 | --- | --- |
@@ -99,14 +99,14 @@ The first check has no previous answer, so at login `FEATURE_CHANGED` fires once
 
 ## Opening a link
 
-`api:OpenLink(url)` opens the link in the player's browser when the client offers it, or copies it when the client can only copy. It returns `"open"`, `"copy"`, or `nil` when the client can do neither and nothing happens. `api:LinkMethod()` tells which one applies without acting. `api:LinkTip()` returns the sentence to show the player next to your link, in their language, or `nil` when nothing applies:
+`api:OpenLink(url)` opens the link in the player's browser when the client offers it, or copies it when the client can only copy. It returns `"open"`, `"copy"`, or `nil` when the client can do neither and nothing happens, or when the client's function raised an error (the error is reported, not raised). `api:LinkMethod()` tells which one applies without acting. `api:LinkTip()` returns the sentence to show the player next to your link, in their language, or `nil` when nothing applies:
 
 | Method | English text of `api:LinkTip()` |
 | --- | --- |
 | `"open"` | Opens this link in your browser. |
 | `"copy"` | Copies this link: paste it into your browser. |
 
-`api:OpenLink` raises `EbonAPI: <addonName>: api:OpenLink expects a URL text, got <type>` when `url` is not a non-empty text. `EbonAPI:OpenLink(url)`, `EbonAPI:LinkMethod()` and `EbonAPI:LinkTip()` do the same without a handle; the error then reads `EbonAPI:OpenLink expects a URL text, got <type>`.
+`api:OpenLink` raises `EbonAPI: <addonName>: api:OpenLink expects a URL text, got <type>` when `url` is not a non-empty text; for an empty text the message ends with `got an empty string`. `EbonAPI:OpenLink(url)`, `EbonAPI:LinkMethod()` and `EbonAPI:LinkTip()` do the same without a handle; the error then reads `EbonAPI:OpenLink expects a URL text, got <type>` or `got an empty string`.
 
 ## Hooking a function
 
@@ -117,7 +117,7 @@ Ebonhold.Hook("PerkUI", "Show", function(original, ...)
 end)
 ```
 
-`Ebonhold.Hook(path, key, wrapper)` replaces `target[key]` with a function that calls your wrapper, giving it the original function first, and returns whatever your wrapper returns. `Hook` returns `true` when the hook is in place. It returns `false` when the target is missing, when `target[key]` is not a function, or when that function is already hooked: one hook per function, the first one wins.
+`Ebonhold.Hook(path, key, wrapper)` replaces `target[key]` with a function that calls your wrapper, giving it the original function first, and returns whatever your wrapper returns. `Hook` returns `true` when the hook is in place. Otherwise it returns `false` and a reason: `"no_target"` when the target is missing or `target[key]` is not a function, `"no_wrapper"` when `wrapper` is not a function (nothing is replaced), and `"already_hooked"` when that function is already hooked: one hook per function, the first one wins.
 
 `path` is one of these:
 
@@ -137,9 +137,9 @@ if Ebonhold.OpcodeCS(name) then
 end
 ```
 
-This uses ProjectEbonhold's own sender and its own opcode names. It returns `true` when the call went through, `false, "no_send"` when the client cannot send, `false, "no_opcode"` for a name it does not know, and `false` when ProjectEbonhold's sender raised an error (the error is reported). Prefer `api:SendServer` with `EbonAPI.CS`; keep this path for opcodes EbonAPI does not list.
+This uses ProjectEbonhold's own sender and its own opcode names. It returns `true` when the call went through, `false, "no_send"` when the client cannot send, `false, "no_opcode"` for a name it does not know, and `false, "error"` when ProjectEbonhold's sender raised an error (the error is reported). Prefer `api:SendServer` with `EbonAPI.CS`; keep this path for opcodes EbonAPI does not list.
 
-`Ebonhold.RequestLoadout()` asks the server for the loadouts through ProjectEbonhold. It returns `true` when the request was made, `false` when it cannot be made or raised an error.
+`Ebonhold.RequestLoadout()` asks the server for the loadouts through ProjectEbonhold. It returns `true` when the request was made, `false, "no_request"` when ProjectEbonhold has no such function, and `false, "error"` when it raised an error (the error is reported).
 
 ## API
 
@@ -150,10 +150,10 @@ This uses ProjectEbonhold's own sender and its own opcode names. It returns `tru
 | `api:OpenLink(url)` | non-empty text | `"open"`, `"copy"` or `nil` | `EbonAPI: <addonName>: api:OpenLink expects a URL text, got <type>` |
 | `api:LinkMethod()` | | `"open"`, `"copy"` or `nil` | never |
 | `api:LinkTip()` | | the sentence for the player, or `nil` | never |
-| `Ebonhold.Hook(path, key, wrapper)` | `nil`, text or table; function name; `wrapper(original, ...)` | `true` when hooked, `false` otherwise | never |
+| `Ebonhold.Hook(path, key, wrapper)` | `nil`, text or table; function name; `wrapper(original, ...)` | `true` when hooked, otherwise `false` with `"no_target"`, `"no_wrapper"` or `"already_hooked"` | never |
 | `Ebonhold.IsHooked(path, key)` | same path and key | `true` or `false` | never |
-| `Ebonhold.SendToServer(name, body)` | opcode name, string | `true`, or `false` with a reason | never |
-| `Ebonhold.RequestLoadout()` | | `true` when the request was made | never |
+| `Ebonhold.SendToServer(name, body)` | opcode name, string | `true`, or `false` with `"no_send"`, `"no_opcode"` or `"error"` | never |
+| `Ebonhold.RequestLoadout()` | | `true` when the request was made, otherwise `false` with `"no_request"` or `"error"` | never |
 | `Ebonhold.Detect()` | | copy of the feature table | never |
 | `Ebonhold.Summary()` | | list of features present, list of features missing | never |
 

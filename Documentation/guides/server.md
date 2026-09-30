@@ -44,6 +44,8 @@ end)
 
 When a complete message arrives, the functions registered with `api:OnServer` for its opcode receive the body. For an opcode EbonAPI knows, the matching event, such as `SERVER_RUN_DATA`, carries the parsed table. `SERVER_MESSAGE` fires last, for every message, after all the functions and events.
 
+Inside a function registered with `api:OnServer`, the state already holds the message: `State.GetRun()` and the other getters return the new values.
+
 To work with the new values of a known opcode, subscribe to its event. Use `api:OnServer` to read the `body` yourself, or for opcodes EbonAPI does not parse.
 
 ## Parsed events
@@ -60,7 +62,16 @@ These events carry ready-to-use tables. All of them are sticky: a late subscribe
 | `SERVER_BUILD_ACTIVE` | slot, builds | `SS.BUILD_ACTIVE` |
 | `SERVER_LOADOUT` | loadout | `SS.SEND_LOADOUTS` |
 
-A run message with too few fields, an ash message without two numbers, an intensity message with fewer than two fields, or a build list with a malformed first entry changes nothing and fires no event. The previous state stays.
+A malformed message changes nothing and fires no event. The previous state stays. This covers:
+
+- a run message with too few fields;
+- an ash message whose whole body is not `<digits>,<digits>`;
+- a multiplier that is not a number;
+- an intensity message with fewer than two fields or a first field that is not a number;
+- a build list that is empty, or whose first entry is malformed;
+- a `BUILD_ACTIVE` message for a slot that is not in the build list.
+
+Each event carries its own copy of the table. A table you keep is never changed by a later message, and it is not the table `api:State()` holds.
 
 ### Run
 
@@ -79,7 +90,7 @@ Every field is a number unless noted. A field the server did not send is `0`.
 | `catchupMultiplierPct` | number sent by the server as it is |
 | `usedFreezes`, `totalFreezes`, `remainingFreezes` | freezes used, granted, remaining |
 | `hasReachedMaxLevel` | `true` once the run reached the level cap, `false` otherwise |
-| `fieldCount` | how many fields the server sent; older servers send fewer |
+| `fieldCount` | how many fields the server sent; older servers send fewer. Only on a run that came from a server message |
 
 The "remaining" fields are never negative. When the server sends no banish count, `remainingBanishes` is `1`.
 
@@ -110,7 +121,7 @@ local build, slot = State.activeBuild()
 
 ### Loadout
 
-`nodes` (a table keyed by node id giving the rank, only ranks above `0`), `id` and `name`, and `spendable` and `committed` when the message carried them. `id` and `name` describe the loadout the server selected; if none has that id, the first loadout with id `0` is used. They are absent when no loadout qualifies or its name is empty or contains `|`.
+`nodes` (a table keyed by node id giving the rank, only ranks above `0`), `count` (how many well-formed loadouts the message held), `id` and `name`, and `spendable` and `committed` when the message carried them. `id` and `name` describe the loadout the server selected; if none has that id, the first loadout with id `0` is used. They are absent when no loadout qualifies or its name is empty or contains `|`.
 
 ## Reading the state at any time
 
@@ -118,7 +129,7 @@ local build, slot = State.activeBuild()
 
 | Function | Returns |
 | --- | --- |
-| `State.GetRun()` | the run table, or ProjectEbonhold's published run data when no message arrived yet |
+| `State.GetRun()` | the run table, or a table EbonAPI fills from ProjectEbonhold's published run data when no message arrived yet, with the derived `countCan...` and `remaining...` fields added |
 | `State.GetIntensity()` | the intensity table, with the same fallback |
 | `State.GetAsh()` | the ash table |
 | `State.GetMultiplier()` | the multiplier, `0` by default |
@@ -143,7 +154,7 @@ api:OnServer(EbonAPI.SS.HARDMODE_DATA, function(body, opcode, sender)
 end)
 ```
 
-The function receives the complete body, `opcode`, `sender` (your own character's name) and `distribution` (`"WHISPER"`); either may be `nil`. `api:OffServer(opcode, fn)` removes it, and so does `api:OffAll()`. `SERVER_MESSAGE(opcode, body, sender)` fires for every message, whatever its opcode. `STREAM_TIMEOUT(opcode, id, received, total)` fires when a message in several parts stopped coming: no new part for 20 seconds. `id` is the text that tells the messages apart, `received` and `total` count the parts.
+The function receives the complete body, `opcode`, `sender` (your own character's name) and `distribution` (`"WHISPER"`); either may be `nil`. `api:OffServer(opcode, fn)` removes a function your addon registered, and so does `api:OffAll()`. It cannot remove a function registered by another addon. `SERVER_MESSAGE(opcode, body, sender)` fires for every message, whatever its opcode. `STREAM_TIMEOUT(opcode, id, received, total)` fires when a message in several parts stopped coming: no new part for 20 seconds. `id` is the text that tells the messages apart, `received` and `total` count the parts.
 
 A function that raises an error is reported and does not stop the others.
 
@@ -155,7 +166,7 @@ api:RequestServer(EbonAPI.CS.REFRESH_PERKS, "", 30)
 ```
 
 - `api:SendServer(opcode, body)` queues the message and returns `true`. The body is optional: `nil` and `""` mean no body, a number is sent as its text.
-- `api:RequestServer(opcode, body, minInterval)` does the same, but returns `false` without sending when the same opcode and body were accepted less than `minInterval` seconds ago, by your addon or by any other. A `nil` body and `""` are the same request. Without `minInterval`, or with `0`, nothing is skipped. Use it for refresh requests that several places of your addon may trigger.
+- `api:RequestServer(opcode, body, minInterval)` does the same, but returns `false` without sending when the same opcode and body were queued less than `minInterval` seconds ago, by your addon or by any other. A request that raises an error is not counted: the next identical call is not skipped. A `nil` body and `""` are the same request. Without `minInterval`, or with `0`, nothing is skipped. Use it for refresh requests that several places of your addon may trigger.
 - The opcode written as text, one separator byte when there is a body, and the body together cannot exceed 240 bytes: with a one-digit opcode the body holds at most 238 bytes. A longer message raises `EbonAPI.Bridge.send: payload of <n> bytes for opcode <opcode>, the limit is 240`.
 
 ## Opcodes
@@ -200,8 +211,8 @@ The opcodes EbonAPI does not parse reach your addon as raw bodies, through `api:
 
 | Method | Arguments | Returns | Raises when |
 | --- | --- | --- | --- |
-| `api:OnServer(opcode, fn)` | number, `fn(body, opcode, sender, distribution)` | `true`, or `false` if this function is already registered for this opcode | `EbonAPI.Bridge.on expects a numeric opcode, got <type>`; `EbonAPI.Bridge.on expects a function for opcode <opcode>, got <type>` |
-| `api:OffServer(opcode, fn)` | number, function | `true` if something was removed, `false` otherwise | never |
+| `api:OnServer(opcode, fn)` | number, `fn(body, opcode, sender, distribution)` | `true`, or `false` if this function is already registered for this opcode | `EbonAPI: <addonName>: api:OnServer expects a numeric opcode, got <type>`; `EbonAPI: <addonName>: api:OnServer expects a function for opcode <opcode>, got <type>` |
+| `api:OffServer(opcode, fn)` | number, function | `true` if your addon had registered it and it was removed, `false` otherwise | never |
 | `api:SendServer(opcode, body?)` | number, string, number or `nil` | `true` | `EbonAPI.Bridge.send expects a numeric opcode, got <type>`; message over 240 bytes; a Lua error when the body is another type, such as a table or a boolean |
 | `api:RequestServer(opcode, body, minInterval)` | number, string, seconds | `true`, or `false` when skipped | same as `SendServer` |
 | `api:State()` | | the state module | never |

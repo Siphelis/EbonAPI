@@ -38,11 +38,11 @@ This gives MyAddon an icon and a **Project page** button on its card, and lets E
 | `icon` | text | the icon of your addon: a name from `Interface\Icons`, such as `"INV_Misc_Map_01"`, or a full texture path |
 | `url` | text | the page of your project, where players download it |
 | `updates` | boolean | `true` declares your version for update notices, as `api:Version` does |
-| `version` | text | the version declared with `updates`; without it, EbonAPI reads the `## Version` line of your `.toc` |
+| `version` | text | the version declared with `updates`; without it, EbonAPI reads the `## Version` line of your `.toc`. `version` needs `updates = true` |
 
 - `icon` is used as given: a name without `\` or `/` is looked for in `Interface\Icons`, anything else is a path. EbonAPI does not check that the file exists.
 - `updates = true` needs a version in the form `major.minor.patch` with an optional `-N` suffix, such as `1.2.0` or `1.2.0-3`. The [Versions](versions.md) guide explains the notice.
-- An unknown option, a value of the wrong kind or an empty text is a contract error. See [Errors](../reference/errors.md#handle-and-events).
+- An unknown option, a value of the wrong kind, an empty text or `version` without `updates = true` is a contract error. See [Errors](../reference/errors.md#handle-and-events).
 
 !!! note
     The card reads `## Version`, `## Notes` and `## Author` from the `.toc` of the addon whose folder has the name you gave to `NewAddon`. Give `NewAddon` the name of your addon's folder.

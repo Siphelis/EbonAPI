@@ -5,7 +5,7 @@ From an empty folder to an addon that talks to EbonAPI, in five steps.
 ## What you need
 
 - World of Warcraft 3.3.5a with the Ebonhold client (ProjectEbonhold).
-- EbonAPI 1.0.0 or newer in `Interface/AddOns/EbonAPI`, enabled in the addon list.
+- EbonAPI 2.0.0 or newer in `Interface/AddOns/EbonAPI`, enabled in the addon list.
 - A text editor. There is nothing to compile and no library to copy into your addon: the game loads EbonAPI before your files.
 
 ## 1. Declare the dependency

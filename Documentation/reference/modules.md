@@ -8,7 +8,7 @@ Also returned by `api:State()`. Guide: [Server](../guides/server.md).
 
 | Function | Returns |
 | --- | --- |
-| `State.GetRun()` | the run table, or ProjectEbonhold's published run data while no message arrived, or `nil` |
+| `State.GetRun()` | the run table, or a table EbonAPI fills from ProjectEbonhold's published run data while no message arrived, with the derived `countCan...` and `remaining...` fields added, or `nil` |
 | `State.GetIntensity()` | the intensity table, with the same fallback, or `nil` |
 | `State.GetAsh()` | the ash table, or `nil` |
 | `State.GetMultiplier()` | the multiplier, `0` by default |
@@ -53,20 +53,20 @@ Text formatting, in the shared language where it matters.
 | Function | Example | Result |
 | --- | --- | --- |
 | `Format.number(value)` | `Format.number(1234567)` | `1 234 567`, rounded to a whole number |
-| `Format.compact(value)` | `Format.compact(12345)` | `12.3k`; `1.23M` from a million, `1.23G` from a billion; below 10000 the number as `Format.number` writes it, such as `5 000`; a negative value keeps a leading `-` |
+| `Format.compact(value)` | `Format.compact(12345)` | `12.3k`; `1.23M` from a million, `1.23G` from a billion, the unit being chosen after rounding (`Format.compact(999999)` is `1.00M`); below 10000 the number as `Format.number` writes it, such as `5 000`; a negative value keeps a leading `-` |
 | `Format.percent(value)` | `Format.percent(12.34)` | `12.3%` |
 | `Format.pair(current, maximum)` | `Format.pair(150, 300)` | `150 / 300`, each number as `Format.compact` writes it |
 | `Format.rate(value)` | `Format.rate(12345)` | `12.3k/h`, the `/h` in the shared language |
 | `Format.bytes(value)` | `Format.bytes(2048)` | `2 KB`; `1.00 MB` from a megabyte |
 | `Format.boolean(value)` | `Format.boolean(true)` | `yes`, in the shared language |
-| `Format.money(copper)` | `Format.money(12345)` | `1g 23s 45c`; the gold part only above 0, the silver part from 1 silver or 1 gold, the copper part always; a negative amount gets a leading `-` |
+| `Format.money(copper)` | `Format.money(12345)` | `1g 23s 45c`; the gold part only above 0, grouped by thousands like `Format.number` (`Format.money(123456789)` is `12 345g 67s 89c`), the silver part from 1 silver or 1 gold, the copper part always; a negative amount gets a leading `-` |
 | `Format.moneyRich(copper)` | `Format.moneyRich(12345)` | the same layout with WoW colors on the units; the gold amount is grouped by thousands like `Format.number`, such as `12 345g`; a negative amount gets a leading `-` |
 | `Format.duration(seconds)` | `Format.duration(3725)` | `1h 2m`; `2m 5s` under an hour; `45s` under a minute; hours keep counting past 24 |
 | `Format.seconds(value)` | `Format.seconds(30)` | `30s` |
-| `Format.secondsRemaining(untilTime)` | `Format.secondsRemaining(GetTime() + 10)` | the number `10`, not text; never negative; `0` when `untilTime` is `nil` |
+| `Format.secondsRemaining(untilTime)` | `Format.secondsRemaining(GetTime() + 10)` | the text `10s`: `Format.duration` of the seconds left, rounded up; `0s` when `untilTime` is `nil` or already past |
 | `Format.list(values, separator?)` | `Format.list({ "a", "b" })` | `a, b`; `separator` defaults to `", "` |
 
-A value that is not a number, or is infinite, counts as `0`: no `Format` function raises an error. The units of `Format.duration` and `Format.seconds` follow the shared language.
+A value that is not a number, or is infinite, counts as `0`: no `Format` function raises an error. A result that rounds to zero never gets a minus sign. The units of `Format.duration` and `Format.seconds` follow the shared language.
 
 ## `EbonAPI.Lib`
 
@@ -91,13 +91,13 @@ Small helpers EbonAPI uses itself, open to your addon. The others in `EbonAPI.Li
 | `Lib.indexOf(list, value)` | the index of a value in a list, or `nil` |
 | `Lib.removeValue(list, value)` | removes the first occurrence, returns `true` when found |
 | `Lib.keys(t, into?)` | appends the keys of `t` to `into` (a new list if omitted) and returns it, in no set order |
-| `Lib.sortedKeys(t)` | the keys of a table as a list, sorted as text (`10` comes before `2`) |
+| `Lib.sortedKeys(t)` | the keys of a table as a list: number keys first in increasing order, then the other keys sorted as text |
 | `Lib.trim(text)` | without leading and trailing spaces |
 | `Lib.split(text, separator, into)` | splits at each `separator` (plain text, not a pattern) into the list `into`, which it empties first; returns `into, count`; empty parts are kept |
 | `Lib.stripColor(text)` | without WoW color codes |
 | `Lib.colorize(color, text)` | wrapped in a WoW color code |
-| `Lib.cutUtf8(text, start, budget)` | where a piece of at most `budget` bytes starting at `start` must end, never inside a character: the position of its last byte |
-| `Lib.splitUtf8(text, budget, into)` | fills the list `into` with pieces of at most `budget` bytes, never inside a character; returns `into, count` |
+| `Lib.cutUtf8(text, start, budget)` | where a piece of at most `budget` bytes starting at `start` must end, never inside a character: the position of its last byte; a character wider than `budget` is kept whole |
+| `Lib.splitUtf8(text, budget, into)` | fills the list `into` with pieces of at most `budget` bytes, never inside a character (a character wider than `budget` gets a part of its own); returns `into, count` |
 
 ## Opcodes
 
@@ -105,13 +105,13 @@ Small helpers EbonAPI uses itself, open to your addon. The others in `EbonAPI.Li
 
 ## Colors
 
-`EbonAPI.Log.COLOR` holds the WoW color codes EbonAPI prints with: `PREFIX`, `TEXT`, `ERROR`, `WARN`, `SUCCESS`, `HIGHLIGHT`, `MUTED` and `RESET`. They follow the player's skin, from its [chat colors](skin-parameters.md#chat).
+`EbonAPI.Log.COLOR` holds the WoW color codes EbonAPI prints with: `PREFIX`, `TEXT`, `ERROR`, `WARN`, `SUCCESS`, `HIGHLIGHT`, `MUTED`, `GOLD`, `SILVER`, `COPPER` and `RESET`. They follow the player's skin, from its [chat colors](skin-parameters.md#chat).
 
 ## Constants
 
 | Constant | Value |
 | --- | --- |
 | `EbonAPI.name` | `"EbonAPI"` |
-| `EbonAPI.version` | `"1.0.0"` |
-| `EbonAPI.MAJOR`, `EbonAPI.MINOR`, `EbonAPI.PATCH` | `1`, `0`, `0` |
+| `EbonAPI.version` | the `## Version` line of `EbonAPI.toc`, such as `"2.0.0"` |
+| `EbonAPI.MAJOR`, `EbonAPI.MINOR`, `EbonAPI.PATCH` | the three numbers of that version, such as `2`, `0`, `0` |
 | `EbonAPI.NAME_MAX` | `32`, the longest addon name |

@@ -20,8 +20,8 @@ Every size, count and delay a developer may run into, in one place. Sizes are in
 | | Limit |
 | --- | --- |
 | Arguments of an event | 6, after the event name. A seventh is dropped |
-| Ticker interval | seconds, more than `0`. A missing or non-numeric value becomes 1 second |
-| Ticker rate | a ticker runs at most once per frame. After it runs, the next run waits one full interval, and missed runs are not made up |
+| Ticker interval | a number of seconds, more than `0`. Any other value raises an error |
+| Ticker rate | a ticker runs at most once per frame. The time a slow frame adds beyond the interval is taken off the next wait, so the ticker does not drift. Missed runs are not made up |
 
 ## Localization
 
@@ -40,7 +40,7 @@ Every size, count and delay a developer may run into, in one place. Sizes are in
 | Option types | `group`, `header`, `description`, `toggle`, `range`, `select`, `color`, `execute`, `input` |
 | Option width | `half`, `normal`, `double`, `full`, or a number |
 | Option order | 100 when `order` is missing or is not a number |
-| Inherited from the parent group | `handler`, `get`, `set`, `func`, `disabled`, `hidden`. The nearest group wins |
+| Inherited from the parent group | `handler`, `get`, `set`, `func`, `disabled`, `hidden`. For the first four, the nearest group wins. A group with `disabled` or `hidden` true applies it to everything inside, and a child cannot cancel it |
 | Option fields that can be a method name | `get`, `set`, `func`, `disabled`, `hidden`, `values` |
 | Option `range` step | `step`, else 0.01 for a percent, else 1 when the range spans 10 or more, else 0.01. The value is kept between `min` and `max` |
 | Option `input` with `multiline = true` | the number of lines comes from the skin (`widgets.input.lines`, 2 to 30) |
@@ -57,7 +57,8 @@ Every size, count and delay a developer may run into, in one place. Sizes are in
 | Dialog text field | `maxLetters`, unlimited when absent |
 | Notifications | no limit on their number |
 | Key chosen with a `shortcut` element | `LSHIFT`, `RSHIFT`, `LCTRL`, `RCTRL`, `LALT` and `RALT` alone cannot be the key. A combination is saved as `ALT-CTRL-SHIFT-` then the key. `api:SetShortcut` stores the text as given |
-| Kit timer text | refreshed ten times a second |
+| Kit timer text | refreshed every `kit.timer.every` seconds, 0.01 to 1, 0.1 (ten times a second) in Azeroth |
+| Kit `FLOW` layout | without `wrap`, a line wraps at the container's `width` minus twice its padding, else at the skin's `kit.wrap`, 40 to 2000, 320 in Azeroth |
 | Minimap button | one per addon; `display` `BUTTON`, `GROUP` or `HIDDEN` |
 | Minimap shapes understood | `ROUND`, `SQUARE`, `CORNER-*`, `SIDE-*`, `TRICORNER-*`. Any other shape is drawn as `ROUND` |
 
@@ -65,7 +66,7 @@ Every size, count and delay a developer may run into, in one place. Sizes are in
 
 | | Limit |
 | --- | --- |
-| Skin parameters | 403, listed in [Skin parameters](skin-parameters.md): 8 player settings, 31 palette colors and 364 others |
+| Skin parameters | 470, listed in [Skin parameters](skin-parameters.md): 8 player settings, 31 palette colors and 431 others |
 | Brick slots | 16 |
 | Colors | whole number 0x000000 to 0xFFFFFF; palette transparency 0 to 1 |
 | Contrast | `contrast.minimum` 1 to 21 (4.5 in Azeroth), `contrast.light` 0 to 1 (0.96), `contrast.dark` 0 to 1 (0.04) |
@@ -106,7 +107,7 @@ The opcodes are listed in the [Server guide](../guides/server.md#opcodes).
 | | Limit |
 | --- | --- |
 | Plain whisper | 255 bytes minus the prefix and one separator |
-| Stream | 400 parts, about 90 KB with a short prefix, op and id |
+| Stream | 400 parts, about 90 KB with a short prefix, op and id. A larger body raises an error that gives the exact figure |
 | Reassembly | 30 seconds without a new part |
 
 ## Sharing
@@ -132,7 +133,7 @@ The opcodes are listed in the [Server guide](../guides/server.md#opcodes).
 
 | | Limit |
 | --- | --- |
-| `Format.compact` | Below 10000: the number rounded to a whole number, digits grouped by three (`5 000`). `k` with one decimal from 10000, `M` with two decimals from 1 million, `G` with two decimals from 1 billion |
+| `Format.compact` | Below 10000: the number rounded to a whole number, digits grouped by three (`5 000`). `k` with one decimal from 10000, `M` with two decimals from 999,950 (shown as `1.00M`), `G` with two decimals from 999,995,000 (shown as `1.00G`). The unit letters and the group separator follow the player's language |
 | `Format.bytes` | KB, then MB from 1,048,576 bytes |
 
 ## Sessions and diagnostics

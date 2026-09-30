@@ -2,7 +2,7 @@
 
 **The shared foundation of Ebonhold addons: server, players, data, language and interface.**
 
-EbonAPI 1.0.0 · World of Warcraft 3.3.5a (Interface 30300) · Lua 5.1
+EbonAPI 2.0.0 · World of Warcraft 3.3.5a (Interface 30300) · Lua 5.1
 
 EbonAPI is an addon that other addons build on. It does, once and for all of them, what every Ebonhold addon would otherwise rewrite: read what the server sends, talk to the other players, save data, follow the player's language, draw windows and settings, announce updates, and help you find what went wrong. Your addon asks for a **handle** and reaches every service through it.
 

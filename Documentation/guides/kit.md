@@ -90,30 +90,31 @@ local win = api:Window(id, fields)
 | `header` | `true` | a title bar with a close button; `false` gives a bare window |
 | `buttons` | | a list of extra header buttons, each with the fields of a `button`, or of an `icon` when it has `icon` |
 | `layout` | `"VERTICAL"` | how the elements are placed, see [Layouts](#layouts) |
-| `spacing`, `columns`, `wrap` | the skin's for `spacing` and `columns`; the width of the container for `wrap` | the gap between elements, the columns of `GRID`, the width where `FLOW` goes to the next line |
+| `spacing`, `columns`, `wrap` | the skin's for `spacing` and `columns`; for `wrap`, the `width` of the container minus its padding on both sides, or the skin's 320 when it has no `width` | the gap between elements, the columns of `GRID`, the width where `FLOW` goes to the next line |
 | `padding` | the skin's | the margin inside the window |
 | `width`, `height` | the content | a fixed size; without them, the window fits its content |
 | `minWidth` | | the smallest width when the window fits its content |
 | `point` | `{ "CENTER" }` | the first position: `{ point, relativeTo, relativePoint, x, y }`; after that, the window stays where the player moves it |
 | `move` | `"ALWAYS"` | how the player moves it, see [Moving](#moving) |
-| `combat` | | `"HIDE"` hides it during combat, `"FADE"` dims it |
+| `combat` | | `"HIDE"` hides it during combat, `"FADE"` dims it; a window that holds a secure element is not hidden by `"HIDE"`, use `"FADE"` for it |
 | `shown` | `true` without header, `false` with | shows the window at once; a window with a header stays hidden until `win:Open()` |
+| `hidden` | | `true`, or a function that returns it, hides the window at every refresh; `false` never shows a window the player closed |
 | `escape` | the value of `header` | **Esc** closes the window |
 | `scroll` | `"NONE"` | see [Scrolling](#scrolling) |
 
 | Method | Effect |
 | --- | --- |
-| `win:Open()`, `win:Close()`, `win:Toggle()` | show, hide, or switch; during combat, `Open` waits for the end of the fight |
-| `win:SetTitle(text)` | a new title |
+| `win:Open()`, `win:Close()`, `win:Toggle()` | show, hide, or switch; in combat they act at once, except for a window that holds a secure element or has `combat = "HIDE"`: it waits for the end of the fight, and only the last request counts (three `Toggle` in combat make one change) |
+| `win:SetTitle(text)` | a new title, also when the window was created with a translation key |
 | `win:SetShaded(state)` | `true` keeps only the title bar, `false` shows the content again; it does nothing on a window without a header |
 | `win:Add(kind, fields)` | adds an element and returns it |
-| `win:Clear()` | removes every element |
+| `win:Clear()` | removes every element, with their timers and keyboard shortcuts |
 | `win:Children()` | the list of its elements |
-| `win:SetOrientation(layout)` | another layout |
+| `win:SetOrientation(layout)` | another layout, one of those of [Layouts](#layouts) |
 | `win:Layout()` | places the elements again |
 | `win:Refresh()` | redraws the title and every element |
 
-`win.body` is the frame that holds the elements. With a header, `win.head` is the title bar, `win.title` its text, `win.close` the close button and `win.headButtons` the list of your extra header buttons. A bare window has none of these but `win.body`.
+`win.body` is the frame that holds the elements. With a header, `win.head` is the title bar, `win.title` its text, `win.close` the close button and `win.headButtons` the list of your extra header buttons. A bare window has none of these but `win.body`. Your header buttons are refreshed once per refresh. A skin can leave the close button out (`header.close.show`) or move it (`header.close.y`); the header buttons then start at the edge of the header.
 
 The position of each window is saved for the account, and the window opens there next time. When the player ticks **Lock positions** under **Esc → EbonAPI → Appearance → Layout**, no window moves.
 
@@ -123,9 +124,11 @@ The position of each window is saved for the account, and the window opens there
 | --- | --- |
 | `"VERTICAL"` | one under the other; the default of windows, groups, panels and tab pages |
 | `"HORIZONTAL"` | side by side; the default of `bar` |
-| `"GRID"` | in rows of `columns`; the default of `grid` |
-| `"FLOW"` | side by side, going to the next line past `wrap` pixels, or past the width of the container |
+| `"GRID"` | in rows of `columns`; each column is as wide as its widest element; the default of `grid` |
+| `"FLOW"` | side by side, going to the next line past `wrap` pixels, or past the width of the container (the skin's 320 when it has no `width`) |
 | `"NONE"` | not at all: place each element with its `point`, and give the container a `width` and a `height`, since it does not grow to fit them |
+
+A `layout` is accepted on a `bar`, `grid`, `group`, `panel` and window.
 
 #### Moving
 
@@ -136,7 +139,7 @@ The position of each window is saved for the account, and the window opens there
 | `"HANDLE"` | only by a `handle` element placed in it |
 | `"NONE"` | never |
 
-A window that holds a secure element does not move during combat. A `handle` element moves its window with a left-button drag, unless **Lock positions** is ticked.
+A window that holds a secure element does not move during combat. A `handle` element moves its window with a left-button drag, unless **Lock positions** is ticked or the window has `move = "NONE"`.
 
 ### Elements
 
@@ -156,14 +159,14 @@ local label = api:Create("text", MyAddonFrame, { key = "READY" })
 | `text` | the text shown: a string, or a function that returns it |
 | `key` | a translation key, used instead of `text` |
 | `tip` | the tooltip: a text, or `function(lines, element)` that fills it |
-| `tipKey` | a translation key, for the tooltip text |
+| `tipKey` | a translation key, for the tooltip text; a key missing from your texts is reported once and only the title shows |
 | `link` | an item or spell link: hovering shows the game's tooltip |
-| `hidden`, `disabled` | `true`, or a function that returns it |
+| `hidden`, `disabled` | `true`, or a function that returns it; a function that returns `nil` means visible, or enabled. an element that cannot be greyed, such as `heading`, `text`, `status`, `bar`, `grid`, `group`, `panel`, `tabs` or a window, refuses `disabled` |
 | `badge` | a small mark on the corner: a text, a number, `true` for a dot |
 | `width`, `height` | a fixed size |
 | `point` | `{ point, relativeTo, relativePoint, x, y }`; used when you create the element with `api:Create` on your own frame, or in a container whose layout is `NONE`; the other layouts place the element themselves |
 
-These fields belong to `button`, `secure`, `icon`, `slot` and `handle`. The elements that hold a value (`toggle`, `range`, `select`, `color`, `input`) report changes through `onChange` instead.
+These fields belong to `button`, `secure`, `icon`, `slot` and `handle`; any other kind refuses `onClick`, `menu` and `shortcut`. The elements that hold a value (`toggle`, `range`, `select`, `color`, `input`) report changes through `onChange` instead. (`link` works on every kind.)
 
 | Field | Effect |
 | --- | --- |
@@ -172,7 +175,7 @@ These fields belong to `button`, `secure`, `icon`, `slot` and `handle`. The elem
 | `shortcut` | the id of a keyboard shortcut that clicks the element, see [Keyboard shortcuts](#keyboard-shortcuts) |
 | `link` | **Shift**-click pastes the link into chat |
 
-A function given as `text`, `hidden`, `disabled`, `badge` or as a value to read is called again at every refresh. Callbacks receive the element first. When one of your functions raises an error, EbonAPI reports it in the game's error display and carries on.
+A function given as `text`, `hidden`, `disabled`, `badge` or as a value to read is called again at every refresh. Data you set by hand, such as the items of a list, stay as you set them unless you gave a function for them. Callbacks receive the element first. When one of your functions raises an error, EbonAPI reports it in the game's error display and carries on.
 
 A `tip` function gets a `lines` object:
 
@@ -187,7 +190,7 @@ win:Add("button", {
 })
 ```
 
-`lines:Add(text, color?, wrap?)` adds a line in the color `color` (`"text"` by default); `true` as `wrap` lets a long line break. `lines:Pair(left, right, leftColor?, rightColor?)` adds two texts on one line, `"text"` on the left and `"muted"` on the right by default. Colors are palette names, such as `"heading"`, `"text"` or `"muted"`; the full list is in [Skin parameters](../reference/skin-parameters.md#palette). The title of the tooltip is the text of the element.
+`lines:Add(text, color?, wrap?)` adds a line in the color `color` (`"text"` by default); `true` as `wrap` lets a long line break. `lines:Pair(left, right, leftColor?, rightColor?)` adds two texts on one line, `"text"` on the left and `"muted"` on the right by default. Colors are palette names, such as `"heading"`, `"text"` or `"muted"`; the full list is in [Skin parameters](../reference/skin-parameters.md#palette). An unknown color raises an error; inside a `tip` function, it is reported in the game's error display. The title of the tooltip is the text of the element.
 
 #### Refreshing
 
@@ -195,7 +198,7 @@ Every element has `Refresh()`, `SetBadge(text)` and `Owner()`. `element:Refresh(
 
 ### Scrolling
 
-`api:Window`, `group` and `panel` take a `scroll` field:
+`api:Window`, `group` and `panel` take a `scroll` field; any other kind refuses it:
 
 | `scroll` | Effect |
 | --- | --- |
@@ -240,10 +243,10 @@ api:Dialog({
 | `cancel`, `cancelKey` | the label of the cancel button; without it, there is no cancel button |
 | `input` | a text field, filled with this text |
 | `maxLetters` | the longest text the field accepts |
-| `choices` | a list to choose from: `{ text = ..., value = ... }` or `{ key = ..., value = ... }`; the accept button stays grey until something is chosen; the list scrolls past 6 rows in the default skin |
+| `choices` | a list to choose from: `{ text = ..., value = ... }` or `{ key = ..., value = ... }`; a choice without `value` is not selected at first; the accept button stays grey until a row is clicked, or until `value` matches a choice; the list scrolls past 6 rows in the default skin |
 | `value` | the choice selected at first |
-| `onAccept` | `function(value)`: the typed text, the chosen value, or `nil` |
-| `onCancel` | `function()`, called by the cancel button, by **Esc**, and when another dialog opens |
+| `onAccept` | `function(value)`: the typed text, the chosen value, or `nil` (also for a chosen choice that has no `value`) |
+| `onCancel` | `function(value)`, called by the cancel button, by **Esc**, and when another dialog opens, with the same `value` each time: the typed text, else the chosen value, else `nil` |
 
 One dialog shows at a time: opening another one cancels the first. **Esc** cancels the dialog. Three shortcuts cover the common cases:
 
@@ -265,7 +268,7 @@ api:OpenMenu({
 })
 ```
 
-`api:OpenMenu(items, anchor?)` opens the menu under `anchor`, as wide as `anchor`, or at the cursor. It returns `true`, or `false` when `items` is not a table. An element's `menu` field opens the same menu on a right-click.
+`api:OpenMenu(items, anchor?)` opens the menu under `anchor`, as wide as `anchor`, or at the cursor. Without `anchor`, a menu already open closes first, so a second call elsewhere opens the menu at the new place of the cursor. It returns `true`, or `false` when `items` is not a table. An element's `menu` field opens the same menu on a right-click.
 
 | Item field | Effect |
 | --- | --- |
@@ -283,7 +286,7 @@ api:OpenMenu({
 api:Notify(L.ROUTE_SAVED, { duration = 6, onClick = function() win:Open() end })
 ```
 
-`api:Notify(text, fields?)` shows a notification at the top of the screen and returns it. Notifications shown together stack under each other. A click closes it and calls `onClick`; otherwise it fades out after `duration` seconds.
+`api:Notify(text, fields?)` shows a notification at the top of the screen and returns it. Notifications shown together stack under each other, the oldest at the top. A click closes it and calls `onClick`; otherwise it fades out after `duration` seconds.
 
 | Field | Default |
 | --- | --- |
@@ -300,7 +303,7 @@ win:Add("button", { key = "REFRESH", shortcut = "REFRESH", onClick = refresh })
 win:Add("shortcut", { key = "REFRESH_KEY", target = "REFRESH" })
 ```
 
-An element with `shortcut = "REFRESH"` is clicked when the player presses the keyboard key bound to `REFRESH`. The `shortcut` element lets the player choose that key: a click, then the key, with **Alt**, **Ctrl** or **Shift** if wanted. A right-click removes the key, **Esc** cancels.
+`shortcut` is an id of letters, digits and `_`. An element with `shortcut = "REFRESH"` is clicked when the player presses the keyboard key bound to `REFRESH`. The `shortcut` element needs a `target`, the id of the element it binds, and lets the player choose that key: a click, then the key, with **Alt**, **Ctrl** or **Shift** if wanted. A right-click removes the key, **Esc** cancels.
 
 The `shortcut` element reads `Refresh key: None` while no key is set, and `Press a key...` while it waits. A key pressed with modifiers is saved in the order **Alt**, **Ctrl**, **Shift**, then the key.
 
@@ -308,7 +311,7 @@ The `shortcut` element reads `Refresh key: None` while no key is set, and `Press
 
 ### Drag and drop
 
-A `list` or `tree` item can be dragged when it has a `drag` value, and so can a `slot` with `drag`. A small box with the text of the source follows the cursor. An element of the same addon with an `onDrop` field receives it:
+A `list` or `tree` item can be dragged when it has a `drag` value, and so can a `slot` with `drag`; a `drag` of `false` or `nil` means it cannot be dragged. A small box with the text of the source follows the cursor. An element of the same addon with an `onDrop` field receives it:
 
 ```lua
 local routes = win:Add("list", {
@@ -323,7 +326,7 @@ win:Add("slot", {
 })
 ```
 
-`onDrop(element, payload, source, item)` gets the dragged value, the element it came from and, for a list, the item under the cursor. Dropping an element on itself does nothing. A `slot` also takes what the game cursor holds, such as an item or a spell from the spellbook: `onDrop` then gets `{ kind, id, detail }`, the values of the game's `GetCursorInfo`.
+`onDrop(element, payload, source, item)` gets the dragged value, the element it came from and, for a list, the item under the cursor. Dropping an element on itself does nothing. A `slot` also takes what the game cursor holds, such as an item or a spell from the spellbook: `onDrop` then gets `{ kind, id, detail }`, the values of the game's `GetCursorInfo`, as `payload`, with `nil` as `source` and `item`. A `slot` without `onDrop` leaves the object on the cursor.
 
 ### Combat
 
@@ -331,7 +334,8 @@ The game forbids changing secure buttons during combat. EbonAPI keeps to that ru
 
 - `secure` elements, and `icon` elements with a `spell`, `item` or `macro`, cannot be created during combat: that is a contract error.
 - Changing their action, greying them, showing or hiding them, and placing the elements of a window that holds one wait until the fight ends.
-- `api:AfterCombat(fn)` runs `fn` now when out of combat and returns `true`; during combat, it runs `fn` when the fight ends and returns `false`.
+- `api:AfterCombat(fn)` runs `fn` now when out of combat and returns `true`; during combat, it runs `fn` when the fight ends and returns `false`. An error in `fn` goes to the game's error display and never reaches the caller.
+- `win:Open()`, `win:Close()` and `win:Toggle()` wait for the end of the fight only for a window that holds a secure element or has `combat = "HIDE"`.
 
 ```lua
 api:AfterCombat(function()
@@ -347,12 +351,12 @@ The Kit emits no event.
 
 | Method | Arguments | Returns | Raises when |
 | --- | --- | --- | --- |
-| `api:Window(id, fields?)` | id, fields | the window | id not made of letters, digits and `_`; fields not a table; unknown `scroll` |
-| `api:Create(kind, parent?, fields?)` | kind, frame, fields | the element | unknown kind; fields not a table; unknown `scroll` on a `group` or `panel`; secure element during combat |
+| `api:Window(id, fields?)` | id, fields | the window | id not made of letters, digits and `_`; fields not a table; a field that is refused, see [Errors](#errors) |
+| `api:Create(kind, parent?, fields?)` | kind, frame, fields | the element | unknown kind; fields not a table; a field that is refused, see [Errors](#errors); secure element during combat |
 | `container:Add(kind, fields)` | kind, fields | the element | as `api:Create` |
 | `container:Clear()` | | the container | |
 | `container:Children()` | | the list of its elements | |
-| `container:SetOrientation(layout)` | layout | the container | |
+| `container:SetOrientation(layout)` | layout | the container | layout is not one of the five |
 | `container:Layout()` | | the container | |
 | `win:Open()`, `win:Close()`, `win:Toggle()` | | the window | |
 | `win:SetTitle(text)` | text | the window | |
@@ -363,12 +367,12 @@ The Kit emits no event.
 | `element:Owner()` | | the name of your addon | |
 | `api:Elements()` | | sorted list of the kinds | |
 | `api:RefreshUI()` | | | |
-| `api:Dialog(fields)` | fields | the dialog | fields not a table |
+| `api:Dialog(fields)` | fields | the dialog | fields not a table; a choice that is not a table |
 | `api:Confirm(text, onYes?, onNo?)` | text, functions | the dialog | |
 | `api:Prompt(text, default?, onAccept?, onCancel?)` | text, text, functions | the dialog | |
 | `api:CopyBox(text, title?)` | text, title | the dialog | |
 | `api:OpenMenu(items, anchor?)` | list of items, frame | `true`, or `false` when items is not a table | |
-| `api:Notify(text, fields?)` | text, fields | the notification | |
+| `api:Notify(text, fields?)` | text, fields | the notification | fields given and not a table |
 | `api:GetShortcut(id)` | id | the keyboard key, or `nil` | |
 | `api:SetShortcut(id, key)` | id, keyboard key or `nil` | `true` when saved | id not made of letters, digits and `_` |
 | `api:AfterCombat(fn)` | function | `true` when run now, `false` when waiting for the end of combat | fn is not a function |
@@ -383,6 +387,26 @@ These are raised as written, with your addon's name in place of `MyAddon`:
 - `EbonAPI: MyAddon: unknown element "<kind>" (known: <the 27 kinds>)`
 - `EbonAPI: MyAddon: element "<kind>" expects a table, got <type>`
 - `EbonAPI: MyAddon: a secure element cannot be created during combat`
+- `EbonAPI: MyAddon: SetOrientation expects VERTICAL, HORIZONTAL, GRID, FLOW or NONE, got <value>`
+- `EbonAPI: MyAddon: layout expects VERTICAL, HORIZONTAL, GRID, FLOW or NONE, got <value>`
+- `EbonAPI: MyAddon: element "<kind>" does not scroll, it does not accept scroll`
+- `EbonAPI: MyAddon: element "<kind>" does not handle <onClick, menu or shortcut>`
+- `EbonAPI: MyAddon: element "<kind>" cannot be disabled`
+- `EbonAPI: MyAddon: <field> expects a function, got <value>`, for `preClick` and every field named `on` followed by a capital, such as `onClick`
+- `EbonAPI: MyAddon: <field> expects a number, got <value>`, for `min`, `max`, `step`, `spacing`, `wrap`, `padding` and `columns`
+- `EbonAPI: MyAddon: columns expects a whole number of at least 1, got <value>`
+- `EbonAPI: MyAddon: step expects a number above 0, got <value>`
+- `EbonAPI: MyAddon: range expects min lower than max, got min <a> and max <b>`
+- `EbonAPI: MyAddon: frame expects flat, small or large, got <value>`
+- `EbonAPI: MyAddon: <tip or link> expects a string or a function, got <value>`
+- `EbonAPI: MyAddon: tipKey expects a string, got <value>`
+- `EbonAPI: MyAddon: color expects a palette color, got <value> (known: <the palette colors>)`
+- `EbonAPI: MyAddon: name expects a frame name of letters, digits or _, got <value>`
+- `EbonAPI: MyAddon: the frame name "<name>" is already used`
+- `EbonAPI: MyAddon: shortcut expects an id of letters, digits or _, got <value>`
+- `EbonAPI: MyAddon: shortcut expects a target, the shortcut name of the element it binds, got <value>`
+- `EbonAPI: MyAddon: api:Dialog choices expects tables with text and value, got <value> at <index>`
+- `EbonAPI: MyAddon: api:Notify expects a table, got <type>`
 - `EbonAPI: MyAddon: api:Dialog expects a table, got <type>`
 - `EbonAPI: MyAddon: api:AfterCombat expects a function, got <type>`
 

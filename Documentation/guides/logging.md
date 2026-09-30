@@ -61,7 +61,7 @@ api:SetDebug(true)      -- true: debug is now on for this addon
 api:IsDebug()           -- true
 ```
 
-`api:SetDebug(enabled)` switches debug for your addon: any true value turns it on, `false` or `nil` turns it off. It returns `true` when debug is now on for your addon. `api:IsDebug()` returns `true` when debug is on for your addon or for all addons.
+`api:SetDebug(enabled)` switches debug for your addon: any true value turns it on, `false` or `nil` turns it off. It returns what `api:IsDebug()` returns right after the change, so `true` when debug is on for your addon or for all addons. `api:IsDebug()` returns `true` when debug is on for your addon or for all addons.
 
 In the EbonAPI window, under **Diagnostics → Debug messages**:
 
@@ -75,7 +75,7 @@ The switches are not saved: every reload turns debug off again.
 
 ### The trace
 
-EbonAPI keeps the last 128 things that happened, the oldest being dropped first. Your `api:Warn` and `api:Error` land there too, under your addon name. `api:Print`, `api:Success` and `api:Debug` do not.
+EbonAPI keeps the last 128 things that happened, the oldest being dropped first. Your `api:Warn` and `api:Error` land there too, under your addon name, and so does an error raised inside one of your callbacks, such as an event handler or a ticker function. `api:Print`, `api:Success` and `api:Debug` do not.
 
 In the EbonAPI window, **Diagnostics → Reports → Trace** shows the last 30 entries, the newest first. Set **Trace filter** to one kind, such as `warn`, to keep only those. The filter lists **Everything** and every kind that has appeared since the game started.
 
@@ -91,7 +91,7 @@ Each line shows how long ago it happened, its kind, the addon concerned and a sh
 | `share` | datasets shared |
 | `repair` | saved data repaired at load |
 | `skin` | a skin that could not be applied |
-| `warn`, `error` | `api:Warn` and `api:Error` |
+| `warn`, `error` | `api:Warn` and `api:Error`, and errors raised inside your callbacks |
 
 When nothing matches, the window shows `empty trace`.
 
@@ -121,7 +121,7 @@ See [Localization](localization.md).
 | `api:Warn(...)` | any values | | |
 | `api:Error(...)` | any values | | |
 | `api:Debug(...)` | any values | | |
-| `api:SetDebug(enabled)` | any value | `true` when debug is now on for this addon | |
+| `api:SetDebug(enabled)` | any value | `true` when debug is on for this addon or for all addons, as `api:IsDebug()` | |
 | `api:IsDebug()` | | `true` when debug is on for this addon, or for all addons | |
 
 Colors are available for your own strings in `EbonAPI.Log.COLOR`: `PREFIX`, `TEXT`, `ERROR`, `WARN`, `SUCCESS`, `HIGHLIGHT`, `MUTED` and `RESET`, as WoW color codes. All but `RESET` come from the player's skin and change when the skin changes: read them when you print, not once at load.

@@ -30,15 +30,15 @@ api:Perf("after import")                   -- prints and saves a report
 A report has these lines, in this order:
 
 1. **Memory**: `memory 512 KB (whole UI: 20480 KB)`. The first figure is what the game counts for your addon, the second is the Lua memory of the whole interface. When the client cannot tell, the line reads `memory: not available on this client`.
-2. **Since reset**: `+12 KB since reset, 340 s ago`. It appears only after **Reset counters** has been used.
+2. **Since reset**: `+12 KB since reset, 340 s ago`. It appears only after **Reset counters** has been used for your addon, and the time counts from that reset.
 3. **Running frames**: `OnUpdate running now: 2 -- Events, Bars`, or `OnUpdate running now: none`.
 4. **CPU**: see below.
 
 **Running frames** are the frames you registered with `api:Track` that are visible and have an `OnUpdate` script at this moment. Register every frame of yours that uses `OnUpdate`, under a name you will recognize in the report.
 
-**CPU** needs the game's profiler. Without it the last line reads `CPU: profiler off -- /console scriptProfile 1, then /reload`. With it, the report shows the CPU your addon used since the last reset, in milliseconds, per second and as a share of all addons: `CPU 12.3 ms over 60 s = 0.205 ms/s, 4.5% of all addons`. Below it comes one line per registered frame and function that used some CPU, most expensive first, named as you registered it, with its milliseconds and number of calls.
+**CPU** needs the game's profiler. Without it the last line reads `CPU: profiler off -- /console scriptProfile 1, then /reload`. With it, the report shows the CPU your addon used since the last reset, in milliseconds, per second and as a share of all addons: `CPU 12.3 ms over 60 s = 0.205 ms/s, 4.5% of all addons`. The time is counted from the last reset of any addon, because the game resets the CPU counters of every addon at once. Below it comes one line per registered frame and function that used some CPU, most expensive first, with its milliseconds and number of calls. A frame appears under the name you registered; a function appears as `on Refresh`, in the player's language. Each line counts only what the frame or function itself used, not what it called.
 
-**Reset counters** notes the current memory as the new baseline and starts the CPU counters again.
+**Reset counters** notes the current memory of your addon as its new baseline and starts the CPU counters again, for every addon. The message reads `counters reset: memory of MyAddon, CPU of every addon; play, then choose Measure to read them`.
 
 **Free memory** asks Lua to clean up the whole interface now, and shows the memory before and after: `MyAddon: memory 512 KB -> 498 KB after a full collection (14 KB was garbage)`. The difference is memory your addon no longer used but still held. With **All addons** there is one such line per addon, each starting with its name.
 
@@ -48,7 +48,7 @@ A report has these lines, in this order:
 | --- | --- |
 | **Addon**: All addons, then **Measure** | one line per addon: `MyAddon: 512 KB, 2 frame(s) running` |
 | **Addon**: MyAddon, then **Measure** | the full report, saved without a label |
-| **Reset counters** | new baseline for memory and CPU |
+| **Reset counters** | new memory baseline for the chosen addon, CPU counters of every addon started again |
 | **Free memory** | full collection, memory before and after, one line per addon starting with its name |
 
 The text under **Result** is the reading taken when you pressed the button. Press **Measure** again for a fresh one.
@@ -61,6 +61,8 @@ To save a report under a label, call `api:Perf(label)` from your code.
 | --- | --- | --- | --- |
 | `api:Track(name, frame)` | label, frame | `true`, or `false` if frame is not a table | |
 | `api:TrackFunction(name, fn)` | label, function | `true`, or `false` if fn is not a function | |
+
+Tracking a frame or function you already track does not add a second entry: it only gives the existing one the new name, and returns `true`.
 | `api:Perf(label?)` | optional label | the lines of the report, after printing them | label is not a string or a number |
 
 `api:Perf` prints a title line, `performance report` or `performance report "after import"` with your label, then the lines of the report.
