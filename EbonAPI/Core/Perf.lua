@@ -2,15 +2,13 @@ EbonAPI = EbonAPI or {}
 EbonAPI.Perf = {}
 
 local Perf = EbonAPI.Perf
-local Lib = EbonAPI.Lib
 local Log = EbonAPI.Log
 local DB = EbonAPI.DB
-local Format = EbonAPI.Format
 local Handle = EbonAPI.Handle
 local L = EbonAPI.L
 
 local type, tostring, ipairs, pcall = type, tostring, ipairs, pcall
-local format, match, lower, concat, sort, remove = string.format, string.match, string.lower, table.concat, table.sort, table.remove
+local format, concat, sort, remove = string.format, table.concat, table.sort, table.remove
 
 local MAX_REPORTS = 20
 
@@ -151,46 +149,63 @@ local function save(owner, label, lines)
   end
 end
 
-function Perf.lines(owner)
-  local lines = {}
-  local window = now() - since
-  local mem = memoryKB(owner)
+function Perf.sample(owner)
+  local sample = {
+    owner = owner,
+    window = now() - since,
+    memory = memoryKB(owner),
+    ui = uiKB(),
+    running = running(owner),
+  }
 
-  if mem then
-    lines[#lines + 1] = format(L.PERF_MEMORY, mem, uiKB())
-
-    if baseline[owner] then
-      lines[#lines + 1] = format(L.PERF_SINCE_RESET, mem - baseline[owner], window)
-    end
-  else
-    lines[#lines + 1] = L.PERF_MEMORY_UNAVAILABLE
-  end
-
-  local live = running(owner)
-
-  if #live > 0 then
-    lines[#lines + 1] = format(L.PERF_RUNNING, #live, concat(live, ", "))
-  else
-    lines[#lines + 1] = L.PERF_RUNNING_NONE
+  if sample.memory and baseline[owner] then
+    sample.delta = sample.memory - baseline[owner]
   end
 
   if profiling() then
     UpdateAddOnCPUUsage()
 
-    local ms = GetAddOnCPUUsage(owner) or 0
     local total = 0
 
     for i = 1, GetNumAddOns() do
       total = total + (GetAddOnCPUUsage(i) or 0)
     end
 
-    lines[#lines + 1] = format(L.PERF_CPU, ms, window, window > 0 and ms / window or 0,
-      total > 0 and ms / total * 100 or 0)
+    sample.cpu = { ms = GetAddOnCPUUsage(owner) or 0, total = total, rows = costs(owner) }
+  end
 
-    local rows = costs(owner)
+  return sample
+end
 
-    for i = 1, #rows do
-      lines[#lines + 1] = format("  %-30s %9.1f ms %8d calls", rows[i].name, rows[i].ms, rows[i].calls)
+function Perf.describe(sample)
+  local lines = {}
+
+  if sample.memory then
+    lines[#lines + 1] = format(L.PERF_MEMORY, sample.memory, sample.ui)
+
+    if sample.delta then
+      lines[#lines + 1] = format(L.PERF_SINCE_RESET, sample.delta, sample.window)
+    end
+  else
+    lines[#lines + 1] = L.PERF_MEMORY_UNAVAILABLE
+  end
+
+  if #sample.running > 0 then
+    lines[#lines + 1] = format(L.PERF_RUNNING, #sample.running, concat(sample.running, ", "))
+  else
+    lines[#lines + 1] = L.PERF_RUNNING_NONE
+  end
+
+  local cpu = sample.cpu
+
+  if cpu then
+    lines[#lines + 1] = format(L.PERF_CPU, cpu.ms, sample.window, sample.window > 0 and cpu.ms / sample.window or 0,
+      cpu.total > 0 and cpu.ms / cpu.total * 100 or 0)
+
+    for i = 1, #cpu.rows do
+      local row = cpu.rows[i]
+
+      lines[#lines + 1] = format(L.PERF_COST, row.name, row.ms, row.calls)
     end
   else
     lines[#lines + 1] = L.PERF_CPU_OFF
@@ -199,16 +214,27 @@ function Perf.lines(owner)
   return lines
 end
 
-function Perf.report(owner, label)
-  local lines = Perf.lines(owner)
+function Perf.lines(owner)
+  return Perf.describe(Perf.sample(owner))
+end
 
-  Log.print(owner, "perf" .. (label and (' "' .. label .. '"') or ""))
+function Perf.measure(owner, label)
+  local sample = Perf.sample(owner)
+  local lines = Perf.describe(sample)
+
+  save(owner, label, lines)
+
+  return lines, sample
+end
+
+function Perf.report(owner, label)
+  local lines = Perf.measure(owner, label)
+
+  Log.print(owner, label and format(L.PERF_TITLE_LABEL, label) or L.PERF_TITLE)
 
   for i = 1, #lines do
     Log.print(owner, lines[i])
   end
-
-  save(owner, label, lines)
 
   return lines
 end
@@ -220,7 +246,8 @@ function Perf.reset(owner)
 
   since = now()
   baseline[owner] = memoryKB(owner)
-  Log.print(owner, format(L.PERF_RESET, owner))
+
+  return true
 end
 
 function Perf.gc(owner)
@@ -228,13 +255,15 @@ function Perf.gc(owner)
 
   pcall(collectgarbage, "collect")
 
-  local after = memoryKB(owner)
+  return before, memoryKB(owner)
+end
 
+function Perf.describeGc(before, after)
   if before and after then
-    Log.print(owner, format(L.PERF_GC, before, after, before - after))
-  else
-    Log.print(owner, L.PERF_MEMORY_UNAVAILABLE)
+    return format(L.PERF_GC, before, after, before - after)
   end
+
+  return L.PERF_MEMORY_UNAVAILABLE
 end
 
 function Perf.owners()
@@ -245,59 +274,29 @@ function Perf.owners()
   return names
 end
 
-local function resolveOwner(word)
-  word = lower(word)
-
-  for _, name in ipairs(Perf.owners()) do
-    if lower(name) == word then
-      return name
-    end
-  end
-
-  return nil
-end
-
-function Perf.summary()
-  local lines = {}
+function Perf.summarySample()
+  local rows = {}
 
   for _, owner in ipairs(Perf.owners()) do
-    local mem = memoryKB(owner)
+    rows[#rows + 1] = { owner = owner, memory = memoryKB(owner), running = #running(owner) }
+  end
 
-    lines[#lines + 1] = format(L.PERF_SUMMARY, owner, mem and format("%.0f", mem) or "?", #running(owner))
+  return rows
+end
+
+function Perf.describeSummary(rows)
+  local lines = {}
+
+  for _, row in ipairs(rows) do
+    lines[#lines + 1] = format(L.PERF_SUMMARY, row.owner,
+      row.memory and format("%.0f", row.memory) or L.UNKNOWN, row.running)
   end
 
   return lines
 end
 
-function Perf.command(rest)
-  local first, arg = match(Lib.trim(rest or ""), "^(%S*)%s*(.*)$")
-
-  if first == "" then
-    local lines = Perf.summary()
-
-    for i = 1, #lines do
-      Log.print("EbonAPI", lines[i])
-    end
-
-    return
-  end
-
-  local owner = resolveOwner(first)
-
-  if not owner then
-    Log.print("EbonAPI", format(L.PERF_UNKNOWN, first, Format.list(Perf.owners())))
-    return
-  end
-
-  arg = Lib.trim(arg)
-
-  if arg == "reset" then
-    Perf.reset(owner)
-  elseif arg == "gc" then
-    Perf.gc(owner)
-  else
-    Perf.report(owner, arg ~= "" and arg or nil)
-  end
+function Perf.summary()
+  return Perf.describeSummary(Perf.summarySample())
 end
 
 function Handle:Track(name, frame)

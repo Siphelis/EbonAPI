@@ -68,6 +68,7 @@ local bansText, bansHash = nil, nil
 local inflight = {}
 local packed = {}
 local chars = {}
+local lockedIds = {}
 
 local function now()
   return (GetTime and GetTime()) or 0
@@ -177,36 +178,76 @@ function Profile.DecodeBuild(text)
   return ids, stacks, count
 end
 
+local function encodeIds(list, limit)
+  local values = {}
+  local count = 0
+
+  for i = 1, #list do
+    local id = tonumber(list[i])
+
+    if id then
+      id = id - ECHO_BASE
+
+      if id >= 0 and id < ECHO_SPAN and count < limit then
+        count = count + 1
+        values[count] = id
+      end
+    end
+  end
+
+  sort(values)
+
+  local out = {}
+
+  for i = 1, count do
+    out[i] = encode[floor(values[i] / 64)] .. encode[values[i] % 64]
+  end
+
+  return concat(out), count
+end
+
+local function decodeIds(text)
+  if len(text) % 2 ~= 0 then
+    return nil
+  end
+
+  local ids = {}
+  local count = 0
+
+  for i = 1, len(text), 2 do
+    local hi, lo = decode[byte(text, i)], decode[byte(text, i + 1)]
+
+    if not hi or not lo then
+      return nil
+    end
+
+    count = count + 1
+    ids[count] = ECHO_BASE + hi * 64 + lo
+  end
+
+  return ids, count
+end
+
+function Profile.EncodeLocked(ids)
+  return encodeIds(ids, BUILD_ECHOES_MAX)
+end
+
+function Profile.DecodeLocked(text)
+  if type(text) ~= "string" then
+    return nil
+  end
+
+  return decodeIds(text)
+end
+
 function Profile.EncodeBans(lists)
   local texts = {}
 
   for _, list in ipairs(lists) do
-    local values = {}
-    local count = 0
-
-    for i = 1, #list do
-      local id = tonumber(list[i])
-
-      if id then
-        id = id - ECHO_BASE
-
-        if id >= 0 and id < ECHO_SPAN and count < LIST_ECHOES_MAX then
-          count = count + 1
-          values[count] = id
-        end
-      end
-    end
+    local text, count = encodeIds(list, LIST_ECHOES_MAX)
 
     if count > 0 and #texts < BAN_LISTS_MAX then
-      sort(values)
-
-      local out = {}
-
-      for i = 1, count do
-        out[i] = encode[floor(values[i] / 64)] .. encode[values[i] % 64]
-      end
-
-      texts[#texts + 1] = concat(out)
+      texts[#texts + 1] = text
     end
   end
 
@@ -227,22 +268,10 @@ function Profile.DecodeBans(text)
   end
 
   for chunk in gmatch(text, "[^;]+") do
-    if len(chunk) % 2 ~= 0 then
+    local ids = decodeIds(chunk)
+
+    if not ids then
       return nil
-    end
-
-    local ids = {}
-    local count = 0
-
-    for i = 1, len(chunk), 2 do
-      local hi, lo = decode[byte(chunk, i)], decode[byte(chunk, i + 1)]
-
-      if not hi or not lo then
-        return nil
-      end
-
-      count = count + 1
-      ids[count] = ECHO_BASE + hi * 64 + lo
     end
 
     lists[#lists + 1] = ids
@@ -281,7 +310,11 @@ local function onSlots(sender, body)
 end
 
 local function onBuild(sender, body)
-  local class, slot, hash, echoes = match(body, "^(%d+):(%d+):([%w%-_]+):([%w%-_]*)$")
+  local class, slot, hash, echoes, locked = match(body, "^(%d+):(%d+):([%w%-_]+):([%w%-_]*):([%w%-_]*)$")
+
+  if not class then
+    class, slot, hash, echoes = match(body, "^(%d+):(%d+):([%w%-_]+):([%w%-_]*)$")
+  end
 
   class, slot = tonumber(class), tonumber(slot)
 
@@ -293,12 +326,22 @@ local function onBuild(sender, body)
     return reject()
   end
 
-  if Profile.Signature(class .. ":" .. slot .. ":" .. echoes) ~= hash then
+  if locked and (len(locked) % 2 ~= 0 or len(locked) > BUILD_ECHOES_MAX * 2) then
+    return reject()
+  end
+
+  local signed = class .. ":" .. slot .. ":" .. echoes
+
+  if locked then
+    signed = signed .. ":" .. locked
+  end
+
+  if Profile.Signature(signed) ~= hash then
     return reject()
   end
 
   Profile.received = Profile.received + 1
-  EbonAPI:Emit("PROFILE_BUILD", sender, class, slot, hash, echoes)
+  EbonAPI:Emit("PROFILE_BUILD", sender, class, slot, hash, echoes, locked)
 end
 
 local function onBans(sender, body)
@@ -345,6 +388,24 @@ local function reference()
   end
 
   return ref
+end
+
+local function lockedOf(build)
+  local list = State.BuildEchoes(build)
+  local count = 0
+
+  for i = 1, #list do
+    if list[i].locked then
+      count = count + 1
+      lockedIds[count] = list[i].spellId
+    end
+  end
+
+  for i = #lockedIds, count + 1, -1 do
+    lockedIds[i] = nil
+  end
+
+  return lockedIds
 end
 
 local function say(key, op, body, apply)
@@ -395,16 +456,19 @@ local function flush()
     local order = {}
     local hashes = {}
     local texts = {}
+    local locks = {}
 
     for slot, build in pairs(builds.slots) do
       slot = tonumber(slot)
 
       if slot and slot >= 1 and slot <= SLOT_MAX and type(build) == "table" then
         local text = Profile.EncodeEchoes(build.echoes)
+        local locked = Profile.EncodeLocked(lockedOf(build))
 
         order[#order + 1] = slot
         texts[slot] = text
-        hashes[slot] = Profile.Signature(class .. ":" .. slot .. ":" .. text)
+        locks[slot] = locked
+        hashes[slot] = Profile.Signature(class .. ":" .. slot .. ":" .. text .. ":" .. locked)
       end
     end
 
@@ -434,7 +498,7 @@ local function flush()
       local hash = hashes[slot]
 
       if pendingBuilds or known[slot] ~= hash then
-        local queued = say(slot, "D", class .. ":" .. slot .. ":" .. hash .. ":" .. texts[slot], function()
+        local queued = say(slot, "D", class .. ":" .. slot .. ":" .. hash .. ":" .. texts[slot] .. ":" .. locks[slot], function()
           known[slot] = hash
         end)
 

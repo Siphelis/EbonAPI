@@ -385,7 +385,11 @@ function Version.disable()
 end
 
 function Handle:Version(text, url)
-  return Version.register(self.addonName, text, url)
+  if url then
+    self.link = url
+  end
+
+  return Version.register(self.addonName, text, url or self.link)
 end
 
 function Handle:AvailableUpdate()

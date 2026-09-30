@@ -5,6 +5,7 @@ local Ebonhold = EbonAPI.Ebonhold
 local Lib = EbonAPI.Lib
 local Log = EbonAPI.Log
 local Handle = EbonAPI.Handle
+local L = EbonAPI.L
 
 local type, tostring, pairs = type, tostring, pairs
 
@@ -261,6 +262,78 @@ function Ebonhold.IsHooked(path, key)
   return hooked[tostring(path) .. "." .. tostring(key)] == true
 end
 
+function Ebonhold.LinkMethod()
+  if type(_G.EbonholdOpenURL) == "function" then
+    return "open"
+  end
+
+  if type(_G.CopyToClipboard) == "function" then
+    return "copy"
+  end
+
+  return nil
+end
+
+function Ebonhold.OpenLink(url)
+  local method = Ebonhold.LinkMethod()
+
+  if method == "open" then
+    _G.EbonholdOpenURL(url)
+  elseif method == "copy" then
+    _G.CopyToClipboard(url)
+  end
+
+  return method
+end
+
+function Ebonhold.LinkTip()
+  local method = Ebonhold.LinkMethod()
+
+  if method == "open" then
+    return L.LINK_TIP_OPEN
+  elseif method == "copy" then
+    return L.LINK_TIP_COPY
+  end
+
+  return nil
+end
+
+local function badUrl(url)
+  return type(url) ~= "string" or url == ""
+end
+
+function EbonAPI:OpenLink(url)
+  if badUrl(url) then
+    error("EbonAPI:OpenLink expects a URL text, got " .. type(url), 2)
+  end
+
+  return Ebonhold.OpenLink(url)
+end
+
+function EbonAPI:LinkMethod()
+  return Ebonhold.LinkMethod()
+end
+
+function EbonAPI:LinkTip()
+  return Ebonhold.LinkTip()
+end
+
+function Handle:OpenLink(url)
+  if badUrl(url) then
+    error("EbonAPI: " .. self.addonName .. ": api:OpenLink expects a URL text, got " .. type(url), 2)
+  end
+
+  return Ebonhold.OpenLink(url)
+end
+
+function Handle:LinkMethod()
+  return Ebonhold.LinkMethod()
+end
+
+function Handle:LinkTip()
+  return Ebonhold.LinkTip()
+end
+
 local PROBES = {
   ProjectEbonhold = Ebonhold.IsPresent,
   Objectives = Ebonhold.Objectives,
@@ -286,6 +359,7 @@ function Ebonhold.Detect()
 
   EbonAPI:RegisterFeature("sendToServer",
     root() ~= nil and type(root().sendToServer) == "function")
+  EbonAPI:RegisterFeature("openLink", Ebonhold.LinkMethod() ~= nil)
 
   return EbonAPI:Features()
 end

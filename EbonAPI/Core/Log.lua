@@ -9,13 +9,6 @@ local type, tostring, select = type, tostring, select
 local format, concat = string.format, table.concat
 
 Log.COLOR = {
-  PREFIX = "|cff8a6fd4",
-  TEXT = "|cffd1d1f6",
-  ERROR = "|cffff4444",
-  WARN = "|cffff9900",
-  SUCCESS = "|cff40ff40",
-  HIGHLIGHT = "|cffffd200",
-  MUTED = "|cff9090a0",
   RESET = "|r",
 }
 
@@ -57,6 +50,7 @@ local filled = 0
 
 local debugOwners = {}
 local debugAll = false
+local kindsSeen = {}
 
 function Log.trace(kind, owner, a, b, at)
   cursor = cursor % CAPACITY + 1
@@ -66,10 +60,27 @@ function Log.trace(kind, owner, a, b, at)
   tOwner[cursor] = owner
   tA[cursor] = a
   tB[cursor] = b
+  kindsSeen[kind] = true
 
   if filled < CAPACITY then
     filled = filled + 1
   end
+end
+
+function Log.count(kind)
+  local total = 0
+
+  for index = 1, filled do
+    if tKind[index] == kind then
+      total = total + 1
+    end
+  end
+
+  return total
+end
+
+function Log.kinds()
+  return Lib.sortedKeys(kindsSeen)
 end
 
 function Log.isDebug(owner)

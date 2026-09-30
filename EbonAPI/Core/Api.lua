@@ -117,7 +117,7 @@ local function subscribe(owner, event, fn)
     local held = stickyValues[event]
 
     if held then
-      local ok, err = pcall(fn, event, held[1], held[2], held[3], held[4], held[5])
+      local ok, err = pcall(fn, event, held[1], held[2], held[3], held[4], held[5], held[6])
 
       if not ok then
         report(err)
@@ -164,7 +164,7 @@ local function unsubscribeAll(owner)
   end
 end
 
-function EbonAPI:Emit(event, a, b, c, d, e)
+function EbonAPI:Emit(event, a, b, c, d, e, f)
   if sticky[event] then
     local held = stickyValues[event]
 
@@ -173,7 +173,7 @@ function EbonAPI:Emit(event, a, b, c, d, e)
       stickyValues[event] = held
     end
 
-    held[1], held[2], held[3], held[4], held[5] = a, b, c, d, e
+    held[1], held[2], held[3], held[4], held[5], held[6] = a, b, c, d, e, f
   end
 
   local list = events[event]
@@ -190,7 +190,7 @@ function EbonAPI:Emit(event, a, b, c, d, e)
 
   list.busy = list.busy + 1
 
-  local served = fanout(list.fns, count, event, a, b, c, d, e)
+  local served = fanout(list.fns, count, event, a, b, c, d, e, f)
 
   list.busy = list.busy - 1
 
@@ -212,7 +212,7 @@ function EbonAPI:LastValue(event)
     return nil
   end
 
-  return held[1], held[2], held[3], held[4], held[5]
+  return held[1], held[2], held[3], held[4], held[5], held[6]
 end
 
 function EbonAPI:ClearSticky(event)
@@ -278,8 +278,8 @@ function Handle:OffAll()
   end
 end
 
-function Handle:Emit(event, a, b, c, d, e)
-  return EbonAPI:Emit(event, a, b, c, d, e)
+function Handle:Emit(event, a, b, c, d, e, f)
+  return EbonAPI:Emit(event, a, b, c, d, e, f)
 end
 
 function Handle:LastValue(event)
@@ -300,12 +300,59 @@ end
 
 local function versionRefusal(name, major, minor)
   if DEFAULT_CHAT_FRAME then
-    DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[EbonAPI]|r " .. string.format(EbonAPI.L.VERSION_TOO_OLD,
+    local COLOR = EbonAPI.Log.COLOR
+
+    DEFAULT_CHAT_FRAME:AddMessage(COLOR.ERROR .. "[EbonAPI]" .. COLOR.RESET .. " " .. string.format(EbonAPI.L.VERSION_TOO_OLD,
       EbonAPI.version, name, tostring(major) .. "." .. tostring(minor)))
   end
 end
 
-function EbonAPI:NewAddon(name, needMajor, needMinor)
+local CONNECTION = { icon = "string", url = "string", updates = "boolean", version = "string" }
+
+local function connectionProblem(name, info)
+  if type(info) ~= "table" then
+    return "the fourth argument must be a table (icon, updates, url, version), got " .. type(info)
+  end
+
+  for key, value in pairs(info) do
+    local kind = CONNECTION[key]
+
+    if not kind then
+      return 'unknown connection option "' .. tostring(key) .. '" (known: icon, updates, url, version)'
+    end
+
+    if type(value) ~= kind or value == "" then
+      return 'connection option "' .. key .. '" expects a ' .. (kind == "string" and "non-empty text" or kind)
+        .. ", got " .. type(value)
+    end
+  end
+
+  if info.updates then
+    local version = info.version or (GetAddOnMetadata and GetAddOnMetadata(name, "Version"))
+
+    if not EbonAPI.Version.parse(version) then
+      return "updates needs a version, from the version option or ## Version in the .toc, got " .. tostring(version)
+    end
+  end
+
+  return nil
+end
+
+local function connect(handle, name, info)
+  if info.url then
+    handle.link = info.url
+  end
+
+  if info.icon then
+    handle.icon = info.icon
+  end
+
+  if info.updates then
+    EbonAPI.Version.register(name, info.version or GetAddOnMetadata(name, "Version"), handle.link)
+  end
+end
+
+function EbonAPI:NewAddon(name, needMajor, needMinor, info)
   if type(name) ~= "string" or name == "" then
     error("EbonAPI:NewAddon expects a non-empty addon name, got " .. type(name), 2)
   end
@@ -313,6 +360,14 @@ function EbonAPI:NewAddon(name, needMajor, needMinor)
   if string.find(name, "[^%w_]") or string.len(name) > NAME_MAX then
     error('EbonAPI:NewAddon: addon name "' .. name .. '" must be 1 to ' .. NAME_MAX
       .. ' letters, digits or "_"', 2)
+  end
+
+  if info ~= nil then
+    local problem = connectionProblem(name, info)
+
+    if problem then
+      error('EbonAPI:NewAddon: "' .. name .. '": ' .. problem, 2)
+    end
   end
 
   needMajor = needMajor or self.MAJOR
@@ -323,21 +378,47 @@ function EbonAPI:NewAddon(name, needMajor, needMinor)
     return nil
   end
 
-  local existing = self._addons[name]
+  local handle = self._addons[name]
+  local fresh = handle == nil
 
-  if existing then
-    return existing
+  if fresh then
+    handle = setmetatable({ addonName = name }, Handle)
+    self._addons[name] = handle
   end
 
-  local handle = setmetatable({ addonName = name }, Handle)
+  if info ~= nil then
+    connect(handle, name, info)
+  end
 
-  self._addons[name] = handle
+  if fresh then
+    if self._consumerHook then
+      self._consumerHook(name)
+    end
 
-  if self._consumerHook then
-    self._consumerHook(name)
+    self:Emit("ADDON_CONNECTED", name)
   end
 
   return handle
+end
+
+function EbonAPI:AddonLink(name)
+  local handle = self._addons[name]
+
+  return handle and handle.link
+end
+
+function Handle:Link()
+  return self.link
+end
+
+function EbonAPI:AddonIcon(name)
+  local handle = self._addons[name]
+
+  return handle and Lib.icon(handle.icon)
+end
+
+function Handle:Icon()
+  return Lib.icon(self.icon)
 end
 
 function EbonAPI:AddonNames()

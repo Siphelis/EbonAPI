@@ -1,0 +1,8 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\FrameXML\UI.xsd">
+  <Script file="AutoCallboard\AutoCallboard.lua"/>
+  <Script file="Midnight\Midnight.lua"/>
+  <Script file="Split\Split.lua"/>
+  <Script file="VSCode\VSCode.lua"/>
+  <Script file="Porcelain\Porcelain.lua"/>
+  <Script file="Tiling\Tiling.lua"/>
+</Ui>

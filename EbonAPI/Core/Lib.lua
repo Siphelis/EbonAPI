@@ -8,6 +8,7 @@ local tostring, pcall = tostring, pcall
 local floor, abs, huge, max, min = math.floor, math.abs, math.huge, math.max, math.min
 local concat, remove, sort = table.concat, table.remove, table.sort
 local len, sub, gsub, match, find, byte = string.len, string.sub, string.gsub, string.match, string.find, string.byte
+local char, upper = string.char, string.upper
 
 Lib.floor = floor
 Lib.abs = abs
@@ -26,10 +27,40 @@ function Lib.report(err)
   end
 
   if DEFAULT_CHAT_FRAME then
-    DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[EbonAPI]|r " .. tostring(err))
+    local COLOR = EbonAPI.Log.COLOR
+
+    DEFAULT_CHAT_FRAME:AddMessage(COLOR.ERROR .. "[EbonAPI]" .. COLOR.RESET .. " " .. tostring(err))
   end
 
   return false
+end
+
+local function upperLatin(second)
+  local code = byte(second)
+
+  if code == 183 then
+    return "\195\183"
+  end
+
+  return "\195" .. char(code - 32)
+end
+
+function Lib.upper(text)
+  return (gsub(upper(text or ""), "\195([\160-\190])", upperLatin))
+end
+
+local ICONS = "Interface\\Icons\\"
+
+function Lib.icon(value)
+  if type(value) ~= "string" or value == "" then
+    return nil
+  end
+
+  if find(value, "[\\/]") then
+    return value
+  end
+
+  return ICONS .. value
 end
 
 function Lib.safeCall(fn, a, b, c)

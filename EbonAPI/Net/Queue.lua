@@ -362,3 +362,17 @@ function Queue.clear()
 end
 
 Queue.register("whisper", rawWhisper)
+
+-- The server answers a whisper to a player who left with a system line; the ones EbonAPI caused
+-- are hidden, whether onSystem has already handled them or not.
+function Queue.ownOffline(message)
+  local name = offlinePlayer(message)
+
+  return name ~= nil and (recentWhisper[name] ~= nil or Queue.isOffline(name))
+end
+
+if ChatFrame_AddMessageEventFilter then
+  ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
+    return Queue.ownOffline(message)
+  end)
+end
