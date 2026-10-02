@@ -265,13 +265,15 @@ function Whisper.offStream(prefix, op, fn)
   return true
 end
 
-function Whisper.stream(prefix, target, op, id, body)
+function Whisper.stream(prefix, target, op, id, body, lane, single)
   checkPrefix(prefix, "stream")
   checkOp(op, "stream")
 
   if type(body) ~= "string" then
     error("EbonAPI.Whisper.stream expects a text body for " .. prefix .. ":" .. op .. ", got " .. type(body), 2)
   end
+
+  local named = id ~= nil
 
   if id == nil then
     serial = serial % 1048575 + 1
@@ -312,7 +314,7 @@ function Whisper.stream(prefix, target, op, id, body)
     parts[part] = head .. part .. "/" .. total .. ":" .. parts[part]
   end
 
-  return Channel.whisperAll(prefix, target, parts, total)
+  return Channel.whisperAll(prefix, target, parts, total, lane, named and head or op, body, single)
 end
 
 function Whisper.streamCount()
@@ -363,7 +365,7 @@ function Handle:OffWhisperStream(prefix, op, fn)
 end
 
 function Handle:WhisperStream(prefix, target, op, id, body)
-  return Whisper.stream(prefix, target, op, id, body)
+  return Whisper.stream(prefix, target, op, id, body, self.addonName)
 end
 
 EbonAPI:AddTeardown(function(handle)

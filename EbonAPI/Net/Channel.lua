@@ -506,16 +506,15 @@ function Channel.say(addon, op, body, done)
     return false, "not_joined"
   end
 
-  if Queue.room() < total then
+  for packet = 1, total do
+    slices[packet] = head .. packet .. "/" .. total .. ":" .. slices[packet]
+  end
+
+  if not Queue.pushAll("channel", nil, nil, slices, total, addon, done) then
     return false, "full"
   end
 
   serial = number
-
-  for packet = 1, total do
-    Queue.push("channel", head .. packet .. "/" .. total .. ":" .. slices[packet], nil, nil,
-      packet == total and done or nil)
-  end
 
   return true
 end
@@ -532,7 +531,7 @@ local function checkWhisper(prefix, text, who)
   end
 end
 
-function Channel.whisper(prefix, target, text)
+function Channel.whisper(prefix, target, text, done, lane)
   checkWhisper(prefix, text, "EbonAPI.Channel.whisper")
 
   target = baseName(target)
@@ -541,11 +540,12 @@ function Channel.whisper(prefix, target, text)
     return false
   end
 
-  return Queue.push("whisper", prefix, target, text)
+  return Queue.push("whisper", prefix, target, text, done, lane or prefix)
 end
 
-function Channel.whisperAll(prefix, target, parts, count)
+function Channel.whisperAll(prefix, target, parts, count, lane, key, body, single)
   count = count or #parts
+  lane = lane or prefix
 
   if count == 0 then
     return true
@@ -557,15 +557,21 @@ function Channel.whisperAll(prefix, target, parts, count)
 
   target = baseName(target)
 
-  if not target or Queue.isOffline(target) or Queue.room() < count then
+  if not target then
     return false
   end
 
-  for i = 1, count do
-    Queue.push("whisper", prefix, target, parts[i])
+  if body == nil and count == 1 then
+    key, body = false, parts[1]
   end
 
-  return true
+  local ok, why = Queue.pushAll("whisper", prefix, target, parts, count, lane, nil, key, body, single)
+
+  if ok then
+    return true, why
+  end
+
+  return false
 end
 
 function Channel.droppedTotal()
@@ -596,11 +602,11 @@ function Handle:Say(op, body)
 end
 
 function Handle:Whisper(prefix, target, text)
-  return Channel.whisper(prefix, target, text)
+  return Channel.whisper(prefix, target, text, nil, self.addonName)
 end
 
 function Handle:WhisperAll(prefix, target, parts, count)
-  return Channel.whisperAll(prefix, target, parts, count)
+  return Channel.whisperAll(prefix, target, parts, count, self.addonName)
 end
 
 function Handle:IsChannelJoined()

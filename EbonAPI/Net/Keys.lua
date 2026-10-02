@@ -12,10 +12,12 @@ local concat, sort = table.concat, table.sort
 local floor = math.floor
 
 local NAME_MAX = 32
+local PACKETS = 16
 local WHOLE_MAX = 9007199254740991
 local WHOLE_TEXT = format("%.0f", WHOLE_MAX)
 
 Keys.NAME_MAX = NAME_MAX
+Keys.PACKETS = PACKETS
 Keys.STATE_MAX = WHOLE_MAX
 
 local NAME_ALLOWED = 'letters, digits and "_"'
@@ -23,7 +25,10 @@ local NAME_ALLOWED = 'letters, digits and "_"'
 local store = nil
 local cachedBase = nil
 local parts = {}
+local packets = {}
+local packetNumber = {}
 local lines = {}
+local slots = {}
 
 local function base()
   if not store then
@@ -40,9 +45,35 @@ local function base()
   if held ~= cachedBase then
     cachedBase = held
     parts = {}
+    packets = {}
   end
 
   return held
+end
+
+local function packetOf(name)
+  local packet = packetNumber[name]
+
+  if not packet then
+    local _, lo = Hash.fnv64(name)
+
+    packet = lo % PACKETS
+    packetNumber[name] = packet
+  end
+
+  return packet
+end
+
+Keys.packetOf = packetOf
+
+local function stale(addon, name)
+  local cached = packets[addon]
+
+  parts[addon] = nil
+
+  if cached then
+    cached[packetOf(name) + 1] = false
+  end
 end
 
 local function offender(text, pattern)
@@ -134,7 +165,7 @@ function Keys.put(addon, name, state)
   end
 
   own[name] = state
-  parts[addon] = nil
+  stale(addon, name)
 
   EbonAPI:Emit("SHARE_KEY_CHANGED", addon, name, state)
 
@@ -159,7 +190,7 @@ function Keys.remove(addon, name)
     held[addon] = nil
   end
 
-  parts[addon] = nil
+  stale(addon, name)
 
   EbonAPI:Emit("SHARE_KEY_CHANGED", addon, name, nil)
 
@@ -222,6 +253,70 @@ function Keys.part(addon)
   parts[addon] = part
 
   return part
+end
+
+local function packetDigest(addon, own, packet)
+  local count = 0
+
+  if own then
+    for name in pairs(own) do
+      if packetOf(name) == packet then
+        count = count + 1
+        slots[count] = name
+      end
+    end
+  end
+
+  for index = #slots, count + 1, -1 do
+    slots[index] = nil
+  end
+
+  sort(slots, Hash.before)
+
+  lines[1] = addon
+
+  for index = 1, count do
+    lines[index + 1] = slots[index] .. "=" .. own[slots[index]]
+  end
+
+  return Hash.digest(concat(lines, "\n", 1, count + 1))
+end
+
+function Keys.packets(addon)
+  local own = base()[addon]
+  local cached = packets[addon]
+
+  if not cached then
+    cached = {}
+    packets[addon] = cached
+  end
+
+  for packet = 0, PACKETS - 1 do
+    if not cached[packet + 1] then
+      cached[packet + 1] = packetDigest(addon, own, packet)
+    end
+  end
+
+  return cached
+end
+
+function Keys.namesIn(addon, wanted)
+  local own = base()[addon]
+  local names = {}
+
+  if not own then
+    return names
+  end
+
+  for name in pairs(own) do
+    if wanted[packetOf(name)] then
+      names[#names + 1] = name
+    end
+  end
+
+  sort(names, Hash.before)
+
+  return names
 end
 
 function Keys.addons()
