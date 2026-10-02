@@ -203,7 +203,7 @@ local function follow(button)
 end
 
 local function build(owner)
-  local button = CreateFrame("Button", nil, Minimap)
+  local button = CreateFrame("Button", owner .. "MinimapButton", Minimap)
 
   button.owner = owner
   button:SetWidth(S("kit.minimap.size"))
