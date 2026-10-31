@@ -113,6 +113,10 @@ local function ResolveFramePath(path)
     return nil
   end
 
+  if not string.find(path, ".", 1, true) then
+    return rawget(_G, path)
+  end
+
   local current
 
   for segment in string.gmatch(path, "[^%.]+") do

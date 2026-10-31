@@ -968,6 +968,30 @@ local function finish(addon, step, ok, ...)
   return nil, Problems.bug(addon, step, info.message, info.stack, nil, nil, true)
 end
 
+local guardDepth = 0
+local guardFns = {}
+local guardArgs = {}
+
+local function guardCall()
+  local depth = guardDepth
+  local args = guardArgs[depth]
+
+  return guardFns[depth](unpack(args, 1, args.n))
+end
+
+local function guardDone(addon, step, depth, count, ok, ...)
+  local args = guardArgs[depth]
+
+  for index = 1, count do
+    args[index] = nil
+  end
+
+  guardFns[depth] = nil
+  guardDepth = depth - 1
+
+  return finish(addon, step, ok, ...)
+end
+
 function Problems.guard(addon, step, fn, ...)
   local count = select("#", ...)
 
@@ -975,11 +999,23 @@ function Problems.guard(addon, step, fn, ...)
     return finish(addon, step, xpcall(fn, guardError))
   end
 
-  local args = { ... }
+  local depth = guardDepth + 1
+  local args = guardArgs[depth]
 
-  return finish(addon, step, xpcall(function()
-    return fn(unpack(args, 1, count))
-  end, guardError))
+  if not args then
+    args = {}
+    guardArgs[depth] = args
+  end
+
+  for index = 1, count do
+    args[index] = (select(index, ...))
+  end
+
+  args.n = count
+  guardFns[depth] = fn
+  guardDepth = depth
+
+  return guardDone(addon, step, depth, count, xpcall(guardCall, guardError))
 end
 
 function Problems.requires(addon)

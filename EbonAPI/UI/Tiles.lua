@@ -96,6 +96,10 @@ local function setTip(tile)
     body = body .. " · " .. item.sub
   end
 
+  if item.tip and item.tip ~= "" then
+    body = item.tip
+  end
+
   frame.tipTitle = item.label
   frame.tipBody = body
 end
@@ -249,6 +253,51 @@ local function layoutGrid(box)
   return y
 end
 
+-- The forced-columns layout, used when box.columns is set: that many tiles per row whatever the tile width of
+-- the skin, no group label line, and the look's own layout is not called. Other boxes never set box.columns.
+local function layoutColumns(box)
+  local width = max(1, box.boxWidth)
+  local gap = box.gap or S("widgets.synthesis.gap")
+  local th = box.fixedHeight or box.look.height(box)
+  local cols = max(1, floor(box.columns))
+  local size = (width - (cols - 1) * gap) / cols
+  local y = 0
+
+  for index in ipairs(box.labelPool) do
+    box.labelPool[index]:Hide()
+  end
+
+  for index, group in ipairs(box.groups or {}) do
+    for position, tile in ipairs(group.tiles) do
+      local col = (position - 1) % cols
+      local row = floor((position - 1) / cols)
+
+      box.look.paint(box, tile, size, th)
+      tile.frame:ClearAllPoints()
+      tile.frame:SetPoint("TOPLEFT", box, "TOPLEFT", col * (size + gap), -(y + row * (th + gap)))
+      tile.frame:Show()
+
+      -- optional hook (box.fixedHeight, box.arrange): only the send-queue band sets it, to lay out its own text lines
+      if box.arrange then
+        box.arrange(box, tile, size, th)
+      end
+    end
+
+    local rows = ceil(#group.tiles / cols)
+
+    y = y + rows * th + max(0, rows - 1) * gap
+
+    if index < #box.groups then
+      y = y + gap
+    end
+  end
+
+  box:SetHeight(max(1, y))
+  box.contentHeight = y
+
+  return y
+end
+
 -- In-place update of a tile whose shape did not change: texts, marker and border. tile.item is already the
 -- new item; old is the previous one.
 local function updateTile(box, tile, old)
@@ -293,8 +342,10 @@ Tiles.wire = wire
 Tiles.borderKey = borderKey
 Tiles.setTip = setTip
 Tiles.lineHeight = lineHeight
+Tiles.PAD, Tiles.SPACE = PAD, SPACE
 Tiles.paintMarker = paintMarker
 Tiles.layoutGrid = layoutGrid
+Tiles.layoutColumns = layoutColumns
 
 -- Builds the synthesis box with the given look (the default look when none).
 function Tiles.build(parent, chosen)
@@ -305,12 +356,17 @@ function Tiles.build(parent, chosen)
   else
     box.look = {}
 
-    for _, name in ipairs({ "new", "paint", "update", "height", "layout" }) do
+    -- "card" is the optional hook of the four-line card of the send-queue band (no default: a look without it is left as is)
+    for _, name in ipairs({ "new", "paint", "update", "height", "layout", "card" }) do
       box.look[name] = chosen[name] or look[name]
     end
   end
 
   local function layout(self)
+    if self.columns then
+      return layoutColumns(self)
+    end
+
     if self.look.layout then
       return self.look.layout(self)
     end

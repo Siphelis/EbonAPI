@@ -75,6 +75,7 @@ EbonAPI:RegisterSkin("AutoCallboard", {
   },
 
   widgets = {
+    cells = { shape = "square" }, queue = { shape = "square" }, strip = { shape = "square" }, cards = { shape = "square" },
     tooltip = { skinned = true },
     button = { brick = "default", padding = 12 },
     execute = { brick = "default", height = 24 },
@@ -85,8 +86,21 @@ EbonAPI:RegisterSkin("AutoCallboard", {
     group = { padding = 10, frame = "LARGE" },
     synthesis = { brick = "cards", tile = { width = 210 } },
     -- Saves: rows as small rounded cards, the detail drawer under the chosen row.
-    saves = { view = "list", detail = "inline", row = { frame = "SMALL", fill = "card", border = "borderDim" } },
+    saves = { view = "list", detail = "inline", cell = { frame = "SMALL" }, row = { frame = "SMALL", fill = "card", border = "borderDim" } },
     output = { brick = "default" },
+    choice = {
+      segment = { fill = "bgSoft", border = "border" },
+      chips = { fill = "bgSoft", border = "border", count = "heading" },
+    },
+    pill = { fill = "bgSoft", border = "border", info = "buttonHover" },
+    tile = { fill = "bgSoft", border = "border", accent = "heading", gauge = { fill = "heading" } },
+    map = { border = "border", accent = { fill = "buttonHover" }, gray = { high = "thumb" } },
+  },
+
+  kit = {
+    chart = { color = "checked", column = "bgSoft", label = "muted", value = "text", series = { s1 = 0xB048F8, s2 = 0xE879FF, s3 = 0x4855F8, s4 = 0x48ADF8, s5 = 0xD1D1F6 }, others = 0x4B2E83 },
+    problem = { alert = { color = "bg" } },
+    table = { bar = { fill = "heading" }, group = { fill = "bgSoft", chevron = "heading" } },
   },
 
   board = {

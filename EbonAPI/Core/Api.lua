@@ -166,6 +166,25 @@ local function unsubscribe(owner, event, fn)
   return removed
 end
 
+function EbonAPI.eachSubscription(fn)
+  if type(fn) ~= "function" then
+    return 0
+  end
+
+  local seen = 0
+
+  for event, list in pairs(events) do
+    local fns, owners = list.fns, list.owners
+
+    for index = 1, list.n do
+      seen = seen + 1
+      fn(event, fns[index], owners[index])
+    end
+  end
+
+  return seen
+end
+
 local function unsubscribeAll(owner)
   for event in pairs(events) do
     unsubscribe(owner, event, nil)

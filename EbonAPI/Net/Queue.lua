@@ -29,6 +29,38 @@ Queue.MIN_RATE, Queue.MAX_RATE = 1, 100
 Queue.BURST_BELOW, Queue.BURST_MAX = 0.05, 8
 Queue.AUTO_MAX_RATE = 20
 Queue.hSmall, Queue.hParts = {}, {}
+Queue.BIN_SECONDS, Queue.BIN_COUNT = 10, 30
+
+function Queue.slideBins(item, current)
+  local slice = floor(current / Queue.BIN_SECONDS)
+  local gap = slice - item.binAt
+  local count = Queue.BIN_COUNT
+  local bins = item.bins
+
+  if gap <= 0 then
+    return bins
+  end
+
+  item.binAt = slice
+
+  if gap >= count then
+    for index = 1, count do
+      bins[index] = 0
+    end
+
+    return bins
+  end
+
+  for index = 1, count - gap do
+    bins[index] = bins[index + gap]
+  end
+
+  for index = count - gap + 1, count do
+    bins[index] = 0
+  end
+
+  return bins
+end
 Queue.PROBE_WAIT = PROBE_WAIT
 Queue.ALIVE_TTL = ALIVE_TTL
 Queue.PEER_CAP = PEER_CAP
@@ -943,7 +975,12 @@ local function destEntry(key, name, kind)
       end
     end
 
-    item = { name = name, kind = kind, queued = 0, sent = 0, failed = 0, wait = 0, max = 0, last = 0, lane = "" }
+    item = { name = name, kind = kind, queued = 0, sent = 0, failed = 0, wait = 0, max = 0, last = 0, lane = "", binAt = 0, bins = {} }
+
+    for index = 1, Queue.BIN_COUNT do
+      item.bins[index] = 0
+    end
+
     destStat[key] = item
     destCount = destCount + 1
   end
@@ -999,6 +1036,7 @@ local function recordSend(kind, lane, key, who, op, detail, queuedAt, ok, ring, 
   local step = 1
 
   statsSince = statsSince or current
+  Queue.slideBins(dest, current)[Queue.BIN_COUNT] = dest.bins[Queue.BIN_COUNT] + 1
   hOut[i] = hOut[i] + 1
   hWaitSum[i] = hWaitSum[i] + wait
   hLen[i] = total()
@@ -1882,6 +1920,7 @@ function Queue.view()
       waiting = key == "server" and waitingServer or (dest and dLive[dest] or 0),
       queued = item.queued, sent = item.sent, failed = item.failed, avg = done > 0 and item.wait / done or 0,
       max = item.max, last = item.last > 0 and current - item.last or nil, held = held, heldFor = heldFor,
+      bins = Queue.slideBins(item, current),
     }
   end
 
@@ -2099,6 +2138,12 @@ function Queue.resetStats()
 
   lastSec = nil
   statsSince = nil
+
+  local kept = Queue.keepStore and Queue.keepStore()
+
+  if kept then
+    kept.data = nil
+  end
 end
 
 function Queue.clear()
@@ -2210,6 +2255,343 @@ function Queue.foreignCount()
   end
 
   return count
+end
+
+-- Keeping the follow-up data across a disconnection (option stored in the account data).
+-- No file-level local is added here: the file is at the limit of Lua 5.1.
+Queue.wall = function()
+  return (time and time()) or 0
+end
+
+function Queue.keepStore()
+  local DB = EbonAPI.DB
+
+  if not (DB and DB.isAttached and DB.isAttached()) then
+    return nil
+  end
+
+  local store = DB.store("EbonAPI", { account = { queueKeep = { on = false } } })
+  local kept = store.account.queueKeep
+
+  if type(kept) ~= "table" then
+    kept = { on = false }
+    store.account.queueKeep = kept
+  end
+
+  return kept
+end
+
+function Queue.keepEnabled()
+  local kept = Queue.keepStore()
+
+  return kept ~= nil and kept.on == true
+end
+
+function Queue.setKeep(on)
+  local kept = Queue.keepStore()
+
+  if not kept then
+    return false
+  end
+
+  kept.on = on and true or false
+
+  if not kept.on then
+    kept.data = nil
+  end
+
+  return kept.on
+end
+
+-- A flat copy of what is worth keeping; every instant is a GetTime() value.
+function Queue.keepBuild()
+  local current = now()
+  local snap = {
+    v = 1, saved = Queue.wall(), clock = current, since = statsSince,
+    sent = { server = sent.server, channel = sent.channel, whisper = sent.whisper },
+    dropped = { offline = dropped.offline, full = dropped.full, failed = dropped.failed },
+    hidden = { own = Queue.hidden.own, addon = Queue.hidden.addon, unknown = Queue.hidden.unknown },
+    lanes = {}, dests = {}, ring = {}, hist = {},
+  }
+
+  for name, item in pairs(laneStat) do
+    snap.lanes[#snap.lanes + 1] = {
+      name = name, sent = item.sent, queued = item.queued, failed = item.failed,
+      wait = item.wait, max = item.max, last = item.last,
+    }
+  end
+
+  for key, item in pairs(destStat) do
+    if #snap.dests < DEST_STATS then
+      snap.dests[#snap.dests + 1] = {
+        key = key, name = item.name, kind = item.kind, queued = item.queued, sent = item.sent,
+        failed = item.failed, wait = item.wait, max = item.max, last = item.last, lane = item.lane,
+      }
+    end
+  end
+
+  for k = 1, rCount do
+    local n = (rNext - 1 + k - 1) % RECENT + 1
+
+    if rCount < RECENT then
+      n = k
+    end
+
+    snap.ring[k] = {
+      at = rAt[n], who = rWho[n], kind = rKind[n], lane = rLane[n], op = rOp[n],
+      detail = rDetail[n], wait = rWait[n], ok = rOk[n] and true or false,
+    }
+  end
+
+  secondOf(current)
+
+  for at = lastSec - HISTORY + 1, lastSec do
+    local i = at % HISTORY + 1
+
+    if hSec[i] == at and (hIn[i] + hOut[i] + hDrop[i] > 0 or hLen[i] > 0) then
+      snap.hist[#snap.hist + 1] = {
+        sec = at, ins = hIn[i], outs = hOut[i], len = hLen[i], waitSum = hWaitSum[i],
+        waitMax = hWaitMax[i], drop = hDrop[i], small = Queue.hSmall[i], parts = Queue.hParts[i],
+      }
+    end
+  end
+
+  return snap
+end
+
+function Queue.keepSave()
+  local kept = Queue.keepStore()
+
+  if not (kept and kept.on == true) then
+    return false
+  end
+
+  local ok, snap = pcall(Queue.keepBuild)
+
+  if ok and type(snap) == "table" then
+    kept.data = snap
+
+    return true
+  end
+
+  return false
+end
+
+-- Checks a stored snapshot field by field and returns a clean copy; raises on anything wrong.
+function Queue.keepParse(data)
+  local function bad()
+    error("bad snapshot", 0)
+  end
+
+  local function num(v)
+    if type(v) ~= "number" or v ~= v or v < 0 or v > 1e12 then
+      bad()
+    end
+
+    return v
+  end
+
+  local function str(v)
+    if type(v) ~= "string" then
+      bad()
+    end
+
+    return sub(v, 1, 200)
+  end
+
+  local function tbl(v, cap)
+    if type(v) ~= "table" or (cap and #v > cap) then
+      bad()
+    end
+
+    return v
+  end
+
+  tbl(data)
+
+  if data.v ~= 1 then
+    bad()
+  end
+
+  local clean = { saved = num(data.saved), clock = num(data.clock) }
+
+  if data.since ~= nil then
+    clean.since = num(data.since)
+  end
+
+  for group, fields in pairs({
+    sent = { "server", "channel", "whisper" },
+    dropped = { "offline", "full", "failed" },
+    hidden = { "own", "addon", "unknown" },
+  }) do
+    local from, into = tbl(data[group]), {}
+
+    for _, field in ipairs(fields) do
+      into[field] = num(from[field])
+    end
+
+    clean[group] = into
+  end
+
+  clean.lanes, clean.dests, clean.ring, clean.hist = {}, {}, {}, {}
+
+  for index, e in ipairs(tbl(data.lanes, 64)) do
+    tbl(e)
+    clean.lanes[index] = {
+      name = str(e.name), sent = num(e.sent), queued = num(e.queued), failed = num(e.failed),
+      wait = num(e.wait), max = num(e.max), last = num(e.last),
+    }
+  end
+
+  for index, e in ipairs(tbl(data.dests, DEST_STATS)) do
+    tbl(e)
+    clean.dests[index] = {
+      key = str(e.key), name = str(e.name), kind = str(e.kind), queued = num(e.queued),
+      sent = num(e.sent), failed = num(e.failed), wait = num(e.wait), max = num(e.max),
+      last = num(e.last), lane = str(e.lane),
+    }
+  end
+
+  for index, e in ipairs(tbl(data.ring, RECENT)) do
+    tbl(e)
+
+    if type(e.ok) ~= "boolean" then
+      bad()
+    end
+
+    clean.ring[index] = {
+      at = num(e.at), who = str(e.who), kind = str(e.kind), lane = str(e.lane), op = str(e.op),
+      detail = str(e.detail), wait = num(e.wait), ok = e.ok,
+    }
+  end
+
+  for index, e in ipairs(tbl(data.hist, HISTORY)) do
+    tbl(e)
+    clean.hist[index] = {
+      sec = num(e.sec), ins = num(e.ins), outs = num(e.outs), len = num(e.len),
+      waitSum = num(e.waitSum), waitMax = num(e.waitMax), drop = num(e.drop),
+      small = num(e.small), parts = num(e.parts),
+    }
+  end
+
+  return clean
+end
+
+-- Merges a clean snapshot into the live state; returns the number of history cells restored.
+function Queue.keepMerge(clean)
+  local current = now()
+  local gap = Queue.wall() - clean.saved
+
+  if gap < 0 then
+    gap = 0
+  end
+
+  local delta = current - clean.clock - gap
+
+  for field, value in pairs(clean.sent) do
+    sent[field] = sent[field] + value
+  end
+
+  for field, value in pairs(clean.dropped) do
+    dropped[field] = dropped[field] + value
+  end
+
+  for field, value in pairs(clean.hidden) do
+    Queue.hidden[field] = Queue.hidden[field] + value
+  end
+
+  if clean.since then
+    local since = clean.since + delta
+
+    if not statsSince or since < statsSince then
+      statsSince = since
+    end
+  end
+
+  for _, e in ipairs(clean.lanes) do
+    local item = laneEntry(e.name)
+
+    item.sent, item.queued, item.failed = item.sent + e.sent, item.queued + e.queued, item.failed + e.failed
+    item.wait = item.wait + e.wait
+    item.max = e.max > item.max and e.max or item.max
+    item.last = e.last + delta > item.last and e.last + delta or item.last
+  end
+
+  for _, e in ipairs(clean.dests) do
+    local item = destEntry(e.key, e.name, e.kind)
+
+    item.queued, item.sent, item.failed = item.queued + e.queued, item.sent + e.sent, item.failed + e.failed
+    item.wait = item.wait + e.wait
+    item.max = e.max > item.max and e.max or item.max
+    item.last = e.last + delta > item.last and e.last + delta or item.last
+
+    if item.lane == "" then
+      item.lane = e.lane
+    end
+  end
+
+  if rCount == 0 and #clean.ring > 0 then
+    for k, e in ipairs(clean.ring) do
+      rAt[k], rWho[k], rKind[k], rLane[k], rOp[k], rDetail[k], rWait[k], rOk[k] =
+        e.at + delta, e.who, e.kind, e.lane, e.op, e.detail, e.wait, e.ok
+    end
+
+    rCount = #clean.ring
+    rNext = rCount % RECENT + 1
+  end
+
+  secondOf(current)
+
+  local count = 0
+  local newest = lastSec
+
+  for _, e in ipairs(clean.hist) do
+    local at = floor(e.sec + delta)
+    local i = at % HISTORY + 1
+
+    if at > newest - HISTORY and at <= newest and not (hSec[i] == at and hIn[i] + hOut[i] + hDrop[i] > 0) then
+      hSec[i], hIn[i], hOut[i], hLen[i] = at, e.ins, e.outs, e.len
+      hWaitSum[i], hWaitMax[i], hDrop[i] = e.waitSum, e.waitMax, e.drop
+      Queue.hSmall[i], Queue.hParts[i] = e.small, e.parts
+      count = count + 1
+    end
+  end
+
+  return count
+end
+
+function Queue.keepRestore()
+  local kept = Queue.keepStore()
+
+  if not (kept and kept.on == true and type(kept.data) == "table") then
+    return false
+  end
+
+  local ok, clean = pcall(Queue.keepParse, kept.data)
+
+  if not ok then
+    return false
+  end
+
+  local merged, count = pcall(Queue.keepMerge, clean)
+
+  if not merged then
+    return false
+  end
+
+  return count
+end
+
+if Bus and Bus.onCore then
+  Queue.keepOnLogin = function()
+    Bus.offCore("PLAYER_LOGIN", Queue.keepOnLogin)
+    Problems.guard("EbonAPI", "Queue.keepRestore", Queue.keepRestore)
+  end
+
+  Bus.onCore("PLAYER_LOGIN", Queue.keepOnLogin)
+  Bus.onCore("PLAYER_LOGOUT", function()
+    Problems.guard("EbonAPI", "Queue.keepSave", Queue.keepSave)
+  end)
 end
 
 if hooksecurefunc then

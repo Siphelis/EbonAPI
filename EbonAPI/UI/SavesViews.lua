@@ -454,7 +454,7 @@ local function newHeader(box)
     self.title:SetText(Bricks.label(group.name, "widgets.saves.group.upper"))
     self.count:SetText(active > 0 and (#block.items .. " · " .. active) or tostring(#block.items))
     show(self.check, active > 0)
-    self.chevron:SetTexCoord(0, 1, shut and 0 or 1, shut and 1 or 0)
+    Bricks.turn(self.chevron, not shut)
 
     local hasMenu = group.id ~= ""
 
@@ -570,7 +570,13 @@ local function baseView(box, kind, make)
         y = y + headerHeight + gap
       end
 
-      if not block.shut then
+      -- A group that slides keeps its rows hidden: only its height is reserved.
+      local slot = block.group and box:Slot("g:" .. tostring(block.group.id))
+      local inner = y
+
+      if slot then
+        y = y + slot.height
+      elseif not block.shut then
         for _, item in ipairs(block.items) do
           if arranged.cursorBefore == item.id then
             y = y + self:PlaceCursor(y, width) + gap
@@ -592,14 +598,25 @@ local function baseView(box, kind, make)
           y = y + rowHeight + gap
 
           -- The inline drawer: box:InlineDrawer(item, cell, y, width) places it and returns its height.
-          if state.selected == item.id and state.open and box:EffectiveDetail() == "inline" and box.InlineDrawer then
+          local drawer = box:Slot("d:" .. tostring(item.id))
+
+          if drawer then
+            y = y + drawer.height
+          elseif state.selected == item.id and state.open and box:EffectiveDetail() == "inline" and box.InlineDrawer then
+            local before = y
+
             y = y + box:InlineDrawer(item, cell, y, width) + gap
+            box:Measure("d:" .. tostring(item.id), y - before)
           end
         end
 
         if arranged.cursorBefore == "end" and not block.group then
           y = y + self:PlaceCursor(y, width) + gap
         end
+      end
+
+      if block.group and not slot and not block.shut then
+        box:Measure("g:" .. tostring(block.group.id), y - inner)
       end
 
       if block.group then

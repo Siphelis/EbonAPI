@@ -34,13 +34,52 @@ local function report(err)
   Lib.report(err, "EbonAPI")
 end
 
+local holder = nil
+
+local function home(frame)
+  frame:ClearAllPoints()
+  frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -S("kit.padding"), -S("kit.toast.top"))
+end
+
+local function carrier()
+  if not holder then
+    holder = CreateFrame("Frame", nil, UIParent)
+    holder.id = "alerts"
+    holder:SetMovable(true)
+    holder:SetClampedToScreen(true)
+    holder:SetWidth(S("kit.problem.alert.width"))
+    holder:SetHeight(1)
+    holder:Show()
+  end
+
+  return holder
+end
+
 local function stack()
-  local y = S("kit.toast.top")
+  if not holder then
+    return
+  end
+
+  local y = 0
+
+  if not holder.moving then
+    EbonAPI.Windows.place(holder, home)
+  end
 
   for _, alert in ipairs(Alerts.shown()) do
     alert:ClearAllPoints()
-    alert:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -S("kit.padding"), -y)
+    alert:SetPoint("TOPRIGHT", holder, "TOPRIGHT", 0, -y)
     y = y + alert:GetHeight() + S("kit.spacing")
+  end
+
+  holder:SetHeight(max(y - S("kit.spacing"), 1))
+end
+
+local function stopMoving()
+  if holder and holder.moving then
+    holder.moving = false
+    holder:StopMovingOrSizing()
+    EbonAPI.Windows.save(holder)
   end
 end
 
@@ -88,10 +127,24 @@ local function act(button, fn)
 end
 
 local function build()
+  carrier()
+
   local alert = CreateFrame("Frame", nil, UIParent)
 
   alert:SetFrameStrata("FULLSCREEN_DIALOG")
-  Bricks.frame(alert, "small", "bg", "danger")
+  alert:EnableMouse(true)
+  alert:RegisterForDrag("LeftButton")
+  alert:SetScript("OnDragStart", function()
+    if EbonAPI.Parameters.value(nil, "locked") then
+      return
+    end
+
+    holder.moving = true
+    holder:StartMoving()
+  end)
+  alert:SetScript("OnDragStop", stopMoving)
+  alert:SetScript("OnHide", stopMoving)
+  Bricks.frame(alert, "small", S("kit.problem.alert.color"), "danger")
   alert.icon = alert:CreateTexture(nil, "ARTWORK")
   Kit.trim(alert.icon)
   alert.title = Bricks.text(alert, "small", "heading")
@@ -169,6 +222,7 @@ local function render(alert)
   local icon = EbonAPI:AddonIcon(problem.addon)
   local quietKind = alert.kind == "quiet"
 
+  Bricks.paint(alert, "SetBackdropColor", S("kit.problem.alert.color"))
   Bricks.paint(alert, "SetBackdropBorderColor", quietKind and "caution" or "danger")
 
   if icon then

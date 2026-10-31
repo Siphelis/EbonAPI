@@ -133,6 +133,14 @@ local function AddButton(level, text, func, hasArrow, menuList)
     UIDropDownMenu_AddButton(info, level)
 end
 
+local function AddSeparator(level)
+    local info = UIDropDownMenu_CreateInfo()
+    info.text = ""
+    info.disabled = true
+    info.notCheckable = true
+    UIDropDownMenu_AddButton(info, level)
+end
+
 local function AddToggle(level, text, checked, func)
     local info = UIDropDownMenu_CreateInfo()
     info.text = text
@@ -218,6 +226,10 @@ function Menus.ShowPanelMenu(anchor)
         end)
 
         AddButton(level, L.MENU_PANEL_WIDTH, nil, true, "WIDTH")
+
+        AddSeparator(level)
+        AddButton(level, L.MENU_IMPORT, NS.Share.ShowImport)
+        AddButton(level, L.MENU_EXPORT, NS.Share.ShowExportAll)
     end, "MENU")
 
     OpenMenu(anchor)
@@ -277,6 +289,9 @@ function Menus.ShowSaveMenu(saveId, anchor)
                     if NS.Data.DeleteSave(saveId) then NS.UI.RefreshList() end
                 end)
             end)
+
+            AddSeparator(level)
+            AddButton(level, L.MENU_EXPORT, function() NS.Share.ShowExportSave(saveId) end)
 
         elseif level == 2 and menuList == "MOVE" then
             local function moveTo(groupId)

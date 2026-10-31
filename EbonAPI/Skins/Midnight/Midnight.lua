@@ -18,6 +18,7 @@ EbonAPI:RegisterSkin("Midnight", {
   },
 
   widgets = {
+    cells = { shape = "square" }, queue = { shape = "square" }, strip = { shape = "square" }, cards = { shape = "square" },
     toggle = { brick = "switch" },
     group = { brick = "line" },
     heading = { lines = "AFTER" },
@@ -28,6 +29,18 @@ EbonAPI:RegisterSkin("Midnight", {
       view = "gauge", detail = "inline",
       row = { frame = "SMALL", fill = "card", border = "borderDim", selected = "focus" },
     },
+    choice = {
+      segment = { fill = "card", border = "borderDim", selected = "selected" },
+      chips = { fill = "card", border = "borderDim", selected = "selected", count = "muted" },
+    },
+    pill = { fill = "card", border = "focus", info = "focus" },
+    tile = { fill = "card", border = "borderDim", accent = "focus", gauge = { fill = "focus", back = "card" } },
+    map = { border = "borderDim", accent = { fill = "focus" }, gray = { low = "card", high = "border" } },
+  },
+
+  kit = {
+    chart = { color = "selected", column = "card", label = "muted", value = "text", series = { s1 = 0x3FA7F5, s2 = 0xB048F8, s3 = 0xE879FF, s4 = 0x4855F8, s5 = 0xD1D1F6 }, others = 0x4B2E83 },
+    table = { bar = { fill = "focus", back = "card" }, group = { fill = "card", chevron = "focus" } },
   },
 
   bricks = {

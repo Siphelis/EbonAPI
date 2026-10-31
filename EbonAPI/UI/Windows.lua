@@ -42,6 +42,8 @@ local function save(frame)
   saved[frame.id] = { point = point, relativePoint = relativePoint, x = x, y = y }
 end
 
+Windows.save = save
+
 local function nearest(best, candidate, distance)
   if abs(candidate) <= distance and (best == nil or abs(candidate) < abs(best)) then
     return candidate

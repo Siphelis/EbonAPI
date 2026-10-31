@@ -52,6 +52,7 @@ onPlayerLogin = function()
   safeCall(DB.bindCharacter)
   safeCall(Session.begin)
   safeCall(Modules.load)
+  safeCall(EbonAPI.Perf.resume)
   safeCall(Ebonhold.Detect)
 
   safeCall(Bridge.enable)

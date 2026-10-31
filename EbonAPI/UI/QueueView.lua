@@ -31,7 +31,6 @@ local data = {
 }
 
 local win, tabs
-local tables = {}
 local refreshed = {}
 local frozen = false
 local freezeButton
@@ -513,9 +512,21 @@ local function invalidate()
   end
 end
 
+local parts = {}
+local focus, relayout, picked
+
+local function guard(fn, ...)
+  local ok, err = pcall(fn, ...)
+
+  if not ok then
+    report(err)
+  end
+
+  return ok
+end
+
 local function collect()
   data.snap, data.rows, data.lanes, data.dests = Queue.view()
-  data.recent = Queue.recent(150)
   data.history = Queue.history(360)
 
   if Share and Share.view then
@@ -527,22 +538,34 @@ local function selectedTab()
   return tabs and tabs:Selected() or "content"
 end
 
-local SOURCES = {
-  content = { { "content", contentRows } },
-  recent = { { "recent", recentRows } },
-  people = { { "people", destRows } },
-  lanes = { { "lanes", laneRows } },
-  fetch = { { "holders", holderRows }, { "flights", flightRows } },
-  history = { { "history", historyRows } },
+local PAINT = {
+  content = { { "groups", function(piece) piece:SetRows(data.rows, data.snap) end } },
+  recent = { { "activity", function(piece) piece:SetDests(data.dests) end } },
+  people = { { "people", function(piece) piece:SetDests(data.dests) end } },
+  lanes = { { "lanes", function(piece) piece:SetLanes(data.lanes) end } },
+  fetch = {
+    { "fetch", function(piece) piece:SetFetch(data.fetch, data.holders, data.flights) end },
+    { "holders", function(piece) piece:SetHolders(data.holders) end },
+  },
+  history = { { "history", function(piece) piece:SetHistory(Queue.history(300)) end } },
 }
 
 local function refreshTab()
-  for _, source in ipairs(SOURCES[selectedTab()] or {}) do
-    local element = tables[source[1]]
+  for _, source in ipairs(PAINT[selectedTab()] or {}) do
+    local piece = parts[source[1]]
 
-    if element then
-      element:SetRows(source[2]())
+    if piece then
+      guard(source[2], piece)
     end
+  end
+end
+
+local function fit(host, height)
+  height = floor((height or 0) + 0.5)
+
+  if host and height > 1 and host:GetHeight() ~= height then
+    host:SetHeight(height)
+    relayout = true
   end
 end
 
@@ -552,14 +575,36 @@ local function refreshAll()
   end
 
   for _, element in ipairs(refreshed) do
-    element:Refresh()
+    guard(element.Refresh, element)
+  end
+
+  if parts.cells then
+    guard(function()
+      parts.cells:SetRows(data.rows, data.snap)
+      fit(parts.rowHost, parts.cells:GetHeight())
+    end)
+  end
+
+  if parts.band then
+    guard(function()
+      parts.band:Refresh(data.snap)
+
+      if parts.cells and parts.band.height ~= parts.cells:GetHeight() then
+        parts.band:SetHeight(parts.cells:GetHeight())
+      end
+    end)
   end
 
   for _, view in ipairs(views) do
-    drawSeries(view)
+    guard(drawSeries, view)
   end
 
   refreshTab()
+
+  if relayout then
+    relayout = false
+    win:Layout()
+  end
 end
 
 local function dump()
@@ -569,6 +614,7 @@ local function dump()
   end
 
   collect()
+  data.recent = Queue.recent(150)
   add(lineTotal())
   add(lineRate())
   add(lineWait())
@@ -661,14 +707,101 @@ local function tick()
   end
 end
 
-local function column(id, key, width, align)
-  return { id = id, key = key, width = width, align = align }
+-- The tab body adapts to the screen: BODY_SHARE of the height of UIParent minus the fixed part of the window,
+-- kept between BODY_MIN and BODY_MAX. CHROME is the title bar and the margins of the window.
+local BODY_SHARE, BODY_MIN, BODY_MAX, SCREEN_FALLBACK = 0.92, 160, 270, 768
+local CHART_BOX, CHROME, ROW_GAP = 112, 40, 7
+local bodyHeight, fixedHeight = BODY_MAX, 0
+
+local function skinNumber(key, default)
+  local ok, result = pcall(Skins.value, key)
+
+  return ok and type(result) == "number" and result or default
 end
 
-local function addTable(page, name, columns, height)
-  tables[name] = page:Add("table", { columns = columns, rows = {}, width = WIDTH, height = height })
+local function screenHeight()
+  local ok, result = pcall(function()
+    return UIParent:GetHeight()
+  end)
 
-  return tables[name]
+  return ok and type(result) == "number" and result > 0 and result or SCREEN_FALLBACK
+end
+
+local function link(fid, who)
+  if parts.cells then
+    guard(parts.cells.SetHover, parts.cells, fid, who)
+  end
+end
+
+local function setFocus(who)
+  focus = who
+
+  if parts.cells then
+    guard(parts.cells.SetFocus, parts.cells, who)
+  end
+end
+
+local function pick(who)
+  picked = true
+
+  if parts.cells and parts.cells.GetFocus then
+    focus = parts.cells:GetFocus()
+  end
+
+  if who == nil or focus == who then
+    setFocus(nil)
+
+    return
+  end
+
+  setFocus(who)
+
+  if tabs then
+    tabs:Select("content")
+  end
+
+  refreshTab()
+
+  if parts.groups then
+    guard(parts.groups.Open, parts.groups, who, true)
+  end
+end
+
+local function lightOn(info)
+  if info and parts.groups then
+    guard(parts.groups.Highlight, parts.groups, info.who, info.fid)
+  end
+end
+
+local function lightOff()
+  if parts.groups then
+    guard(parts.groups.Highlight, parts.groups, nil)
+  end
+end
+
+local function host(container, height)
+  local frame = container:Add("chart", { width = WIDTH, height = height })
+
+  Bricks.unframe(frame)
+
+  return frame
+end
+
+local function place(piece, frame)
+  local target = piece.Frame and piece:Frame() or piece
+
+  target:ClearAllPoints()
+  target:SetAllPoints(frame)
+end
+
+local function make(name, builder)
+  local ok, result = pcall(builder)
+
+  if ok then
+    parts[name] = result
+  else
+    report(result)
+  end
 end
 
 local function build()
@@ -678,35 +811,59 @@ local function build()
 
   win = Kit.window(OWNER, ID, { key = "QUEUEVIEW_TITLE", point = { "CENTER" } })
 
-  local function line(source, size, color)
-    local element = win:Add("text", { size = size, color = color, width = WIDTH, text = source })
+  local legendHost = host(win, 1)
 
-    refreshed[#refreshed + 1] = element
+  make("legend", function()
+    local legend = EbonAPI.QueueCells.legend(legendHost, {})
 
-    return element
-  end
+    legend:SetPoint("TOPLEFT", legendHost, "TOPLEFT", 0, 0)
+    fit(legendHost, legend:GetHeight())
 
-  line(lineTotal, "medium", "heading")
+    return legend
+  end)
 
-  local bar = win:Add("progress", {
-    width = WIDTH,
-    value = function()
-      return data.snap and data.snap.total or 0
-    end,
-    max = function()
-      return data.snap and data.snap.capacity or 1
-    end,
-    text = function()
-      return data.snap and format(L.QUEUEVIEW_BAR, data.snap.total, data.snap.capacity) or ""
-    end,
-  })
+  parts.rowHost = host(win, 1)
+  make("cells", function()
+    local cells = EbonAPI.QueueCells.build(parts.rowHost, {
+      capacity = 500, onEnter = lightOn, onLeave = lightOff, onPick = pick,
+    })
 
-  refreshed[#refreshed + 1] = bar
+    cells:SetPoint("TOPLEFT", parts.rowHost, "TOPLEFT", 0, 0)
+    fit(parts.rowHost, cells:GetHeight())
 
-  line(lineRate, "small")
-  line(lineWait, "small")
-  line(lineOldest, "small")
-  line(lineTotals, "small", "muted")
+    if cells.zone then
+      cells.zone:HookScript("OnMouseUp", function()
+        if not picked then
+          setFocus(nil)
+        end
+
+        picked = nil
+      end)
+    end
+
+    return cells
+  end)
+
+  make("band", function()
+    local band = EbonAPI.QueueBand.build(parts.rowHost, {})
+    local left = (EbonAPI.QueueCells.WIDTH or 158) + ROW_GAP
+
+    band.frame:SetPoint("TOPLEFT", parts.rowHost, "TOPLEFT", left, 0)
+    band:SetWidth(WIDTH - left)
+
+    if parts.cells then
+      band:SetHeight(parts.cells:GetHeight())
+    end
+
+    return band
+  end)
+
+  -- The tab body, once: the screen's share minus what the rest of the window takes.
+  local stripHeight, spacing = skinNumber("nav.tab.height", 24), skinNumber("kit.spacing", 6)
+  local above = (parts.legend and parts.legend:GetHeight() or 0) + (parts.cells and parts.cells:GetHeight() or 0)
+
+  fixedHeight = above + CHART_BOX + stripHeight + spacing * 5 + CHROME
+  bodyHeight = min(BODY_MAX, max(BODY_MIN, floor(BODY_SHARE * screenHeight() - fixedHeight)))
 
   local charts = win:Add("bar", {})
 
@@ -726,9 +883,12 @@ local function build()
     refreshed[#refreshed + 1] = note
   end
 
-  line(linePace, "small")
-
-  local buttons = win:Add("bar", {})
+  -- One host (no automatic layout) holds the tabs at its left and the three buttons at its right, on the same line.
+  local stripHeight = skinNumber("nav.tab.height", 24)
+  local line = win:Add("bar", {
+    layout = "NONE", width = WIDTH, height = stripHeight + spacing + bodyHeight,
+  })
+  local buttons = line:Add("bar", {})
 
   buttons:Add("button", {
     key = "QUEUEVIEW_COPY",
@@ -755,76 +915,101 @@ local function build()
     end,
   })
 
-  tabs = win:Add("tabs", {
+  tabs = line:Add("tabs", {
+    width = WIDTH, height = stripHeight + spacing + bodyHeight,
     onSelect = function()
       if data.snap then
         refreshTab()
       end
     end,
   })
+  tabs:ClearAllPoints()
+  tabs:SetPoint("TOPLEFT", line, "TOPLEFT", 0, 0)
+  buttons:ClearAllPoints()
+  buttons:SetPoint("TOPRIGHT", line, "TOPRIGHT", 0, 0)
+  buttons:SetFrameLevel(tabs:GetFrameLevel() + 5)
 
-  local content = tabs:AddTab("content", { key = "QUEUEVIEW_TAB_CONTENT" })
+  for _, child in ipairs(buttons:Children()) do
+    child:SetHeight(stripHeight)
+  end
 
-  addTable(content, "content", {
-    column("pos", "QUEUEVIEW_COL_POS", 34, "RIGHT"), column("who", "QUEUEVIEW_COL_WHO"),
-    column("lane", "QUEUEVIEW_COL_LANE", 112), column("kind", "QUEUEVIEW_COL_KIND", 100),
-    column("op", "QUEUEVIEW_COL_OP", 80), column("detail", "QUEUEVIEW_COL_DETAIL"),
-    column("parts", "QUEUEVIEW_COL_PARTS", 72, "RIGHT"), column("age", "QUEUEVIEW_COL_AGE", 88, "RIGHT"),
-    column("eta", "QUEUEVIEW_COL_ETA", 108, "RIGHT"), column("state", "QUEUEVIEW_COL_STATE", 100),
-  }, 330)
+  local function onLane(lane)
+    if parts.cells then
+      guard(parts.cells.SetLane, parts.cells, lane)
+    end
+  end
 
-  local recent = tabs:AddTab("recent", { key = "QUEUEVIEW_TAB_RECENT" })
+  local function tab(id, key)
+    return host(tabs:AddTab(id, { key = key }), bodyHeight)
+  end
 
-  addTable(recent, "recent", {
-    column("ago", "QUEUEVIEW_COL_AGO", 72, "RIGHT"), column("who", "QUEUEVIEW_COL_WHO"),
-    column("lane", "QUEUEVIEW_COL_LANE", 120), column("kind", "QUEUEVIEW_COL_KIND", 100),
-    column("op", "QUEUEVIEW_COL_OP", 80), column("detail", "QUEUEVIEW_COL_DETAIL"),
-    column("waited", "QUEUEVIEW_COL_WAITED", 92, "RIGHT"), column("result", "QUEUEVIEW_COL_RESULT", 84),
-  }, 330)
+  local content = tab("content", "QUEUEVIEW_TAB_CONTENT")
 
-  local people = tabs:AddTab("people", { key = "QUEUEVIEW_TAB_PEOPLE" })
+  make("groups", function()
+    local groups = EbonAPI.QueueGroups.build(content, {
+      width = WIDTH, height = bodyHeight, onEnter = function(who, fid) link(fid, who) end,
+      onLeave = function() link(nil, nil) end,
+    })
 
-  addTable(people, "people", {
-    column("who", "QUEUEVIEW_COL_WHO"), column("lane", "QUEUEVIEW_COL_LANE", 112),
-    column("kind", "QUEUEVIEW_COL_KIND", 96), column("waiting", "QUEUEVIEW_COL_WAITING", 78, "RIGHT"),
-    column("queued", "QUEUEVIEW_COL_QUEUED", 84, "RIGHT"), column("sent", "QUEUEVIEW_COL_SENT", 70, "RIGHT"),
-    column("failed", "QUEUEVIEW_COL_FAILED", 62, "RIGHT"), column("avg", "QUEUEVIEW_COL_AVG", 80, "RIGHT"),
-    column("max", "QUEUEVIEW_COL_MAX", 96, "RIGHT"), column("last", "QUEUEVIEW_COL_LAST", 120, "RIGHT"),
-    column("state", "QUEUEVIEW_COL_STATE", 96),
-  }, 330)
+    place(groups, content)
 
-  local lanes = tabs:AddTab("lanes", { key = "QUEUEVIEW_TAB_LANES" })
+    return groups
+  end)
 
-  addTable(lanes, "lanes", {
-    column("lane", "QUEUEVIEW_COL_LANE"), column("waiting", "QUEUEVIEW_COL_WAITING", 90, "RIGHT"),
-    column("queued", "QUEUEVIEW_COL_QUEUED", 90, "RIGHT"), column("sent", "QUEUEVIEW_COL_SENT", 90, "RIGHT"),
-    column("failed", "QUEUEVIEW_COL_FAILED", 80, "RIGHT"), column("avg", "QUEUEVIEW_COL_AVG", 90, "RIGHT"),
-    column("max", "QUEUEVIEW_COL_MAX", 100, "RIGHT"), column("last", "QUEUEVIEW_COL_LAST", 120, "RIGHT"),
-  }, 330)
+  local recent = tab("recent", "QUEUEVIEW_TAB_RECENT")
 
-  local fetch = tabs:AddTab("fetch", { key = "QUEUEVIEW_TAB_FETCH" })
-  local fetchLine = fetch:Add("text", { size = "small", width = WIDTH, text = lineFetch })
+  make("activity", function()
+    local activity = EbonAPI.QueueStrips.activity(recent, {
+      width = WIDTH, height = bodyHeight, onEnter = function(who) link(nil, who) end,
+      onLeave = function() link(nil, nil) end, onLane = onLane,
+    })
 
-  refreshed[#refreshed + 1] = fetchLine
+    place(activity, recent)
 
-  addTable(fetch, "holders", {
-    column("peer", "QUEUEVIEW_COL_PEER"), column("inflight", "QUEUEVIEW_COL_INFLIGHT", 90, "RIGHT"),
-    column("keys", "QUEUEVIEW_COL_KEYS", 100, "RIGHT"), column("answered", "QUEUEVIEW_COL_ANSWERED", 90),
-    column("muted", "QUEUEVIEW_COL_MUTED", 96, "RIGHT"), column("slow", "QUEUEVIEW_COL_SLOW", 84, "RIGHT"),
-    column("limit", "QUEUEVIEW_COL_LIMIT", 84, "RIGHT"), column("heard", "QUEUEVIEW_COL_HEARD", 130, "RIGHT"),
-  }, 170)
-  addTable(fetch, "flights", {
-    column("key", "QUEUEVIEW_COL_KEY"), column("peer", "QUEUEVIEW_COL_PEER", 170),
-    column("asked", "QUEUEVIEW_COL_ASKED", 130, "RIGHT"), column("limit", "QUEUEVIEW_COL_LIMIT", 90, "RIGHT"),
-  }, 140)
+    return activity
+  end)
 
-  local history = tabs:AddTab("history", { key = "QUEUEVIEW_TAB_HISTORY" })
+  local people = tab("people", "QUEUEVIEW_TAB_PEOPLE")
 
-  addTable(history, "history", {
-    column("time", "QUEUEVIEW_COL_TIME", 90, "RIGHT"), column("len", "QUEUEVIEW_COL_LEN", 110, "RIGHT"),
-    column("ins", "QUEUEVIEW_COL_IN", 110, "RIGHT"), column("outs", "QUEUEVIEW_COL_OUT", 110, "RIGHT"),
-    column("avg", "QUEUEVIEW_COL_AVG", 130, "RIGHT"), column("max", "QUEUEVIEW_COL_MAX", 130, "RIGHT"),
-  }, 330)
+  make("people", function()
+    local registry = EbonAPI.QueueTable.people(people, {
+      width = WIDTH, height = bodyHeight, onEnter = function(who) link(nil, who) end,
+      onLeave = function() link(nil, nil) end, onLane = onLane,
+    })
+
+    place(registry, people)
+
+    return registry
+  end)
+
+  local lanes = tab("lanes", "QUEUEVIEW_TAB_LANES")
+
+  make("lanes", function()
+    return EbonAPI.QueueCards.lanes(lanes, { width = WIDTH, height = bodyHeight })
+  end)
+
+  local fetch = tab("fetch", "QUEUEVIEW_TAB_FETCH")
+  local slot = CreateFrame("Frame", nil, fetch)
+
+  make("fetch", function()
+    return EbonAPI.QueueCards.fetch(fetch, { width = WIDTH, height = bodyHeight, holdersSlot = slot })
+  end)
+  make("holders", function()
+    local holders = EbonAPI.QueueTable.holders(slot, {
+      width = WIDTH, height = bodyHeight, onEnter = function(peer) link(nil, peer) end,
+      onLeave = function() link(nil, nil) end,
+    })
+
+    place(holders, slot)
+
+    return holders
+  end)
+
+  local history = tab("history", "QUEUEVIEW_TAB_HISTORY")
+
+  make("history", function()
+    return EbonAPI.QueueStrips.history(history, { width = WIDTH, height = bodyHeight })
+  end)
 
   return win
 end
@@ -840,6 +1025,11 @@ end
 
 function QueueView.window()
   return win
+end
+
+-- The built pieces by name (cells, band, groups, activity, people, lanes, fetch, holders, history), for the trials.
+function QueueView.piece(name)
+  return parts[name]
 end
 
 function QueueView.series(id)
@@ -881,11 +1071,12 @@ function QueueView.tips(id)
 end
 
 function QueueView.geometry()
-  return { bars = BARS, bin = BIN, pitch = PITCH, width = CHART_WIDTH, height = CHART_HEIGHT, inset = inset(), rate = RATE_SCALE, out = scaleOf(SERIES[3]) }
+  return { body = bodyHeight, fixed = fixedHeight, bandWidth = WIDTH - (EbonAPI.QueueCells.WIDTH or 158) - ROW_GAP,
+    bars = BARS, bin = BIN, pitch = PITCH, width = CHART_WIDTH, height = CHART_HEIGHT, inset = inset(), rate = RATE_SCALE, out = scaleOf(SERIES[3]) }
 end
 
 function QueueView.select(id)
-  if tabs and SOURCES[id] then
+  if tabs and PAINT[id] then
     tabs:Select(id)
   end
 end

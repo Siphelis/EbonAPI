@@ -33,7 +33,6 @@ local ALL = "*"
 local NAME = EbonAPI.name
 
 local shown = nil
-local perfTarget = ALL
 local traceKind = ALL
 local debugTarget = NAME
 local logState = { filter = "all", query = "", reverse = false, open = {} }
@@ -279,11 +278,38 @@ function Settings.statusRows()
     }
   end)
 
-  local okRej, showRej = pcall(function()
-    return E.Bridge.droppedTotal() > 0 or E.State.rejected > 0 or E.DB.repaired > 0
-  end)
+  -- Players of another share protocol (2.2 clients): ignored, never compared.
+  local ignoredTotal = 0
 
-  if okRej and showRej then
+  if E.Share and E.Share.ignoredStats then
+    ignoredTotal = E.Share.ignoredStats()
+  end
+
+  if ignoredTotal > 0 then
+    add(ech, "ignores", L.UI_FICHE_IGNORED, function()
+      local total, players, names = E.Share.ignoredStats()
+      local list = {}
+
+      for name, count in pairs(names) do
+        list[#list + 1] = name .. " x" .. count
+      end
+
+      table.sort(list)
+
+      return {
+        value = format(L.UI_FICHE_IGNORED_VALUE, total, players, table.concat(list, ", ")),
+        level = "warn",
+      }
+    end)
+  end
+
+  local bridgeDropped = 0
+
+  if E.Bridge and E.Bridge.droppedTotal then
+    bridgeDropped = E.Bridge.droppedTotal()
+  end
+
+  if bridgeDropped > 0 or E.State.rejected > 0 or E.DB.repaired > 0 then
     add(ech, "rejets", L.UI_FICHE_REJECTS, function()
       local drops = E.Bridge.drops
 
@@ -425,14 +451,6 @@ local REPORTS = {
 
 Settings.REPORTS = REPORTS
 
-local function perfOwners()
-  if perfTarget == ALL then
-    return Perf.owners()
-  end
-
-  return { perfTarget }
-end
-
 function Settings.output()
   if not shown then
     return nil
@@ -442,15 +460,7 @@ function Settings.output()
     return REPORTS[shown.report]()
   end
 
-  local lines = {}
-
-  for _, item in ipairs(shown.reports) do
-    for _, line in ipairs(Perf.describeReport(item.owner, item.report)) do
-      lines[#lines + 1] = line
-    end
-  end
-
-  return concat(lines, "\n")
+  return nil
 end
 
 -- Modèle du cadre du résultat : la fiche pour le rapport « status », du texte pour les autres.
@@ -709,49 +719,6 @@ function Settings.show(name)
   return Settings.output()
 end
 
-function Settings.perf(action)
-  local reports = {}
-
-  local function keep(owner, report)
-    reports[#reports + 1] = { owner = owner, report = Perf.record(owner, report) }
-  end
-
-  if action == "measure" then
-    if perfTarget == ALL then
-      for _, row in ipairs(Perf.summarySample()) do
-        keep(row.owner, { summary = row })
-      end
-    else
-      local _, _, report = Perf.measure(perfTarget)
-
-      reports[1] = { owner = perfTarget, report = report }
-    end
-  elseif action == "reset" then
-    for _, owner in ipairs(perfOwners()) do
-      Perf.reset(owner)
-      keep(owner, { reset = true })
-    end
-  elseif action == "gc" then
-    for _, owner in ipairs(perfOwners()) do
-      local before, after = Perf.gc(owner)
-
-      keep(owner, { before = before, after = after })
-    end
-  else
-    shown = nil
-
-    return nil
-  end
-
-  shown = { reports = reports }
-
-  return Settings.output()
-end
-
-function Settings.setPerfTarget(target)
-  perfTarget = target or ALL
-end
-
 function Settings.setTraceKind(kind)
   traceKind = kind or ALL
 end
@@ -779,15 +746,6 @@ local function report(order, key, name)
     type = "execute", order = order, name = T(key),
     func = function()
       Settings.show(name)
-    end,
-  }
-end
-
-local function perfAction(order, key, action)
-  return {
-    type = "execute", order = order, name = T(key),
-    func = function()
-      Settings.perf(action)
     end,
   }
 end
@@ -1036,8 +994,27 @@ Settings.tree = {
         },
       },
     },
+    perfpage = {
+      type = "group", order = 4, name = T("UI_PERF"),
+      args = {
+        page = {
+          type = "description", order = 1, fontSize = "medium", view = "kit",
+          name = T("UI_PERF"),
+          build = function(parent, width)
+            return EbonAPI.PerfPage.build(parent, width)
+          end,
+        },
+      },
+    },
+    sendqueue = {
+      type = "group", order = 5, name = T("UI_SENDQUEUE"), desc = T("UI_SENDQUEUE_DESC"),
+      args = {},
+      opens = function()
+        EbonAPI.QueueView.open()
+      end,
+    },
     modules = {
-      type = "group", order = 6, name = T("UI_MODULES"),
+      type = "group", order = 7, name = T("UI_MODULES"),
       args = modulesPage(),
     },
     addons = {
@@ -1045,7 +1022,7 @@ Settings.tree = {
       args = { none = noAddons() },
     },
     problems = {
-      type = "group", order = 5, name = T("CENTER_TITLE"),
+      type = "group", order = 6, name = T("CENTER_TITLE"),
       hidden = function()
         local Center = EbonAPI.Center
 
@@ -1058,7 +1035,7 @@ Settings.tree = {
       args = {},
     },
     diagnostic = {
-      type = "group", order = 4, name = T("UI_DIAGNOSTIC"),
+      type = "group", order = 8, name = T("UI_DIAGNOSTIC"),
       args = {
         errors = {
           type = "group", inline = true, order = 0, name = T("UI_ERRORS"),
@@ -1149,26 +1126,30 @@ Settings.tree = {
                 EbonAPI.QueueView.open()
               end,
             },
-          },
-        },
-        perf = {
-          type = "group", inline = true, order = 3, name = T("UI_PERF"),
-          args = {
-            target = {
-              type = "select", order = 1, name = T("UI_ADDON"),
-              values = function()
-                return addonValues(true)
-              end,
+            keep = {
+              type = "toggle", order = 2, name = T("UI_QUEUEVIEW_KEEP"), desc = T("UI_QUEUEVIEW_KEEP_DESC"),
               get = function()
-                return perfTarget
+                return Queue.keepEnabled()
               end,
               set = function(_, value)
-                Settings.setPerfTarget(value)
+                if not value then
+                  Queue.setKeep(false)
+
+                  return
+                end
+
+                -- The box is read again after each set: it stays unchecked unless the player answers Yes.
+                local api = setmetatable({ addonName = "EbonAPI" }, { __index = EbonAPI.Handle })
+
+                api:Confirm(L.UI_QUEUEVIEW_KEEP_CONFIRM, function()
+                  Queue.setKeep(true)
+
+                  if EbonAPI.Window then
+                    EbonAPI.Window.refresh()
+                  end
+                end)
               end,
             },
-            measure = perfAction(2, "UI_PERF_MEASURE", "measure"),
-            reset = perfAction(3, "UI_PERF_RESET", "reset"),
-            gc = perfAction(4, "UI_PERF_GC", "gc"),
           },
         },
         result = { type = "header", order = 4, name = T("UI_RESULT") },

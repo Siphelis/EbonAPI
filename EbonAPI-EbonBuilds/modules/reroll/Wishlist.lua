@@ -300,11 +300,12 @@ local function AttachSweeper(grid)
   local f = CreateFrame("Frame", nil, grid.scroll)
   ns.api:Track("Journal sweep (" .. (grid.name:match("Journal(%a+)$") or grid.name) .. ")", f)
   f.elapsed = 0
+  local sweep = function() Sweep(grid) end
   f:SetScript("OnUpdate", function(self, delta)
     self.elapsed = self.elapsed + delta
     if self.elapsed < POLL then return end
     self.elapsed = 0
-    ns.api:Guard("WISHLIST.JOURNAL_SWEEP", Sweep, grid)
+    ns.api:Guard("WISHLIST.JOURNAL_SWEEP", sweep)
   end)
   grid.sweeper = f
 end

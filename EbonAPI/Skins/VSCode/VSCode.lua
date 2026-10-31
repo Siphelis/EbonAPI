@@ -111,6 +111,7 @@ EbonAPI:RegisterSkin("VSCode", {
   },
 
   widgets = {
+    cells = { shape = "square" }, queue = { shape = "square", table = { style = "flat" } }, strip = { shape = "square" }, cards = { shape = "flat" },
     button = { padding = 10 },
     toggle = {
       height = 20, size = 14, gap = 8, mark = -3,
@@ -133,6 +134,16 @@ EbonAPI:RegisterSkin("VSCode", {
       row = { frame = "FLAT", fill = "headerBg", border = "headerBg" },
     },
     output = { brick = "tree" },
+    choice = {
+      segment = { frame = "FLAT", fill = "bgSoft", border = "borderDim" },
+      chips = { frame = "FLAT", fill = "bgSoft", border = "borderDim" },
+    },
+    pill = { frame = "FLAT", fill = "bgSoft", border = "borderDim", info = "focus" },
+    tile = {
+      frame = "FLAT", fill = "card", border = "border", accent = "focus",
+      gauge = { fill = "focus", back = "bgSoft" },
+    },
+    map = { border = "border", gray = { low = "bgSoft", high = "muted" } },
   },
 
   bricks = {
@@ -268,6 +279,11 @@ EbonAPI:RegisterSkin("VSCode", {
           tile.sep:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -inset, -inset)
           tile.sep:SetWidth(1)
           tile.sep:SetHeight(inner)
+        end
+
+        -- Hook of the four-line card of the send-queue band: the separator would cover the right border of the card.
+        function look.card(tile)
+          tile.sep:Hide()
         end
 
         -- A text or a marker slot that changes the width of the item lays the flow out again (nothing is created).
@@ -575,6 +591,14 @@ EbonAPI:RegisterSkin("VSCode", {
     prefix = 0x0078D4,
     text = 0xCCCCCC,
     muted = 0x9D9D9D,
+  },
+
+  kit = {
+    chart = { color = "checked", column = "bgSoft", label = "muted", value = "text", series = { s1 = 0x0078D4, s2 = 0xB180D7, s3 = 0xCCA700, s4 = 0x89D185, s5 = 0xD18616 }, others = 0x9D9D9D },
+    table = {
+      bar = { fill = "focus", back = "bgSoft" },
+      group = { fill = "bgSoft", chevron = "title" },
+    },
   },
 
   board = {

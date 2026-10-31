@@ -13,9 +13,10 @@ local Data = EbonAPI.SavesData
 local Views = EbonAPI.SavesViews
 
 local format, max, min = string.format, math.max, math.min
-local ipairs, pairs, pcall, type, tostring = ipairs, pairs, pcall, type, tostring
+local ipairs, pairs, pcall, type, tostring, next = ipairs, pairs, pcall, type, tostring, next
 local S = Bricks.value
 local STATUS_DELAY = 9
+local FOLD_STAGES = 8
 
 Bricks.CONTRACT.saves = {
   "SetModel", "SetView", "SetDetail", "SetSort", "SetStatus", "SetHeight", "SetWidth", "Select", "Selected",
@@ -167,6 +168,11 @@ function BOX:Relayout()
 
   local state = self.state
 
+  -- A slide only shows in the list and gauge views of a visible, full widget: elsewhere it jumps to its end.
+  if self.fx and (state.reduced or state.view == "grid" or not self:IsVisible()) then
+    self:FxStop()
+  end
+
   if state.reduced then
     return self:RelayoutReduced()
   end
@@ -275,6 +281,7 @@ function BOX:SetDetail(detail)
   end
 
   self.state.detail = detail
+  self:FxStop()
 
   return self:Relayout()
 end
@@ -318,6 +325,7 @@ function BOX:Select(id)
     self.state.selected = id
     self.state.open = id ~= nil
 
+    self:FxStop()
     self:Relayout()
   end
 
@@ -479,6 +487,7 @@ function BOX:Key(keyName)
   elseif keyName == "SPACE" then
     if selected ~= nil then
       state.open = not state.open
+      self:FxStop()
       self:Relayout()
 
       return self:Reveal(selected)
@@ -492,6 +501,7 @@ function BOX:Key(keyName)
   elseif keyName == "ESCAPE" then
     if state.open then
       state.open = false
+      self:FxStop()
 
       return self:Relayout()
     end
@@ -511,6 +521,9 @@ function BOX:BuildKeys()
   keys:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 0, 0)
   keys:SetAutoFocus(false)
   keys:SetMaxLetters(1)
+  -- Fully transparent: the focused EditBox draws a blinking text cursor whose height does not follow the one-pixel
+  -- frame (it ran the height of the screen); the keys reach the scripts whatever the alpha.
+  keys:SetAlpha(0)
   keys:Hide()
 
   onArrows(keys, function(name)
@@ -594,6 +607,8 @@ function BOX:Pick(id)
 
   self:Focus()
 
+  local was = state.open and state.selected
+
   if state.selected == id then
     state.open = not state.open
   else
@@ -601,7 +616,15 @@ function BOX:Pick(id)
     self:CallBack("onSelect", id)
   end
 
-  return self:Relayout()
+  if self:EffectiveDetail() ~= "inline" then
+    return self:Relayout()
+  end
+
+  -- The inline drawer closes under the old row and opens under the new one.
+  local closing = was and (was ~= id or not state.open) and { "d:" .. tostring(was) } or {}
+  local opening = state.open and { "d:" .. tostring(id) } or {}
+
+  return self:Slide(opening, closing)
 end
 
 function BOX:Activate(id)
@@ -656,10 +679,150 @@ end
 
 function BOX:ToggleFold(groupId)
   local fold = self.state.fold
+  local key = "g:" .. tostring(groupId)
 
   fold[groupId] = (not fold[groupId]) or nil
 
-  return self:Relayout()
+  if fold[groupId] then
+    return self:Slide({}, { key })
+  end
+
+  return self:Slide({ key }, {})
+end
+
+-- The vertical slide of a group (key "g:<id>") and of an inline drawer (key "d:<save id>"): the view reserves the
+-- height of a slot while it moves and keeps its content hidden; widgets.saves.fold is the time, 0 jumps at once.
+function BOX:Slot(key)
+  return self.fx and self.fx.slots[key]
+end
+
+-- Called by the views for each slot they lay out in full: its height, gap included.
+function BOX:Measure(key, size)
+  self.sizes = self.sizes or {}
+  self.sizes[key] = size
+end
+
+function BOX:FxStop()
+  local fx = self.fx
+
+  if fx then
+    fx.driver:SetScript("OnUpdate", nil)
+    self.fx = nil
+  end
+end
+
+function BOX:FxStep(elapsed)
+  local fx = self.fx
+
+  if not fx then
+    return
+  end
+
+  local changed = false
+
+  for key, slot in pairs(fx.slots) do
+    slot.elapsed = slot.elapsed + (elapsed or 0)
+
+    local share = min(1, slot.elapsed / slot.duration)
+
+    if share >= 1 then
+      fx.slots[key] = nil
+      changed = true
+    else
+      -- By stages: a relayout of a long list costs several milliseconds, so it only runs when a stage is reached.
+      local stage = math.floor(share * FOLD_STAGES)
+
+      if stage ~= slot.stage then
+        local t = stage / FOLD_STAGES
+
+        slot.stage, slot.height, changed = stage, slot.from + (slot.to - slot.from) * (1 - (1 - t) * (1 - t)), true
+      end
+    end
+  end
+
+  if next(fx.slots) == nil then
+    self:FxStop()
+  end
+
+  if changed then
+    self:Relayout()
+  end
+end
+
+function BOX:FxStart(key, from, to)
+  local fx = self.fx
+
+  if not fx then
+    local driver = self.fxDriver
+
+    if not driver then
+      driver = CreateFrame("Frame", nil, self)
+      driver:SetScript("OnHide", function()
+        if self.fx then
+          self:FxStop()
+          self:Relayout()
+        end
+      end)
+      self.fxDriver = driver
+    end
+
+    fx = { slots = {}, driver = driver }
+    self.fx = fx
+    driver:SetScript("OnUpdate", function(_, elapsed)
+      self:FxStep(elapsed)
+    end)
+  end
+
+  fx.slots[key] = { from = from, to = to, height = from, stage = 0, elapsed = 0, duration = S("widgets.saves.fold") }
+end
+
+-- Lays out after a state change; the slots of `opening` grow from their height now, those of `closing` shrink from it.
+function BOX:Slide(opening, closing)
+  local duration = S("widgets.saves.fold") or 0
+  local state = self.state
+
+  if not (duration > 0 and self.model and not state.reduced and state.view ~= "grid" and self:IsVisible()) then
+    self:FxStop()
+
+    return self:Relayout()
+  end
+
+  local fx = self.fx
+  local sizes = self.sizes or {}
+  local start = {}
+
+  for _, key in ipairs(opening) do
+    start[key] = fx and fx.slots[key] and fx.slots[key].height or 0
+  end
+
+  for _, key in ipairs(closing) do
+    start[key] = fx and fx.slots[key] and fx.slots[key].height or sizes[key] or 0
+  end
+
+  for key in pairs(start) do
+    if fx then
+      fx.slots[key] = nil
+    end
+
+    sizes[key] = nil
+  end
+
+  self.sizes = sizes
+  self:Relayout()
+
+  for _, key in ipairs(opening) do
+    if sizes[key] and sizes[key] > start[key] then
+      self:FxStart(key, start[key], sizes[key])
+    end
+  end
+
+  for _, key in ipairs(closing) do
+    if start[key] > 0 then
+      self:FxStart(key, start[key], 0)
+    end
+  end
+
+  return self.fx and self:Relayout() or self
 end
 
 function BOX:Hover(id, frame)
@@ -797,8 +960,12 @@ function BOX:BuildMini()
   end)
 
   mini.select = Bricks.create("select", mini)
-  mini.select:SetPoint("TOPLEFT", mini.prev, "TOPRIGHT", BAR_PAD, 0)
-  mini.select:SetPoint("TOPRIGHT", mini.next, "TOPLEFT", -BAR_PAD, 0)
+  -- The list keeps its title row above the button (widgets.select.top); no title here, so the box rises by that row and
+  -- the button itself sits level with the arrows.
+  local titleRow = S("widgets.select.top")
+
+  mini.select:SetPoint("TOPLEFT", mini.prev, "TOPRIGHT", BAR_PAD, titleRow)
+  mini.select:SetPoint("TOPRIGHT", mini.next, "TOPLEFT", -BAR_PAD, titleRow)
   mini.select:SetHeight(BUTTON)
   mini.select.onPick = function(id)
     if self.state.selected ~= id then

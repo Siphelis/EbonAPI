@@ -1489,9 +1489,40 @@ KINDS.input = function(owner, parent, spec)
     callback(box, "onChange", text)
   end
 
+  local hint
+
+  if spec.hint ~= nil or spec.onInput ~= nil then
+    hint = Bricks.text(box.edit, "small", "muted")
+    hint:SetPoint("LEFT", box.edit, "LEFT", S("widgets.input.padding"), 0)
+
+    box.edit:HookScript("OnTextChanged", function(edit, typed)
+      if edit:GetText() == "" and (hint:GetText() or "") ~= "" then
+        hint:Show()
+      else
+        hint:Hide()
+      end
+
+      if typed then
+        callback(box, "onInput", edit:GetText())
+      end
+    end)
+  end
+
   function box:kitRefresh()
     local value = evaluate(self, self.spec.get)
     local lines = self.spec.lines or 1
+
+    if hint then
+      local shown = evaluate(self, self.spec.hint)
+
+      hint:SetText(shown ~= nil and tostring(shown) or "")
+
+      if self.edit:GetText() == "" and (hint:GetText() or "") ~= "" then
+        hint:Show()
+      else
+        hint:Hide()
+      end
+    end
 
     self:SetWidth(self.spec.width or S("page.unit"))
 
@@ -2829,6 +2860,7 @@ KINDS.table = function(owner, parent, spec)
   frame.columns = spec.columns or {}
   frame.rows = {}
   frame.rowFrames = {}
+  frame.openState = {}
   frame.head = CreateFrame("Frame", nil, frame)
   frame.head:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
   frame.head:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
@@ -2876,12 +2908,24 @@ KINDS.table = function(owner, parent, spec)
     elseif row.hovered then
       paint(row.fill, "SetVertexColor", S("kit.table.hover"))
       row.fill:Show()
+    elseif row.kitGroup then
+      paint(row.fill, "SetVertexColor", S("kit.table.group.fill"))
+      row.fill:Show()
     else
       row.fill:Hide()
     end
 
-    for _, cell in pairs(row.cells) do
-      paint(cell, "SetTextColor", key)
+    if row.chevron then
+      paint(row.chevron, "SetVertexColor", S("kit.table.group.chevron"))
+    end
+
+    for _, label in pairs(row.cells) do
+      paint(label, "SetTextColor", not selected and label.kitTint or key)
+    end
+
+    for _, bar in pairs(row.bars) do
+      paint(bar.back, "SetVertexColor", S("kit.table.bar.back"))
+      paint(bar.fill, "SetVertexColor", S("kit.table.bar.fill"))
     end
   end
 
@@ -2899,6 +2943,7 @@ KINDS.table = function(owner, parent, spec)
     row.fill:SetAllPoints(row)
     row.fill:Hide()
     row.cells = {}
+    row.bars = {}
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     row:SetScript("OnEnter", function(self)
       self.hovered = true
@@ -2927,6 +2972,33 @@ KINDS.table = function(owner, parent, spec)
         return
       end
 
+      -- Double-clic (contrat) : spec.onActivate(frame, row, mouse) est appele quand deux clics
+      -- gauches tombent sur la meme ligne en 0,3 s ou moins (GetTime lu au clic, ni ticker ni
+      -- cout au repos). Le clic simple reste inchange (selection, onClick, onSelect, bascule
+      -- d'un groupe) ; le double-clic s'y ajoute, apres lui. Sans onActivate : rien de change.
+      local activate = false
+
+      if mouse ~= "RightButton" and frame.spec and type(frame.spec.onActivate) == "function" then
+        local now = GetTime()
+
+        if frame.lastClickRow == data and now - (frame.lastClickAt or -1) <= 0.3 then
+          frame.lastClickRow = nil
+          activate = true
+        else
+          frame.lastClickRow, frame.lastClickAt = data, now
+        end
+      end
+
+      if mouse ~= "RightButton" and type(data.children) == "table" then
+        frame:SetOpen(data, not frame:IsOpen(data))
+
+        if activate then
+          callback(frame, "onActivate", data, mouse)
+        end
+
+        return
+      end
+
       frame.selected = data
 
       if type(data.onClick) == "function" then
@@ -2939,6 +3011,10 @@ KINDS.table = function(owner, parent, spec)
 
       callback(frame, "onSelect", data, mouse)
       frame:kitDraw()
+
+      if activate then
+        callback(frame, "onActivate", data, mouse)
+      end
     end)
     frame.rowFrames[index] = row
 
@@ -2975,6 +3051,18 @@ KINDS.table = function(owner, parent, spec)
     return self
   end
 
+  local function gather(list, out)
+    for _, data in ipairs(list) do
+      out[#out + 1] = data
+
+      if type(data.children) == "table" then
+        gather(data.children, out)
+      end
+    end
+
+    return out
+  end
+
   function frame:kitKeep()
     local chosen = self.selected
 
@@ -2983,8 +3071,14 @@ KINDS.table = function(owner, parent, spec)
     end
 
     local found = nil
+    local all = gather(self.rows, {})
+    local grouped = false
 
-    for _, data in ipairs(self.rows) do
+    for _, data in ipairs(all) do
+      grouped = grouped or type(data.children) == "table"
+    end
+
+    for _, data in ipairs(all) do
       if data == chosen then
         return
       end
@@ -2994,6 +3088,10 @@ KINDS.table = function(owner, parent, spec)
 
         for _, column in ipairs(self.columns) do
           same = same and cell(data, column.id) == cell(chosen, column.id)
+        end
+
+        if grouped and chosen.id ~= nil and data.id == chosen.id then
+          same = true
         end
 
         if same then
@@ -3021,12 +3119,52 @@ KINDS.table = function(owner, parent, spec)
     return self.selected
   end
 
-  function frame:Sorted()
-    local list, order = {}, {}
+  local function stateKey(value)
+    if type(value) == "table" and value.id ~= nil then
+      return value.id
+    end
 
-    for index, row in ipairs(self.rows) do
+    return value
+  end
+
+  function frame:IsOpen(value)
+    local state = self.openState[stateKey(value)]
+
+    if state ~= nil then
+      return state
+    end
+
+    if type(value) == "table" then
+      return value.open == true
+    end
+
+    for _, data in ipairs(gather(self.rows, {})) do
+      if data.id ~= nil and data.id == value then
+        return data.open == true
+      end
+    end
+
+    return false
+  end
+
+  function frame:SetOpen(value, open)
+    self.openState[stateKey(value)] = open and true or false
+    self:kitDraw()
+
+    return self
+  end
+
+  local function arrange(self, source, out, depths, depth, pinned)
+    local list, order, tail = {}, {}, nil
+
+    for index, row in ipairs(source) do
       list[index] = row
       order[row] = order[row] or index
+    end
+
+    if pinned and #list > 0 then
+      tail = list[#list]
+      list[#list] = nil
     end
 
     if self.sortId then
@@ -3051,7 +3189,28 @@ KINDS.table = function(owner, parent, spec)
       end)
     end
 
-    return list
+    if tail then
+      list[#list + 1] = tail
+    end
+
+    for _, row in ipairs(list) do
+      out[#out + 1] = row
+      depths[row] = depth
+
+      if type(row.children) == "table" then
+        depths.grouped = true
+
+        if self:IsOpen(row) then
+          arrange(self, row.children, out, depths, depth + 1, false)
+        end
+      end
+    end
+
+    return out, depths
+  end
+
+  function frame:Sorted()
+    return (arrange(self, self.rows, {}, {}, 0, spec.pinned == "last"))
   end
 
   function frame:kitDraw()
@@ -3077,8 +3236,10 @@ KINDS.table = function(owner, parent, spec)
       x = x + sizes[index]
     end
 
-    local rows = self:Sorted()
+    local rows, depths = arrange(self, self.rows, {}, {}, 0, spec.pinned == "last")
     local y = 0
+    local grouped = depths.grouped
+    local step = S("kit.table.indent")
 
     self.scroll:SetView(total, self:GetHeight() - rowHeight - 1)
 
@@ -3090,6 +3251,26 @@ KINDS.table = function(owner, parent, spec)
       row:ClearAllPoints()
       row:SetPoint("TOPLEFT", self.scroll.child, "TOPLEFT", 0, -y)
       row.kitRow = data
+      row.kitDepth = depths[data]
+      row.kitGroup = type(data.children) == "table"
+
+      local shift = depths[data] * step + (grouped and arrow + inset or 0)
+
+      if row.kitGroup then
+        if not row.chevron then
+          row.chevron = row:CreateTexture(nil, "OVERLAY")
+          row.chevron:SetTexture(Bricks.media("chevron"))
+          row.chevron:SetWidth(arrow)
+          row.chevron:SetHeight(arrow)
+        end
+
+        row.chevron:ClearAllPoints()
+        row.chevron:SetPoint("LEFT", row, "LEFT", inset + depths[data] * step, 0)
+        Bricks.turn(row.chevron, self:IsOpen(data) and "DOWN" or "RIGHT")
+        row.chevron:Show()
+      elseif row.chevron then
+        row.chevron:Hide()
+      end
 
       for column, spec2 in ipairs(self.columns) do
         local label = row.cells[column]
@@ -3100,10 +3281,57 @@ KINDS.table = function(owner, parent, spec)
         end
 
         label:ClearAllPoints()
-        label:SetPoint("LEFT", row, "LEFT", cx + inset, 0)
-        label:SetWidth(max(1, sizes[column] - inset * 2))
+        local offset = column == 1 and shift or 0
+
+        label:SetPoint("LEFT", row, "LEFT", cx + inset + offset, 0)
+        label:SetWidth(max(1, sizes[column] - inset * 2 - offset))
         label:SetJustifyH(spec2.align or "LEFT")
         label:SetText(cell(data, spec2.id))
+        label.kitTint = nil
+
+        if type(spec2.color) == "function" then
+          local ok, tint = pcall(spec2.color, data)
+
+          if ok and type(tint) == "string" then
+            label.kitTint = tint
+          elseif not ok then
+            report(tint, owner, "table", "color")
+          end
+        end
+
+        if spec2.bar then
+          local bar = row.bars[column]
+
+          if not bar then
+            bar = {}
+            bar.back = row:CreateTexture(nil, "ARTWORK")
+            bar.back:SetTexture(Bricks.media("solid"))
+            bar.fill = row:CreateTexture(nil, "OVERLAY")
+            bar.fill:SetTexture(Bricks.media("solid"))
+            row.bars[column] = bar
+          end
+
+          local inner = max(1, sizes[column] - inset * 2 - offset)
+          local share = max(0, min(1, tonumber(data[spec2.bar]) or 0))
+          local height = S("kit.table.bar.height")
+
+          bar.back:ClearAllPoints()
+          bar.back:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", cx + inset + offset, inset)
+          bar.back:SetWidth(inner)
+          bar.back:SetHeight(height)
+          bar.fill:ClearAllPoints()
+          bar.fill:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", cx + inset + offset, inset)
+          bar.fill:SetHeight(height)
+          bar.back:Show()
+
+          if share * inner < 1 then
+            bar.fill:Hide()
+          else
+            bar.fill:SetWidth(share * inner)
+            bar.fill:Show()
+          end
+        end
+
         cx = cx + sizes[column]
       end
 
@@ -3122,6 +3350,7 @@ KINDS.table = function(owner, parent, spec)
 
       row:Hide()
       row.kitRow = nil
+      row.kitGroup = false
     end
 
     self.scroll:SetContentHeight(y)
@@ -3294,15 +3523,112 @@ KINDS.chart = function(owner, parent, spec)
   Bricks.frame(frame, "flat", S("kit.chart.background"), S("kit.chart.border"))
   frame.bars = {}
   frame.values = {}
+  frame.cols = {}
+  frame.columns = nil
 
   function frame:SetValues(values)
     self.values = values or {}
+    self.columns = nil
     self:kitDraw()
 
     return self
   end
 
+  -- Fixed columns on a capped scale: each entry { label, value, ceiling, text, color } makes one column whose height is
+  -- value / ceiling of the track (clamped to 100 %), the label under it, the text (else the value) above it. "color" is
+  -- an optional palette key chosen by the caller (state); without it the column takes spec.color or kit.chart.color.
+  -- The chart defines no thresholds.
+  function frame:SetColumns(columns)
+    self.columns = columns or {}
+    self:kitDraw()
+
+    return self
+  end
+
+  function frame:kitDrawColumns()
+    local columns = self.columns
+    local count = #columns
+    local inset, gap = S("border.size") + 1, S("kit.gap")
+    local line = S("kit.chart.line")
+    local width, height = self:GetWidth() - inset * 2, self:GetHeight() - inset * 2
+    local track = max(1, height - line * 2)
+    local colWidth = count > 0 and max(1, (width - gap * (count - 1)) / count) or 0
+
+    for _, bar in ipairs(self.bars) do
+      bar:Hide()
+    end
+
+    for index, column in ipairs(columns) do
+      local cell = self.cols[index]
+
+      if not cell then
+        cell = {
+          track = self:CreateTexture(nil, "BACKGROUND"),
+          bar = self:CreateTexture(nil, "ARTWORK"),
+          label = Bricks.text(self, S("kit.chart.font"), S("kit.chart.label")),
+          value = Bricks.text(self, S("kit.chart.font"), S("kit.chart.value")),
+        }
+        cell.track:SetTexture(Bricks.media("solid"))
+        cell.bar:SetTexture(Bricks.media("solid"))
+        self.cols[index] = cell
+      end
+
+      local left = inset + (index - 1) * (colWidth + gap)
+      local ceiling = tonumber(column.ceiling) or 0
+      local value = tonumber(column.value) or 0
+      local ratio = ceiling > 0 and min(1, max(0, value / ceiling)) or 0
+
+      paint(cell.track, "SetVertexColor", S("kit.chart.column"))
+      cell.track:ClearAllPoints()
+      cell.track:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", left, inset + line)
+      cell.track:SetWidth(colWidth)
+      cell.track:SetHeight(track)
+      cell.track:Show()
+
+      paint(cell.bar, "SetVertexColor", column.color or self.spec.color or S("kit.chart.color"))
+      cell.bar:ClearAllPoints()
+      cell.bar:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", left, inset + line)
+      cell.bar:SetWidth(colWidth)
+      cell.bar:SetHeight(ratio > 0 and max(1, track * ratio) or 0)
+      if ratio > 0 then
+        cell.bar:Show()
+      else
+        cell.bar:Hide()
+      end
+
+      cell.label:ClearAllPoints()
+      cell.label:SetPoint("BOTTOM", self, "BOTTOMLEFT", left + colWidth / 2, inset)
+      cell.label:SetText(tostring(column.label or ""))
+      cell.label:Show()
+
+      cell.value:ClearAllPoints()
+      cell.value:SetPoint("TOP", self, "TOPLEFT", left + colWidth / 2, -inset)
+      cell.value:SetText(tostring(column.text ~= nil and column.text or column.value or ""))
+      cell.value:Show()
+    end
+
+    for index = count + 1, #self.cols do
+      local cell = self.cols[index]
+
+      cell.track:Hide()
+      cell.bar:Hide()
+      cell.label:Hide()
+      cell.value:Hide()
+    end
+  end
+
   function frame:kitDraw()
+    if self.columns then
+      return self:kitDrawColumns()
+    end
+
+    for _, cell in ipairs(self.cols) do
+      cell.track:Hide()
+      cell.bar:Hide()
+      cell.label:Hide()
+      cell.value:Hide()
+    end
+
     local values = self.values
     local count = #values
     local inset, gap = S("border.size") + 1, S("kit.gap")
@@ -3338,10 +3664,14 @@ KINDS.chart = function(owner, parent, spec)
   end
 
   function frame:kitRefresh()
+    local columns = source(self, "columns")
     local values = source(self, "values")
 
-    if type(values) == "table" then
+    if type(columns) == "table" then
+      self.columns = columns
+    elseif type(values) == "table" then
       self.values = values
+      self.columns = nil
     end
 
     self.kitDone = true
@@ -4363,7 +4693,6 @@ function Kit.window(owner, id, spec)
     local side, facing, sign = "RIGHT", "LEFT", -1
     local head = CreateFrame("Frame", nil, frame)
     local close = Bricks.create("close", head)
-    local anchor, near
 
     if left then
       side, facing, sign = "LEFT", "RIGHT", 1
@@ -4397,11 +4726,9 @@ function Kit.window(owner, id, spec)
     close.tipTitle = L.UI_CLOSE
     frame.close = close
     frame.headButtons = {}
-    anchor, near = close, facing
 
     if not S("header.close.show") then
       close:Hide()
-      anchor, near = head, side
     end
 
     for index, button in ipairs(spec.buttons or {}) do
@@ -4413,12 +4740,82 @@ function Kit.window(owner, id, spec)
         element:SetWidth(control)
       end
 
-      element:ClearAllPoints()
-      element:SetPoint(side, anchor, near, sign * floor(pad / 2), 0)
       element.kitTop = false
-      anchor, near = element, facing
       frame.headButtons[index] = element
     end
+
+    -- a hidden button takes no room: the chain runs from the close cross through the shown buttons only
+    function frame:kitChain()
+      local last, key = close:IsShown() and close or head, close:IsShown() and "close" or "head"
+      local from = last == head and side or facing
+
+      for index, element in ipairs(self.headButtons) do
+        if element:IsShown() then
+          key = key .. "," .. index
+        end
+      end
+
+      if self.kitChainKey == key then
+        return
+      end
+
+      self.kitChainKey = key
+
+      for _, element in ipairs(self.headButtons) do
+        element:ClearAllPoints()
+
+        if element:IsShown() then
+          element:SetPoint(side, last, from, sign * floor(pad / 2), 0)
+          last, from = element, facing
+        end
+      end
+
+      self.kitChainEnd, self.kitChainFrom = last, from
+      self.kitTitleKey = nil
+    end
+
+    -- room taken by the controls: the cross, then every shown button and its gap
+    function frame:kitHeadRoom()
+      local room = (self.close:IsShown() and self.close:GetWidth() or 0) + pad
+
+      for _, element in ipairs(self.headButtons) do
+        if element:IsShown() then
+          room = room + element:GetWidth() + floor(pad / 2)
+        end
+      end
+
+      return room
+    end
+
+    -- a centered title keeps its place while it fits; when the width is short it leaves the centre,
+    -- sticks to the facing edge and stops at the leftmost shown button
+    function frame:kitTitleFit(width)
+      if not self.titleCentered then
+        return
+      end
+
+      self:kitChain()
+
+      local tight = width < (self.title:GetStringWidth() or 0) + self:kitHeadRoom() * 2
+      local key = tight and self.kitChainEnd or false
+
+      if self.kitTitleKey == key then
+        return
+      end
+
+      self.kitTitleKey = key
+      self.title:ClearAllPoints()
+
+      if tight then
+        self.title:SetWordWrap(false)
+        self.title:SetPoint(facing, head, facing, -sign * pad, 0)
+        self.title:SetPoint(side, self.kitChainEnd, self.kitChainFrom, sign * floor(pad / 2), 0)
+      else
+        self.title:SetPoint("CENTER", head, "CENTER", 0, 0)
+      end
+    end
+
+    frame:kitChain()
 
     top = height + S("kit.spacing")
   end
@@ -4444,14 +4841,7 @@ function Kit.window(owner, id, spec)
     end
 
     if self.title then
-      local buttons = (self.close and self.close:IsShown() and self.close:GetWidth() or 0) + pad
-
-      for _, element in ipairs(self.headButtons) do
-        if element:IsShown() then
-          buttons = buttons + element:GetWidth() + floor(pad / 2)
-        end
-      end
-
+      local buttons = self:kitHeadRoom()
       local title = self.title:GetStringWidth() or 0
 
       if self.titleCentered then
@@ -4469,6 +4859,10 @@ function Kit.window(owner, id, spec)
     local outerHeight = self.spec.height
       or (vertical and S("kit.scroll.height"))
       or (top + height + (horizontal and room or 0) + pad)
+
+    if self.title then
+      self:kitTitleFit(outerWidth)
+    end
 
     self.body:SetWidth(max(1, width))
     self.body:SetHeight(max(1, height))
@@ -4508,6 +4902,10 @@ function Kit.window(owner, id, spec)
 
     for _, element in ipairs(self.headButtons or {}) do
       element:Refresh()
+    end
+
+    if self.title then
+      self:kitTitleFit(self:GetWidth())
     end
 
     refreshChildren(self)
@@ -4893,7 +5291,8 @@ local function shiftDialog(height)
 
   dialog.contentHeight = height
 
-  for _, region in ipairs({ dialog.choices, dialog.input, dialog.copyField, dialog.hint, dialog.accept, dialog.cancel }) do
+  for _, region in ipairs({ dialog.choices, dialog.input, dialog.copyField, dialog.hint, dialog.error, dialog.accept, dialog.cancel,
+    dialog.extra }) do
     if region:IsShown() then
       local points = {}
 
@@ -4905,7 +5304,7 @@ local function shiftDialog(height)
 
       for _, point in ipairs(points) do
         -- A point relative to another button of the dialog follows that button.
-        if point[2] == dialog.accept then
+        if point[2] == dialog.accept or point[2] == dialog.cancel then
           region:SetPoint(point[1], point[2], point[3], point[4], point[5])
         else
           region:SetPoint(point[1], point[2], point[3], point[4], (point[5] or 0) - delta)
@@ -4937,8 +5336,21 @@ local function buildDialog()
   frame.choices.scroll:SetAllPoints(frame.choices)
   frame.rows = Bricks.slotPool("row")
   frame.input = Bricks.create("input", frame)
-  frame.input.edit:SetScript("OnEnterPressed", function()
-    Kit.closeDialog(true)
+  frame.input.edit:SetScript("OnEnterPressed", function(edit)
+    if frame.input.multiline then
+      edit:Insert("\n")
+    else
+      Kit.closeDialog(true)
+    end
+  end)
+  -- Grey indication shown while the input is empty (options.placeholder).
+  frame.placeholder = Bricks.text(frame.input.edit, "small", "muted")
+  frame.input.edit:HookScript("OnTextChanged", function(edit)
+    if edit:GetText() == "" and (frame.placeholder:GetText() or "") ~= "" then
+      frame.placeholder:Show()
+    else
+      frame.placeholder:Hide()
+    end
   end)
   copy:SetMultiLine(true)
   copy:SetAutoFocus(false)
@@ -4960,6 +5372,8 @@ local function buildDialog()
   frame.copyArea = Bricks.editArea(copyField, copy)
   frame.copyArea:SetMultiLine(true)
   frame.hint = Bricks.text(frame, "small", "muted")
+  frame.error = Bricks.text(frame, "small", "danger")
+  frame.error:SetJustifyH("LEFT")
   frame.content = makeContainer(CreateFrame("Frame", nil, frame), {}, "VERTICAL", 0)
   frame.content.owner, frame.content.spec = "EbonAPI", {}
 
@@ -5002,6 +5416,16 @@ local function buildDialog()
   end
   frame.cancel.onClick = function()
     Kit.closeDialog(false)
+  end
+  -- No clipboard in the client: the extra button selects the whole text and gives it the focus, Ctrl+C does the rest.
+  frame.extra = Bricks.create("button", frame)
+  frame.extra.onClick = function()
+    local edit = frame.options and (frame.options.copy ~= nil and frame.copy or frame.input.edit)
+
+    if edit then
+      edit:SetFocus()
+      edit:HighlightText()
+    end
   end
   frame:HookScript("OnHide", function(self)
     if self.options then
@@ -5181,13 +5605,29 @@ function Kit.openDialog(options)
   if options.input ~= nil then
     dialog.input:SetWidth(inner)
     dialog.input:SetTitle("")
-    dialog.input:SetLines(nil)
+    dialog.input:SetLines(options.lines)
     dialog.input.edit:SetMaxLetters(options.maxLetters or 0)
     dialog.input:SetValue(options.input)
     dialog.input:ClearAllPoints()
     dialog.input:SetPoint("TOPLEFT", dialog, "TOPLEFT", pad, -y)
     dialog.input:Show()
     dialog.input.edit:SetFocus()
+    dialog.placeholder:SetText(options.placeholder or "")
+    dialog.placeholder:ClearAllPoints()
+
+    if options.lines and options.lines > 1 then
+      dialog.placeholder:SetPoint("TOPLEFT", dialog.input.edit, "TOPLEFT", S("widgets.input.padding"),
+        -S("widgets.input.paddingY"))
+    else
+      dialog.placeholder:SetPoint("LEFT", dialog.input.edit, "LEFT", S("widgets.input.padding"), 0)
+    end
+
+    if (options.input or "") == "" and (options.placeholder or "") ~= "" then
+      dialog.placeholder:Show()
+    else
+      dialog.placeholder:Hide()
+    end
+
     y = y + dialog.input:GetHeight() + spacing
   else
     dialog.input:Hide()
@@ -5218,6 +5658,20 @@ function Kit.openDialog(options)
     dialog.hint:Hide()
   end
 
+  -- onSubmit reserves a line for its error message, empty until onSubmit refuses.
+  if options.onSubmit then
+    dialog.error:SetWidth(inner)
+    dialog.error:SetText("M\nM")
+    dialog.error:SetHeight(dialog.error:GetStringHeight() or 0)
+    dialog.error:SetText("")
+    dialog.error:ClearAllPoints()
+    dialog.error:SetPoint("TOPLEFT", dialog, "TOPLEFT", pad, -y)
+    dialog.error:Show()
+    y = y + dialog.error:GetHeight() + spacing
+  else
+    dialog.error:Hide()
+  end
+
   for _, button in ipairs({ dialog.accept, dialog.cancel }) do
     button:SetHeight(buttonHeight)
     button:ClearAllPoints()
@@ -5225,6 +5679,16 @@ function Kit.openDialog(options)
 
   dialog.accept:SetLabel(options.accept or L.UI_OK)
   dialog.accept:Fit(max(S("kit.dialog.button"), dialog.accept:TextWidth()))
+  dialog.extra:SetHeight(buttonHeight)
+  dialog.extra:ClearAllPoints()
+
+  if options.copyButton then
+    dialog.extra:SetLabel(options.copyButton)
+    dialog.extra:Fit(max(S("kit.dialog.button"), dialog.extra:TextWidth()))
+    dialog.extra:Show()
+  else
+    dialog.extra:Hide()
+  end
 
   if options.cancel then
     dialog.cancel:SetLabel(options.cancel)
@@ -5246,6 +5710,22 @@ function Kit.openDialog(options)
     end
 
     dialog.cancel:Hide()
+
+    -- Without cancel, the extra button takes its slot, to the left of the accept button.
+    if options.copyButton and not rich then
+      dialog.accept:ClearAllPoints()
+      dialog.accept:SetPoint("TOPLEFT", dialog, "TOP", floor(spacing / 2), -y)
+    end
+  end
+
+  if options.copyButton then
+    if rich or options.cancel then
+      local left = options.cancel and dialog.cancel or dialog.accept
+
+      dialog.extra:SetPoint("TOPRIGHT", left, "TOPLEFT", -spacing, 0)
+    else
+      dialog.extra:SetPoint("TOPRIGHT", dialog, "TOP", -floor(spacing / 2), -y)
+    end
   end
 
   y = y + buttonHeight + pad
@@ -5269,6 +5749,19 @@ function Kit.closeDialog(accepted)
     value = dialog.input.edit:GetText() or ""
   elseif options.choices ~= nil then
     value = dialog.choice
+  end
+
+  -- A dialog with onSubmit stays open, with the message under its fields, while onSubmit answers a text.
+  if accepted and options.onSubmit then
+    local ok, problem = pcall(options.onSubmit, value)
+
+    if not ok then
+      report(problem, options.owner, "dialog", "onSubmit")
+    elseif type(problem) == "string" then
+      dialog.error:SetText(problem)
+
+      return false
+    end
   end
 
   dialog.options = nil
@@ -5568,6 +6061,11 @@ function Handle:Dialog(spec)
     accept = text(spec.accept, spec.acceptKey),
     cancel = text(spec.cancel, spec.cancelKey),
     input = spec.input,
+    lines = type(spec.lines) == "number" and spec.lines or nil,
+    placeholder = text(spec.placeholder, spec.placeholderKey),
+    copy = spec.copy ~= nil and tostring(spec.copy) or nil,
+    copyButton = text(spec.copyButton, spec.copyButtonKey),
+    onSubmit = spec.onSubmit,
     maxLetters = spec.maxLetters,
     danger = spec.danger and true or nil,
     choices = choices,

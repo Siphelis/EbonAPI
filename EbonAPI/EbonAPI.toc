@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: |cff8a6fd4EbonAPI|r
 ## Author: Siphelis
-## Version: 2.2.4
+## Version: 2.2.5-0
 ## SavedVariables: EbonAPIDB
 
 Core\Catch.lua
@@ -25,7 +25,10 @@ Locales\esES.lua
 Language\Locale.lua
 
 Core\Format.lua
+Core\PerfData.lua
+Core\Treemap.lua
 Core\Perf.lua
+Core\PerfScan.lua
 Core\QuestLog.lua
 
 Net\Queue.lua
@@ -58,15 +61,32 @@ UI\Options.lua
 UI\Windows.lua
 UI\Window.lua
 UI\Kit.lua
+UI\Stacked.lua
 UI\Alerts.lua
 UI\Stack.lua
 UI\SavesData.lua
 UI\SavesViews.lua
 UI\Saves.lua
+UI\Choice.lua
+UI\Pill.lua
+UI\Tile.lua
+UI\MapView.lua
+UI\PerfModel.lua
+UI\PerfPage.lua
 UI\Minimap.lua
 UI\Settings.lua
 UI\Center.lua
 UI\AddonList.lua
+UI\QueueParts.lua
+UI\QueueCells.lua
+UI\QueueGroups.lua
+UI\QueueStrips.lua
+UI\QueueHistory.lua
+UI\QueueCards.lua
+UI\QueueFetch.lua
+UI\QueueTable.lua
+UI\QueueHolders.lua
+UI\QueueBand.lua
 UI\QueueView.lua
 UI\Synthesis.lua
 UI\QuestLogChecks.lua

@@ -28,8 +28,17 @@ local global = nil
 local parts = {}
 local packets = {}
 local packetNumber = {}
-local lines = {}
-local slots = {}
+local sumHi, sumLo = {}, {}
+local addonList = nil
+local EMPTY = {}
+
+do
+  local zero = Hash.encode64(0, 0)
+
+  for packet = 1, PACKETS do
+    EMPTY[packet] = zero
+  end
+end
 
 local function base()
   if not store then
@@ -47,6 +56,8 @@ local function base()
     cachedBase = held
     parts = {}
     packets = {}
+    sumHi, sumLo = {}, {}
+    addonList = nil
     global = nil
   end
 
@@ -68,15 +79,62 @@ end
 
 Keys.packetOf = packetOf
 
-local function stale(addon, name)
+-- Fingerprints are sums: a key weighs fnv64(name "=" state), a packet is the sum (modulo 2^64) of
+-- its keys, an addon the sum of its packets. A sum does not depend on the order of its terms, so
+-- put and remove update it by taking the old line out and putting the new one in (O(1)), and
+-- nothing is sorted. The sums of an addon are built once (O(keys)) when first asked for.
+local function sumsOf(addon, own)
+  local hi, lo = sumHi[addon], sumLo[addon]
+
+  if hi then
+    return hi, lo
+  end
+
+  hi, lo = {}, {}
+
+  for packet = 1, PACKETS do
+    hi[packet], lo[packet] = 0, 0
+  end
+
+  for name, state in pairs(own) do
+    local at = packetOf(name) + 1
+    local kHi, kLo = Hash.fnv64(name .. "=" .. state)
+
+    hi[at], lo[at] = Hash.add(hi[at], lo[at], kHi, kLo)
+  end
+
+  sumHi[addon], sumLo[addon] = hi, lo
+
+  return hi, lo
+end
+
+-- One key went from old to new (either may be nil): update the sums that exist, drop what depends on them.
+local function touch(addon, name, old, new)
+  local hi, lo = sumHi[addon], sumLo[addon]
+  local at = packetOf(name) + 1
+
+  if hi then
+    if old then
+      local kHi, kLo = Hash.fnv64(name .. "=" .. old)
+
+      hi[at], lo[at] = Hash.sub(hi[at], lo[at], kHi, kLo)
+    end
+
+    if new then
+      local kHi, kLo = Hash.fnv64(name .. "=" .. new)
+
+      hi[at], lo[at] = Hash.add(hi[at], lo[at], kHi, kLo)
+    end
+  end
+
   local cached = packets[addon]
+
+  if cached then
+    cached[at] = false
+  end
 
   parts[addon] = nil
   global = nil
-
-  if cached then
-    cached[packetOf(name) + 1] = false
-  end
 end
 
 local function offender(text, pattern)
@@ -161,14 +219,17 @@ function Keys.put(addon, name, state)
   if not own then
     own = {}
     held[addon] = own
+    addonList = nil
   end
 
-  if own[name] == state then
+  local old = own[name]
+
+  if old == state then
     return false
   end
 
   own[name] = state
-  stale(addon, name)
+  touch(addon, name, old, state)
 
   EbonAPI:Emit("SHARE_KEY_CHANGED", addon, name, state)
 
@@ -182,18 +243,20 @@ end
 function Keys.remove(addon, name)
   local held = base()
   local own = held[addon]
+  local old = own and own[name]
 
-  if not own or own[name] == nil then
+  if old == nil then
     return false
   end
 
   own[name] = nil
+  touch(addon, name, old, nil)
 
   if next(own) == nil then
     held[addon] = nil
+    sumHi[addon], sumLo[addon], packets[addon], parts[addon] = nil, nil, nil, nil
+    addonList = nil
   end
-
-  stale(addon, name)
 
   EbonAPI:Emit("SHARE_KEY_CHANGED", addon, name, nil)
 
@@ -241,52 +304,28 @@ function Keys.part(addon)
     return cached
   end
 
-  local names = sortedNames(own)
-  local count = 1
+  local hi, lo = sumsOf(addon, own)
+  local sHi, sLo = 0, 0
 
-  lines[1] = addon
-
-  for index = 1, #names do
-    count = count + 1
-    lines[count] = names[index] .. "=" .. own[names[index]]
+  for packet = 1, PACKETS do
+    sHi, sLo = Hash.add(sHi, sLo, hi[packet], lo[packet])
   end
 
-  local part = Hash.digest(concat(lines, "\n", 1, count))
+  cached = Hash.encode64(sHi, sLo)
+  parts[addon] = cached
 
-  parts[addon] = part
-
-  return part
+  return cached
 end
 
-local function packetDigest(addon, own, packet)
-  local count = 0
-
-  if own then
-    for name in pairs(own) do
-      if packetOf(name) == packet then
-        count = count + 1
-        slots[count] = name
-      end
-    end
-  end
-
-  for index = #slots, count + 1, -1 do
-    slots[index] = nil
-  end
-
-  sort(slots, Hash.before)
-
-  lines[1] = addon
-
-  for index = 1, count do
-    lines[index + 1] = slots[index] .. "=" .. own[slots[index]]
-  end
-
-  return Hash.digest(concat(lines, "\n", 1, count + 1))
-end
-
+-- The 16 packet fingerprints, 11 characters each. Read only: the table is kept.
 function Keys.packets(addon)
   local own = base()[addon]
+
+  if not own then
+    return EMPTY
+  end
+
+  local hi, lo = sumsOf(addon, own)
   local cached = packets[addon]
 
   if not cached then
@@ -294,13 +333,26 @@ function Keys.packets(addon)
     packets[addon] = cached
   end
 
-  for packet = 0, PACKETS - 1 do
-    if not cached[packet + 1] then
-      cached[packet + 1] = packetDigest(addon, own, packet)
+  for packet = 1, PACKETS do
+    if not cached[packet] then
+      cached[packet] = Hash.encode64(hi[packet], lo[packet])
     end
   end
 
   return cached
+end
+
+function Keys.count(addon)
+  local own = base()[addon]
+  local count = 0
+
+  if own then
+    for _ in pairs(own) do
+      count = count + 1
+    end
+  end
+
+  return count
 end
 
 function Keys.namesIn(addon, wanted)
@@ -322,8 +374,15 @@ function Keys.namesIn(addon, wanted)
   return names
 end
 
+-- Read only: the sorted list lives until an addon appears or goes away.
 function Keys.addons()
-  return sortedNames(base())
+  local held = base()
+
+  if not addonList then
+    addonList = sortedNames(held)
+  end
+
+  return addonList
 end
 
 function Keys.fingerprint()

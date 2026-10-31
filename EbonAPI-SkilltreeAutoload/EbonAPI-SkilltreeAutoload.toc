@@ -27,6 +27,7 @@ modules\plan.lua
 modules\overlay.lua
 modules\view.lua
 modules\data.lua
+modules\share.lua
 modules\bridge.lua
 modules\menus.lua
 modules\ui.lua

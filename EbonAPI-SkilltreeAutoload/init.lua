@@ -5,6 +5,8 @@ NS.api = EbonAPI and EbonAPI:NewAddon("SkillTreeAutoLoad", 0, 5) or nil
 
 NS.SNAPSHOT_TTL = 0.2
 NS.ASHES_POLL_INTERVAL = 0.5
+-- Highest rank a save may hold (an infinite node); data, core and the share code all use it.
+NS.MAX_RANK = 5000
 
 NS.COLOR = {
     PREFIX = "|cff33ccff",

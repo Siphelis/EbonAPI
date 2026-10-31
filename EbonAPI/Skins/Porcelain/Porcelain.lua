@@ -189,6 +189,7 @@ EbonAPI:RegisterSkin("Porcelain", {
   },
 
   widgets = {
+    cells = { shape = "round" }, queue = { shape = "round" }, strip = { shape = "round" }, cards = { shape = "round" },
     toggle = {
       brick = "switch", gap = 8, mark = 2, roundKnob = true,
       switch = { width = 30, height = 16 },
@@ -205,13 +206,22 @@ EbonAPI:RegisterSkin("Porcelain", {
       group = { frame = "SMALL", fill = "card", upper = true }, row = { frame = "FLAT" },
     },
     output = { brick = "grouped" },
+    choice = {
+      segment = { frame = "FLAT", fill = "bg", border = "border", selected = "selected" },
+      chips = { frame = "FLAT", fill = "card", border = "border", selected = "selected", count = "muted" },
+    },
+    pill = { frame = "FLAT", fill = "bg", border = "border" },
+    tile = { frame = "FLAT", fill = "card", border = "border", accent = "selected", gauge = { fill = "selected", back = "borderDim" } },
+    map = { border = "border", accent = { fill = "selected" }, gray = { low = "borderDim", high = "thumb" } },
   },
 
   kit = {
+    chart = { color = "checked", column = "bgSoft", label = "muted", value = "text", series = { s1 = 0x007AFF, s2 = 0xAF52DE, s3 = 0x30B0C7, s4 = 0x5856D6, s5 = 0xFF2D55 }, others = 0x8E8E93 },
     header = 24,
     control = 18,
     icon = { border = "checkboxBorder" },
     rows = { action = 16, fill = "checked", fillAlpha = 0.22, mark = "danger", markAlpha = 0.14, suffix = "muted" },
+    table = { bar = { fill = "selected", back = "borderDim" }, group = { fill = "bg", chevron = "muted" } },
   },
 
   chat = {

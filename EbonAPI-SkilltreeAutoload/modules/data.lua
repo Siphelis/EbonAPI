@@ -29,8 +29,6 @@ local function EnsureShape(db)
     return db
 end
 
-local MAX_RANK = 32
-
 local function RepairRanks(nodeRanks, saveName)
     for nodeId, rank in pairs(nodeRanks) do
         local after
@@ -38,9 +36,9 @@ local function RepairRanks(nodeRanks, saveName)
             or rank ~= math.floor(rank) or rank <= 0 then
             after = 0
             nodeRanks[nodeId] = nil
-        elseif rank > MAX_RANK then
-            after = MAX_RANK
-            nodeRanks[nodeId] = MAX_RANK
+        elseif rank > NS.MAX_RANK then
+            after = NS.MAX_RANK
+            nodeRanks[nodeId] = NS.MAX_RANK
         end
         if after then
             NS.api:Repaired("SAVE.RANKS_REPAIRED",
@@ -316,6 +314,18 @@ function Data.CreateSave(name, groupId, nodeRanks)
         groupId = groupId,
         nodeRanks = nodeRanks or {},
     }
+    return id
+end
+
+-- A shared save never replaces one: a taken name gets a suffix, and its group is found by name or created.
+function Data.ImportSave(name, progressive, groupName, nodeRanks)
+    local db = DB()
+    local groupId
+    if groupName then groupId = FindGroupByName(db, groupName) or CreateGroupIn(db, groupName) end
+    if FindSaveInGroup(db, groupId, name) then name = UniqueSaveName(db, groupId, name, L.IMPORTED_TAG) end
+
+    local id = Data.CreateSave(name, groupId, nodeRanks)
+    if progressive then db.saves[id].progressive = true end
     return id
 end
 

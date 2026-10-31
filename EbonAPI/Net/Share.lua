@@ -20,6 +20,7 @@ local random, floor, ceil = math.random, math.floor, math.ceil
 local NAME = "EbonAPI"
 local PREFIX = "EbonAPI"
 local TEXT_MAX = 32768
+local PACK_MIN = 128
 local JOIN_DELAY = 2
 local CHANGE_DELAY = 15
 local DIRECT_DELAY = 5
@@ -50,6 +51,12 @@ local SLOW_TTL = 900
 local SLOW_MAX = EbonAPI.Pace and EbonAPI.Pace.LIMIT_MAX or 180
 local MUTE_MAX = 1800
 local LEVEL = 3
+-- Share protocol 2 (fingerprints are sums, see Keys.lua). Its lines travel under ops that the 2.2
+-- clients do not know, so they drop them unseen and never keep the sender as a peer: the beacon
+-- is op A (2.2: B), the parts line streams are J and j (2.2: F and f), the packets stream is P
+-- (2.2: B). The protocol of a sender is therefore known by the op it used, before any comparison;
+-- the old ops are routed to Legacy.lua, which only counts them.
+local OPS = { beacon = "A", line = "J", reply = "j", packets = "P" }
 local SUFFIX = ";" .. LEVEL
 local PACKETS = Keys.PACKETS
 local PART = Hash.LENGTH
@@ -78,6 +85,7 @@ Share.SLOW_TTL = SLOW_TTL
 Share.SLOW_MAX = SLOW_MAX
 Share.MUTE_MAX = MUTE_MAX
 Share.LEVEL = LEVEL
+Share.OPS = OPS
 
 local store = nil
 local enabled = false
@@ -150,6 +158,22 @@ local function texts()
   return held
 end
 
+-- The texts of the addons that are not loaded are packed (Lib.lzwPack) when the player logs out, into
+-- account.packed[addon][name]; a name is either in account.shared (as it is) or in account.packed
+-- (packed), never in both, and the addons that are loaded have nothing in account.packed.
+local function dropPacked(addon, name)
+  local kept = store.account.packed
+  local box = kept and kept[addon]
+
+  if box and box[name] ~= nil then
+    box[name] = nil
+
+    if next(box) == nil then
+      kept[addon] = nil
+    end
+  end
+end
+
 function Share.set(addon, name, state, text)
   state = Keys.check(addon, name, state, 3)
 
@@ -176,6 +200,7 @@ function Share.set(addon, name, state, text)
   local changed = own[name] ~= text
 
   own[name] = text
+  dropPacked(addon, name)
 
   if Keys.put(addon, name, state) then
     changed = true
@@ -196,17 +221,172 @@ function Share.remove(addon, name)
     end
   end
 
+  dropPacked(addon, name)
+
   return Keys.remove(addon, name)
+end
+
+-- The codec keeps about 100 KB after a decompression. Share.get frees them late, so that a burst of G
+-- costs one cold start: one timer (never restarted by a use), the time of the last use is noted, and
+-- when the timer comes it frees if FREE_DELAY has passed, else it sets itself again for the rest.
+-- After the free nothing runs. Share.unpack and Share.pack free at once (freeNow also stops the timer).
+local FREE_DELAY = 10
+local FREE_TIMER = "EbonAPI:lzwfree"
+local lastUse, freeArmed
+
+local function freeTick()
+  local rest = FREE_DELAY - (now() - lastUse)
+
+  if rest > 0 then
+    Bus.after(FREE_TIMER, rest, freeTick)
+    return
+  end
+
+  freeArmed = false
+  Lib.lzwFree()
+end
+
+local function freeNow()
+  if freeArmed then
+    freeArmed = false
+    Bus.untick(FREE_TIMER)
+  end
+
+  Lib.lzwFree()
+end
+
+local function freeLater()
+  lastUse = now()
+
+  if not freeArmed then
+    freeArmed = true
+    Bus.after(FREE_TIMER, FREE_DELAY, freeTick)
+  end
 end
 
 function Share.get(addon, name)
   local own = texts()[addon]
+  local value = own and own[name]
 
-  if not own then
-    return nil, Keys.get(addon, name)
+  if value == nil then
+    local kept = store.account.packed
+    local box = kept and kept[addon]
+    local data = box and box[name]
+
+    if data then
+      value = Lib.lzwUnpack(data)
+      freeLater()
+    end
   end
 
-  return own[name], Keys.get(addon, name)
+  return value, Keys.get(addon, name)
+end
+
+-- The texts packed for an addon that is loaded now are unpacked once (nothing is unpacked otherwise
+-- but the one asked for by a G or by GetShared on an addon that is not loaded).
+function Share.unpack(addon)
+  if not DB.isAttached() then
+    return 0
+  end
+
+  local held = texts()
+  local kept = store.account.packed
+  local box = kept and kept[addon]
+
+  if not box then
+    return 0
+  end
+
+  local own = held[addon]
+  local count = 0
+
+  if not own then
+    own = {}
+    held[addon] = own
+  end
+
+  for name, data in pairs(box) do
+    local text = Lib.lzwUnpack(data)
+
+    if text and own[name] == nil then
+      own[name] = text
+      count = count + 1
+    end
+
+    box[name] = nil
+  end
+
+  kept[addon] = nil
+
+  if next(own) == nil then
+    held[addon] = nil
+  end
+
+  freeNow()
+
+  return count
+end
+
+-- At PLAYER_LOGOUT, before SavedVariables are written: packs the texts (not yet packed, long enough,
+-- shorter once packed) of the addons that are not loaded. Nothing is packed during the game.
+function Share.pack()
+  if not DB.isAttached() then
+    return 0
+  end
+
+  local held = texts()
+  local count = 0
+
+  for addon, own in pairs(held) do
+    if not EbonAPI._addons[addon] then
+      for name, text in pairs(own) do
+        if type(text) == "string" and len(text) >= PACK_MIN then
+          local data = Lib.lzwPack(text)
+
+          local good, back
+          if data then
+            good, back = pcall(Lib.lzwUnpack, data) -- a corrupt output may raise: that is a gap too
+          end
+
+          if data and not (good and back == text) then
+            -- the codec does not give the text back: the value stays raw (never lost); one journal entry per
+            -- (addon, name), counted and dated again at each logout while the gap lasts
+            Problems.bug("EbonAPI", "Share.pack " .. tostring(addon) .. "." .. tostring(name),
+              "LZW gap: " .. tostring(addon) .. "." .. tostring(name) .. " kept raw (len=" .. len(text) .. ")", "")
+            data = nil
+          end
+
+          if data then
+            local kept = store.account.packed
+
+            if type(kept) ~= "table" then
+              kept = {}
+              store.account.packed = kept
+            end
+
+            local box = kept[addon]
+
+            if not box then
+              box = {}
+              kept[addon] = box
+            end
+
+            box[name] = data
+            own[name] = nil
+            count = count + 1
+          end
+        end
+      end
+
+      if next(own) == nil then
+        held[addon] = nil
+      end
+    end
+  end
+
+  freeNow()
+
+  return count
 end
 
 -- The parts line, cut to a body budget when one is given (a channel line of the 2.1.x format).
@@ -342,16 +522,14 @@ local function announce()
 
   local body = (EbonAPI.Version.line() or "") .. ";" .. Keys.globalDigest() .. SUFFIX
 
-  if not Channel.say(NAME, "B", body) then
+  if not Channel.say(NAME, OPS.beacon, body) then
     return false
   end
 
   announceAt = nil
   Share.sent.lines = Share.sent.lines + 1
   serveUntil = now() + SERVE_WINDOW
-  Log.trace("share", nil, "B")
-  -- Legacy.lua loads after Share.lua and calls back into it: look it up at call time.
-  EbonAPI.Legacy.announce()
+  Log.trace("share", nil, OPS.beacon)
 
   return true
 end
@@ -680,7 +858,7 @@ tick = function()
   for peer, at in pairs(replies) do
     if current >= at then
       replies[peer] = nil
-      whisperLine(peer, "F")
+      whisperLine(peer, OPS.line)
     end
   end
 
@@ -815,7 +993,7 @@ local function requestPackets(peer, addons, absent)
 
   for i = 1, count do
     local addon = addons[i]
-    local ok, note = Whisper.stream(PREFIX, peer, "B", addon, concat(Keys.packets(addon)), addon, true)
+    local ok, note = Whisper.stream(PREFIX, peer, OPS.packets, addon, concat(Keys.packets(addon)), addon, true)
 
     if ok and note ~= "waiting" then
       Share.sent.keys = Share.sent.keys + 1
@@ -825,8 +1003,12 @@ local function requestPackets(peer, addons, absent)
   return true
 end
 
--- A peer announced itself on the channel, in a beacon or in a 2.1.x parts line.
+-- A peer announced itself on the channel with a beacon of this protocol.
 function Share.hear(sender, digest, level)
+  if not digest then
+    return
+  end
+
   remember(sender, digest, level)
 
   if digest ~= Keys.globalDigest() and not busy() then
@@ -837,8 +1019,33 @@ end
 
 Share.lineLevel = lineLevel
 
-function Share.lineDigest(body)
-  return digestOf(parseLine(body))
+-- Peers of another protocol (2.2 clients), heard on the old ops: never kept, never compared,
+-- but counted, in total and by name (the names are capped).
+local IGNORED_NAMES = 24
+local ignored = { total = 0, names = {}, named = 0, others = 0 }
+
+Share.ignored = ignored
+
+function Share.ignore(sender)
+  ignored.total = ignored.total + 1
+  peers[sender] = nil
+  replies[sender] = nil
+
+  local held = ignored.names[sender]
+
+  if held then
+    ignored.names[sender] = held + 1
+  elseif ignored.named < IGNORED_NAMES then
+    ignored.names[sender] = 1
+    ignored.named = ignored.named + 1
+  else
+    ignored.others = ignored.others + 1
+  end
+end
+
+-- Lines ignored, players named, then the names with their count.
+function Share.ignoredStats()
+  return ignored.total, ignored.named + ignored.others, ignored.names
 end
 
 local function onChannelLine(sender, body)
@@ -915,14 +1122,14 @@ local function onLineStream(sender, body, _, op)
 
   remember(sender, digestOf(parts), lineLevel(body))
 
-  if op == "F" then
+  if op == OPS.line then
     if serveUntil and now() <= serveUntil then
       Channel.say(NAME, "S", "")
     end
 
     serveUntil = nil
 
-    whisperLine(sender, "f")
+    whisperLine(sender, OPS.reply)
   end
 
   local addons = compare(parts)
@@ -947,9 +1154,9 @@ local function onLineStream(sender, body, _, op)
     names[i] = addons[i]
   end
 
-  if requestPackets(sender, addons, op == "F") then
+  if requestPackets(sender, addons, op == OPS.line) then
     for i = 1, count do
-      if not (op == "F" and Keys.part(names[i])) then
+      if not (op == OPS.line and Keys.part(names[i])) then
         askedFor(sender, names[i], parts[names[i]])
       end
     end
@@ -1495,6 +1702,37 @@ local function onDataPart(sender, id)
   end
 end
 
+
+-- Cost of the keys received: how many there were (always counted) and, only while a measuring session
+-- has switched timing on (Share.setTiming), the time (ms) taken by Keys.put, the fingerprints and
+-- advance for each one. Two C calls per key while timing is on, none otherwise.
+local received = { keys = 0, ms = 0 }
+local function stopwatch()
+  return debugprofilestop and debugprofilestop() or 0
+end
+
+local timing = false
+
+function Share.setTiming(on)
+  timing = on and true or false
+end
+
+function Share.timingOn()
+  return timing
+end
+
+local function tally(began)
+  received.keys = received.keys + 1
+
+  if began and timing then
+    received.ms = received.ms + (stopwatch() - began)
+  end
+end
+
+function Share.receiveStats()
+  return { keys = received.keys, ms = received.ms }
+end
+
 local function onDataStream(sender, body, id)
   local fetch = fetching[id]
 
@@ -1556,11 +1794,14 @@ local function onDataStream(sender, body, id)
   end
 
   own[name] = text
+  dropPacked(addon, name)
+  local began = timing and stopwatch() or nil
   local before = Keys.globalDigest()
   inbound = true
   Keys.put(addon, name, state)
   inbound = false
   advance(before, Keys.globalDigest())
+  tally(began)
   Share.received = Share.received + 1
   Log.trace("share", nil, id, len(text))
   EbonAPI:Emit("SHARE_RECEIVED", addon, name, state, sender)
@@ -1596,6 +1837,7 @@ local function onDirectLine(sender, body)
 
   local held = texts()
   local own = held[addon]
+  local began = timing and stopwatch() or nil
   local before = Keys.globalDigest()
 
   if not own then
@@ -1604,10 +1846,12 @@ local function onDirectLine(sender, body)
   end
 
   own[name] = text
+  dropPacked(addon, name)
   inbound = true
   Keys.put(addon, name, state)
   inbound = false
   advance(before, Keys.globalDigest())
+  tally(began)
   Share.received = Share.received + 1
   Log.trace("share", nil, key, len(text))
   EbonAPI:Emit("SHARE_RECEIVED", addon, name, state, sender)
@@ -1705,7 +1949,7 @@ round = function()
   end
 
   sort(candidates)
-  whisperLine(candidates[random(#candidates)], "F")
+  whisperLine(candidates[random(#candidates)], OPS.line)
 end
 
 function Share.announce()
@@ -1733,7 +1977,7 @@ function Share.summary()
   local keys = 0
 
   for i = 1, #addons do
-    keys = keys + #Keys.names(addons[i])
+    keys = keys + Keys.count(addons[i])
   end
 
   return keys, #addons, Lib.count(peers), Share.received, Share.refused
@@ -1747,18 +1991,6 @@ function Share.peerLevel(name)
   local info = peers[name]
 
   return info and info.level
-end
-
-function Share.legacyPeerHeard()
-  local current = now()
-
-  for _, info in pairs(peers) do
-    if info.level < LEVEL and current - info.at <= PEER_TTL then
-      return true
-    end
-  end
-
-  return false
 end
 
 function Share.isFetching(addon, name)
@@ -1871,15 +2103,19 @@ function Share.enable()
 
   texts()
 
-  Channel.on(NAME, "B", onChannelLine)
+  for addon in pairs(EbonAPI._addons) do
+    Share.unpack(addon)
+  end
+
+  Channel.on(NAME, OPS.beacon, onChannelLine)
   Channel.on(NAME, "S", onChannelServed)
   Channel.on(NAME, "U", onDirectLine)
   Channel.on(NAME, "N", onAnnounced)
   Whisper.on(PREFIX, onWhisper)
-  Whisper.onStream(PREFIX, "F", onLineStream)
-  Whisper.onStream(PREFIX, "f", onLineStream)
+  Whisper.onStream(PREFIX, OPS.line, onLineStream)
+  Whisper.onStream(PREFIX, OPS.reply, onLineStream)
   Whisper.onStream(PREFIX, "Q", onQueryStream)
-  Whisper.onStream(PREFIX, "B", onPacketsStream)
+  Whisper.onStream(PREFIX, OPS.packets, onPacketsStream)
   Whisper.onStream(PREFIX, "K", onKeysStream)
   Whisper.onStream(PREFIX, "D", onDataStream, onDataPart)
 
@@ -1899,15 +2135,15 @@ function Share.disable()
 
   enabled = false
 
-  Channel.off(NAME, "B", onChannelLine)
+  Channel.off(NAME, OPS.beacon, onChannelLine)
   Channel.off(NAME, "S", onChannelServed)
   Channel.off(NAME, "U", onDirectLine)
   Channel.off(NAME, "N", onAnnounced)
   Whisper.off(PREFIX, onWhisper)
-  Whisper.offStream(PREFIX, "F", onLineStream)
-  Whisper.offStream(PREFIX, "f", onLineStream)
+  Whisper.offStream(PREFIX, OPS.line, onLineStream)
+  Whisper.offStream(PREFIX, OPS.reply, onLineStream)
   Whisper.offStream(PREFIX, "Q", onQueryStream)
-  Whisper.offStream(PREFIX, "B", onPacketsStream)
+  Whisper.offStream(PREFIX, OPS.packets, onPacketsStream)
   Whisper.offStream(PREFIX, "K", onKeysStream)
   Whisper.offStream(PREFIX, "D", onDataStream)
 
@@ -1989,3 +2225,8 @@ end
 EbonAPI:AddTeardown(function(handle)
   rules[handle.addonName] = nil
 end)
+
+EbonAPI:On("ADDON_CONNECTED", function(_, addon)
+  Share.unpack(addon)
+end)
+Bus.onCore("PLAYER_LOGOUT", Share.pack)

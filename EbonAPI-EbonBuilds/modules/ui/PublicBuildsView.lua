@@ -39,24 +39,24 @@ local function FullyLocked(locked, token)
 end
 
 local function Collect()
-    local out, shown = {}, {}
-    EbonBuilds.Profiles.Each(function(_, player)
-        local token = Codec.ClassToken(player.c)
+    local out, shown, tokens = {}, {}, {}
+    EbonBuilds.Profiles.EachSlot(function(_, class, _, hash, text, locked)
+        local token = tokens[class]
+        if token == nil then
+            token = Codec.ClassToken(class) or false
+            tokens[class] = token
+        end
         if token and (not filterClass or token == filterClass) then
-            for slot, text in pairs(player.e) do
-                local hash = player.h[slot]
-                local key = token .. text
-                local locked = player.l and player.l[slot]
-                if text ~= "" and hash and not shown[key] and FullyLocked(locked, token) then
-                    shown[key] = true
-                    out[#out + 1] = {
-                        class  = token,
-                        hash   = hash,
-                        echoes = text,
-                        locked = locked,
-                        count  = #text / 3,
-                    }
-                end
+            local key = token .. text
+            if text ~= "" and hash and not shown[key] and FullyLocked(locked, token) then
+                shown[key] = true
+                out[#out + 1] = {
+                    class  = token,
+                    hash   = hash,
+                    echoes = text,
+                    locked = locked,
+                    count  = #text / 3,
+                }
             end
         end
     end)
@@ -66,6 +66,8 @@ local function Collect()
     end)
     return out
 end
+
+EbonBuilds.PublicBuildsView.Collect = Collect
 
 local function ClassItems()
     local items = { { value = ALL_CLASSES, text = L.ALL_CLASSES } }

@@ -268,8 +268,40 @@ function builders.header(node, parent, available, pools)
   return widget, available, widget:GetHeight(), true
 end
 
+local viewOfPools = setmetatable({}, { __mode = "k" })
+
+local function hostPath(node)
+  return table.concat(node.path, ".")
+end
+
 function builders.description(node, parent, available, pools)
   local name = Options.name(node)
+
+  if node.option.view == "kit" and type(node.option.build) == "function" then
+    local view = viewOfPools[pools]
+
+    if view then
+      local path = hostPath(node)
+      local host = view.hosts[path]
+
+      view.hostsUsed = view.hostsUsed or {}
+      view.hostsUsed[path] = true
+
+      if not host then
+        host = node.option.build(parent, available)
+        view.hosts[path] = host
+      end
+
+      if host then
+        host:ClearAllPoints()
+        host:SetParent(parent)
+        host:SetWidth(available)
+        host:Show()
+
+        return host, available, host:GetHeight(), true
+      end
+    end
+  end
 
   if node.option.view == "result" and pools.output then
     local frame = pools.output:acquire(parent)
@@ -720,7 +752,9 @@ local function drawStrip(strip, entries)
 end
 
 local function newView(id, parent, closable, card)
-  local view = { id = id, pools = {} }
+  local view = { id = id, pools = {}, hosts = {} }
+
+  viewOfPools[view.pools] = view
   local width, height = S("page.width"), S("page.height")
   local insetX, insetY = S("page.inset.x"), S("page.inset.y")
   local stripHeight = S("page.strip.show") and S("page.strip.height") or 0
@@ -814,6 +848,18 @@ end
 local function releaseView(view)
   for _, pool in pairs(view.pools) do
     pool:releaseAll()
+  end
+
+  view.hostsUsed = {}
+end
+
+local function finishView(view)
+  local used = view.hostsUsed or {}
+
+  for path, host in pairs(view.hosts) do
+    if not used[path] then
+      host:Hide()
+    end
   end
 end
 
@@ -933,6 +979,8 @@ local function renderView(view)
     end
   end
 
+  finishView(view)
+
   if view.crumbs then
     view.crumbs:SetText(crumbs)
   end
@@ -1001,7 +1049,9 @@ local function navEntries()
           entries[#entries + 1] = { label = Options.name(root) }
 
           for _, child in ipairs(groups) do
-            entries[#entries + 1] = { owner = owner, key = child.key, text = Options.name(child), indent = 0 }
+            entries[#entries + 1] = {
+              owner = owner, key = child.key, text = Options.name(child), indent = 0, action = child.option.opens,
+            }
           end
 
           return
@@ -1020,6 +1070,7 @@ local function navEntries()
           for _, child in ipairs(groups) do
             entries[#entries + 1] = {
               owner = owner, key = child.key, text = Options.name(child), indent = indent, leaf = true,
+              action = child.option.opens,
             }
           end
         end
@@ -1035,6 +1086,10 @@ local function navEntries()
 end
 
 local function isSelected(entry)
+  if entry.action then
+    return false
+  end
+
   if pageDetached(entry.owner, entry.key) then
     local host = pageWindows[pageId(entry.owner, entry.key)]
 
@@ -1248,6 +1303,12 @@ function Window.buildNav()
       decorateTab(button, entry)
       button.entry = entry
       button.onClick = function()
+        if entry.action then
+          entry.action()
+
+          return
+        end
+
         if entry.branch and S("nav.tree.collapsible") then
           if shown.owner == entry.owner or isCollapsed(entry.owner) then
             collapsed[entry.owner] = not isCollapsed(entry.owner)
@@ -1557,7 +1618,24 @@ local function openSearchWindow()
   return searchWindow
 end
 
+local function runOpens(owner, key)
+  local node = key and nodeOf(owner or "EbonAPI", key)
+  local action = node and node.option.opens
+
+  if type(action) == "function" then
+    action()
+
+    return true
+  end
+
+  return false
+end
+
 local function showPage(owner, key)
+  if runOpens(owner, key) then
+    return
+  end
+
   owner, key = normalized(owner or "EbonAPI", key)
   selected.owner, selected.key = owner, key
   railOwner = owner
@@ -2144,6 +2222,10 @@ local function clearQuery()
 end
 
 function Window.select(owner, key)
+  if runOpens(owner, key) then
+    return
+  end
+
   clearQuery()
   showPage(owner, key)
   Window.buildNav()

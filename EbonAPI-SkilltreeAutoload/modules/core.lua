@@ -409,6 +409,47 @@ local function UnplacedNodes(defs, target, after, saveNodeRanks, before)
     return list
 end
 
+-- Pose les nœuds infinis par le vrai OnClick du bouton natif, un clic par rang manquant.
+-- wanted = { [nodeId] = rang visé }. Un rang qui ne progresse plus après un clic (ressource épuisée) arrête
+-- ce nœud sans erreur ; bouton ou OnClick absent = IMPORT.UNAVAILABLE ; erreur du clic = IMPORT.CRASHED.
+function Core.ApplyInfiniteNodes(wanted)
+    local defs = GetNodeDefs()
+    if not defs then return Fail("TREE.NOT_READY", { detail = "the talent database is not loaded" }) end
+
+    local ids = {}
+    for nodeId in pairs(wanted or {}) do ids[#ids + 1] = nodeId end
+    table.sort(ids)
+
+    for _, nodeId in ipairs(ids) do
+        local node = defs[nodeId]
+        local want = wanted[nodeId]
+        local current = node and ReadNodeRank(node) or 0
+        if node and current < want then
+            local btn = GetNodeButton(nodeId)
+            local onClick = btn and btn:GetScript("OnClick")
+            if not onClick then
+                return Lapse("IMPORT.UNAVAILABLE", { missing = "the button of the infinite node " .. (node.name or nodeId) })
+            end
+
+            local clicks = 0
+            while current < want and clicks < NS.MAX_RANK do
+                local ok, err = pcall(onClick, btn)
+                if not ok then
+                    return Fail("IMPORT.CRASHED", { part = "the infinite node " .. (node.name or nodeId), detail = tostring(err) })
+                end
+                clicks = clicks + 1
+
+                local read = ReadNodeRank(node)
+                if read <= current then break end
+                current = read
+            end
+        end
+    end
+
+    Core.InvalidateSnapshot()
+    return true
+end
+
 function Core.ApplyBuild(saveNodeRanks)
     NS.View.ClearFaults()
     local skillTree = EbonAPI.Ebonhold.SkillTree()
@@ -439,38 +480,58 @@ function Core.ApplyBuild(saveNodeRanks)
     MergeInto(target, before)
     MergeInto(target, saveNodeRanks)
 
+    -- Les nœuds infinis dépassent 255 : le code d'import (un octet par rang) ne peut pas les porter.
+    -- Ils sont posés par les clics du bouton natif, après l'import des nœuds normaux.
+    local normal, infinite, infiniteCount, normalCount = {}, {}, 0, 0
     for nodeId, rank in pairs(target) do
-        if rank > MAX_RANK then
-            local node = defs[nodeId]
-            return Fail("IMPORT.RANK_TOO_HIGH", { node = node and node.name or nodeId, rank = rank })
+        local node = defs[nodeId]
+        if node and node.infinite then
+            infinite[nodeId] = rank
+            infiniteCount = infiniteCount + 1
+        else
+            if rank > MAX_RANK then
+                return Fail("IMPORT.RANK_TOO_HIGH", { node = node and node.name or nodeId, rank = rank })
+            end
+            normal[nodeId] = rank
+            normalCount = normalCount + 1
         end
     end
 
+    -- Le total des rangs ne compte que les nœuds normaux : un rang infini élevé n'est pas un prix d'import.
     local available = Core.GetAvailableSoulAshes()
-    local rankTotal = CountKnownRanks(defs, target)
+    local rankTotal = CountKnownRanks(defs, normal)
     if available and rankTotal > available then
         return Fail("IMPORT.TOO_EXPENSIVE", { ranks = rankTotal, balance = EbonAPI.Format.number(available) })
     end
 
-    if not EbonAPI.Ebonhold.Utils() then
-        return Lapse("IMPORT.UNAVAILABLE", { missing = "the encoder of ProjectEbonhold" })
+    if normalCount > 0 or infiniteCount == 0 then
+        if not EbonAPI.Ebonhold.Utils() then
+            return Lapse("IMPORT.UNAVAILABLE", { missing = "the encoder of ProjectEbonhold" })
+        end
+
+        local code = EncodeBuildCode(normal)
+        if not code then
+            return Fail("IMPORT.CRASHED", { part = "the encoding", detail = "the build holds no node with a rank above 0" })
+        end
+
+        local ok, err, problem = RunNativeImport(code)
+        if not ok then return nil, err, problem end
     end
 
-    local code = EncodeBuildCode(target)
-    if not code then
-        return Fail("IMPORT.CRASHED", { part = "the encoding", detail = "the build holds no node with a rank above 0" })
+    if infiniteCount > 0 then
+        local ok, err, problem = Core.ApplyInfiniteNodes(infinite)
+        if not ok then return nil, err, problem end
     end
-
-    local ok, err, problem = RunNativeImport(code)
-    if not ok then return nil, err, problem end
 
     Core.InvalidateSnapshot()
     local after, afterWhy = Core.GetTreeSnapshot()
     if not after then return Fail("TREE.NOT_READY", { detail = afterWhy }) end
 
-    local _, remaining = Core.ComputeActivationPlan(target, after)
+    -- Complétude : les nœuds normaux seulement. Un infini resté sous son rang visé (ressource épuisée)
+    -- n'est pas une faute : il garde le rang que la ressource a permis, comme un achat partiel.
+    local _, remaining = Core.ComputeActivationPlan(normal, after)
     if not remaining or remaining > 0 then
-        local list = UnplacedNodes(defs, target, after, saveNodeRanks or {}, before)
+        local list = UnplacedNodes(defs, normal, after, saveNodeRanks or {}, before)
         return Fail("IMPORT.NODES_NOT_APPLIED", { wanted = Describe(list, "wanted"),
             read = Describe(list, "read"), state = Describe(list, "state") })
     end

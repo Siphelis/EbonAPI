@@ -298,6 +298,48 @@ function Bus.tickerCount()
   return live
 end
 
+function Bus.eachTicker(fn)
+  if type(fn) ~= "function" then
+    return 0
+  end
+
+  local seen = 0
+
+  for index = 1, tickerCount do
+    local ticker = tickers[index]
+
+    if ticker and not ticker.dead then
+      seen = seen + 1
+      fn(ticker.id, ticker.owner, ticker.fn)
+    end
+  end
+
+  return seen
+end
+
+local function eachListed(registry, isCore, fn)
+  local seen = 0
+
+  for event, list in pairs(registry) do
+    local fns, owners = list.fns, list.owners
+
+    for index = 1, list.n do
+      seen = seen + 1
+      fn(event, fns[index], owners[index], isCore)
+    end
+  end
+
+  return seen
+end
+
+function Bus.eachHandler(fn)
+  if type(fn) ~= "function" then
+    return 0
+  end
+
+  return eachListed(core, true, fn) + eachListed(handlers, false, fn)
+end
+
 function Handle:OnEvent(event, fn)
   if not Bus.on(event, fn, self) then
     return false

@@ -211,6 +211,8 @@ local function Awake()
       or IsSummonStatusBusy()
 end
 
+local taskNow
+
 local function Tick()
   local now = GetTime()
 
@@ -236,7 +238,14 @@ local function Tick()
     local task = TASKS[i]
 
     if not task.nextAt or now >= task.nextAt then
-      local wait = RT.api:Guard("Scheduler.task", task.fn, now)
+      taskNow = now
+      local run = task.run
+      if not run then
+        local fn = task.fn
+        run = function() return fn(taskNow) end
+        task.run = run
+      end
+      local wait = RT.api:Guard("Scheduler.task", run)
       task.nextAt = now + (wait or task.every)
     end
   end
@@ -265,6 +274,9 @@ local function Tick()
 end
 
 frame:SetScript("OnUpdate", function()
+  if nextTickAt and GetTime() < nextTickAt and not Busy() then
+    return
+  end
   RT.api:Guard("Scheduler.tick", Tick)
 end)
 

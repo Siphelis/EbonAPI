@@ -98,6 +98,7 @@ EbonAPI:RegisterSkin("Tiling", {
   },
 
   widgets = {
+    cells = { shape = "round" }, queue = { shape = "round", table = { style = "pill" } }, strip = { shape = "round" }, cards = { shape = "pill" },
     toggle = { brick = "switch", mark = 2, roundKnob = true, switch = { width = 30, height = 16 } },
     range = { fill = true, fillColor = "border", roundThumb = true, thumb = { width = 12, height = 12 } },
     menu = { brick = "list", title = { align = "LEFT" } },
@@ -110,6 +111,16 @@ EbonAPI:RegisterSkin("Tiling", {
       view = "grid", detail = "dock", cell = { frame = "LARGE" }, row = { frame = "LARGE" },
       group = { upper = true },
     },
+    choice = {
+      segment = { frame = "LARGE", fill = "card", border = "border" },
+      chips = { frame = "LARGE", fill = "card", border = "border" },
+    },
+    pill = { frame = "LARGE", fill = "bgSoft", border = "border", info = "focus" },
+    tile = {
+      frame = "LARGE", fill = "card", border = "border", accent = "selected",
+      gauge = { back = "borderDim" },
+    },
+    map = { border = "border", gray = { low = "bgSoft", high = "checkboxBorder" } },
   },
 
   bricks = {
@@ -141,7 +152,14 @@ EbonAPI:RegisterSkin("Tiling", {
           tile.token:SetText(token or "")
           Tiles.paintMarker(tile, side)
 
-          if tile.marker:IsShown() then
+          if tile.card then
+            -- card form: the marker is as big as the square (the band centres it on the square), the number is
+            -- written once, in the value line
+            if tile.marker:IsShown() then
+              tile.marker:SetWidth(side)
+              tile.marker:SetHeight(side)
+            end
+          elseif tile.marker:IsShown() then
             local pad = math.floor((side - tile.marker:GetWidth()) / 2)
             local inset = B.insetOf(tile.frame)
 
@@ -150,8 +168,11 @@ EbonAPI:RegisterSkin("Tiling", {
           end
 
           if token then
-            tile.token:Show()
             tile.marker:Hide()
+          end
+
+          if token and not tile.card then
+            tile.token:Show()
           else
             tile.token:Hide()
           end
@@ -226,6 +247,7 @@ EbonAPI:RegisterSkin("Tiling", {
 
           frame:SetWidth(total)
           frame:SetHeight(height)
+          tile.card = nil
           tile.blockSide = side
           tile.block:ClearAllPoints()
           tile.block:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
@@ -240,6 +262,30 @@ EbonAPI:RegisterSkin("Tiling", {
           tile.label:SetWidth(math.max(1, total - left - MARGIN - inset))
           tile.label:SetHeight(lh)
           paintLook(box, tile)
+        end
+
+        -- The four-line card of the send-queue band (hook called by QueueBand before it places the text fields): the
+        -- block shrinks to a colour square the height of the label line, in front of the label (where the band
+        -- puts its marker slot, tile.markerSize); the token is hidden, the value is written in its own line.
+        function look.card(tile, size, line, inset)
+          tile.card = true
+          tile.blockSide = line
+          tile.markerSize = line
+          tile.block:ClearAllPoints()
+          tile.block:SetPoint("TOPLEFT", tile.frame, "TOPLEFT", inset, -inset)
+          tile.block:SetWidth(line)
+          tile.block:SetHeight(line)
+          tile.token:Hide()
+          Tiles.paintMarker(tile, line)
+
+          if tile.marker:IsShown() then
+            tile.marker:SetWidth(line)
+            tile.marker:SetHeight(line)
+
+            if (tile.item.value or ""):match("^[%d][%d%.,]*") then
+              tile.marker:Hide()
+            end
+          end
         end
 
         function look.update(box, tile, old)
@@ -316,8 +362,13 @@ EbonAPI:RegisterSkin("Tiling", {
   },
 
   kit = {
+    chart = { color = "checked", column = "bgSoft", label = "muted", value = "text", series = { s1 = 0xCBA6F7, s2 = 0xF5C2E7, s3 = 0xB4BEFE, s4 = 0x94E2D5, s5 = 0x89B4FA }, others = 0x6C7086 },
     icon = { border = "checkboxBorder" },
     rows = { action = 20, fill = "selected", fillAlpha = 0.35, mark = "danger", markAlpha = 0.3, suffix = "muted" },
+    table = {
+      bar = { fill = "selected", back = "borderDim" },
+      group = { fill = "bgSoft", chevron = "heading" },
+    },
   },
 
   chat = {
