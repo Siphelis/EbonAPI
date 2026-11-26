@@ -678,6 +678,15 @@ function Bricks.apply()
   end
 end
 
+local function skinTip()
+  if S("widgets.tooltip.skinned") and GameTooltip.SetBackdropColor then
+    local bg, border = THEME.bg, THEME.border
+
+    GameTooltip:SetBackdropColor(bg[1], bg[2], bg[3], 1)
+    GameTooltip:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
+  end
+end
+
 -- anchor (optional): anchor of this bubble only, instead of the global widgets.tooltip.anchor
 function Bricks.tip(owner, title, body, anchor)
   if not GameTooltip or (not title and not body) then
@@ -701,12 +710,7 @@ function Bricks.tip(owner, title, body, anchor)
     GameTooltip:SetOwner(owner, anchor or S("widgets.tooltip.anchor"))
   end
 
-  if S("widgets.tooltip.skinned") and GameTooltip.SetBackdropColor then
-    local bg, border = THEME.bg, THEME.border
-
-    GameTooltip:SetBackdropColor(bg[1], bg[2], bg[3], 1)
-    GameTooltip:SetBackdropBorderColor(border[1], border[2], border[3], border[4])
-  end
+  skinTip()
 
   if title and title ~= "" then
     GameTooltip:AddLine(title, heading[1], heading[2], heading[3])
@@ -1640,8 +1644,7 @@ local function rangeBox(parent, dress)
         return tostring(text)
       end
 
-      if not ok and not box.formatFailed then
-        box.formatFailed = true
+      if not ok then
         Lib.report(format("EbonAPI: range formatter failed: %s", tostring(text)))
       end
     end
@@ -1653,6 +1656,58 @@ local function rangeBox(parent, dress)
     return trimNumber(value)
   end
 
+  local function bubbleHide()
+    if box.bubbleOpen then
+      box.bubbleOpen = false
+
+      if GameTooltip and GameTooltip:GetOwner() == slider then
+        GameTooltip:Hide()
+      end
+    end
+  end
+
+  local function bubbleShow(value)
+    if not box.bubble or not GameTooltip then
+      return
+    end
+
+    local ok, text, r, g, b = pcall(box.bubble, value)
+
+    if not ok then
+      bubbleHide()
+
+      Lib.report(format("EbonAPI: range bubble failed: %s", tostring(text)))
+
+      return
+    end
+
+    if text == nil or text == "" then
+      bubbleHide()
+
+      return
+    end
+
+    local color = THEME.text
+
+    GameTooltip:SetOwner(slider, "ANCHOR_NONE")
+    GameTooltip:ClearAllPoints()
+    GameTooltip:SetPoint("BOTTOM", thumb or slider, "TOP", 0, 0)
+
+    skinTip()
+
+    GameTooltip:AddLine(tostring(text), r or color[1], g or color[2], b or color[3], true)
+    GameTooltip:Show()
+    box.bubbleOpen = true
+  end
+
+  local function barWidth()
+    if box.inline then
+      return box.inlineBar or 0
+    end
+
+    return box:GetWidth() or 0
+  end
+
   local function showFill(value)
     if not filled then
       return
@@ -1660,7 +1715,7 @@ local function rangeBox(parent, dress)
 
     local span = box.max - box.min
     local share = span > 0 and (value - box.min) / span or 0
-    local width = (box:GetWidth() or 0) * max(0, min(1, share))
+    local width = barWidth() * max(0, min(1, share))
 
     if width < 1 then
       filled:Hide()
@@ -1668,6 +1723,54 @@ local function rangeBox(parent, dress)
       filled:SetWidth(width)
       filled:Show()
     end
+  end
+
+  local function placeInline()
+    local height = box.inlineHeight or S("widgets.range.bar")
+    local gap = S("widgets.toggle.gap")
+
+    box:SetHeight(height)
+    box.inlineBar = max(0, (box:GetWidth() or 0) - (low:GetStringWidth() or 0) - (high:GetStringWidth() or 0) - 2 * gap)
+
+    low:ClearAllPoints()
+    low:SetPoint("LEFT", box, "LEFT", 0, 0)
+    high:ClearAllPoints()
+    high:SetPoint("RIGHT", box, "RIGHT", 0, 0)
+    slider:ClearAllPoints()
+    slider:SetPoint("LEFT", low, "RIGHT", gap, 0)
+    slider:SetWidth(box.inlineBar)
+    slider:SetHeight(min(S("widgets.range.bar"), height))
+
+    if thumb then
+      local tall = S("widgets.range.thumb.height")
+      local scale = min(1, height / tall)
+
+      thumb:SetWidth(S("widgets.range.thumb.width") * scale)
+      thumb:SetHeight(tall * scale)
+    end
+
+    showFill(box.value or box.min)
+  end
+
+  local function placePlain()
+    box:SetHeight(S("widgets.range.height"))
+    box.inlineBar = nil
+
+    low:ClearAllPoints()
+    low:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", 0, -labels)
+    high:ClearAllPoints()
+    high:SetPoint("TOPRIGHT", slider, "BOTTOMRIGHT", 0, -labels)
+    slider:ClearAllPoints()
+    slider:SetPoint("TOPLEFT", box, "TOPLEFT", 0, -top)
+    slider:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -top)
+    slider:SetHeight(S("widgets.range.bar"))
+
+    if thumb then
+      thumb:SetWidth(S("widgets.range.thumb.width"))
+      thumb:SetHeight(S("widgets.range.thumb.height"))
+    end
+
+    showFill(box.value or box.min)
   end
 
   local function fit(value)
@@ -1712,30 +1815,57 @@ local function rangeBox(parent, dress)
     edit:SetText(show(fit(value)))
     showFill(value)
 
-    if not box.dragging then
+    if box.dragging then
+      bubbleShow(fit(value))
+    else
       commit(value)
     end
   end)
-  slider:SetScript("OnMouseDown", function()
+  slider:SetScript("OnMouseDown", function(self)
     box.dragging = true
+    bubbleShow(fit(self:GetValue()))
   end)
   slider:SetScript("OnMouseUp", function(self)
     box.dragging = false
     commit(self:GetValue())
+
+    if not box.bubble then
+      return
+    end
+
+    if self:IsMouseOver() then
+      bubbleShow(fit(self:GetValue()))
+    else
+      bubbleHide()
+    end
   end)
   slider:SetScript("OnEnter", function()
     if art.hover then
       art.hover(true)
     end
 
-    enterTip(box)
+    if box.bubble then
+      bubbleShow(box.value or box.min)
+    else
+      enterTip(box)
+    end
   end)
   slider:SetScript("OnLeave", function()
     if art.hover then
       art.hover(false)
     end
 
-    hideTip()
+    if box.bubble then
+      if not box.dragging then
+        bubbleHide()
+      end
+    else
+      hideTip()
+    end
+  end)
+  slider:SetScript("OnHide", function()
+    box.dragging = false
+    bubbleHide()
   end)
 
   edit:SetScript("OnEnterPressed", function(self)
@@ -1777,14 +1907,49 @@ local function rangeBox(parent, dress)
     if self.value ~= nil then
       self:SetValue(self.value)
     end
+
+    if self.inline then
+      placeInline()
+    end
+  end
+
+  function box:SetBubble(fn)
+    self.bubble = fn
+
+    if not fn then
+      bubbleHide()
+    end
   end
 
   function box:SetFormat(formatter)
     self.formatter = formatter
-    self.formatFailed = nil
     self.low:SetText(show(self.min))
     self.high:SetText(show(self.max))
     self.edit:SetText(show(self.value or self.min))
+
+    if self.inline then
+      placeInline()
+    end
+  end
+
+  function box:SetInline(on, height)
+    if on then
+      self.inline, self.inlineHeight = true, height
+      title:Hide()
+      edit:Hide()
+      self:SetScript("OnSizeChanged", function()
+        if self.inline then
+          placeInline()
+        end
+      end)
+      placeInline()
+    elseif self.inline then
+      self.inline, self.inlineHeight = nil, nil
+      self:SetScript("OnSizeChanged", nil)
+      title:Show()
+      edit:Show()
+      placePlain()
+    end
   end
 
   function box:SetValue(value)

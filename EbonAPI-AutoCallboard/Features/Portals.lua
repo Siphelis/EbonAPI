@@ -242,6 +242,10 @@ local function RequestPortals()
 end
 
 local function PlayerWorldPoint()
+  if IsInInstance and IsInInstance() then
+    return nil
+  end
+
   local mapName, x, y, areaId = RT.ReadPlayerMapPoint()
 
   if not mapName then

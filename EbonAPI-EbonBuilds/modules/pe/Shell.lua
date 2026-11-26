@@ -722,7 +722,9 @@ local function applyGeometry()
             separators:Hide()
         end
     end
-    if current ~= "players" then
+    if current == "players" then
+        placePlayers()
+    else
         dockBars()
     end
     applying = false

@@ -69,6 +69,7 @@ onPlayerLogin = function()
   safeCall(MicroBar.install)
   safeCall(QuestLogChecks.install)
   safeCall(QuestLogSelect.install)
+  safeCall(EbonAPI.TormentSlider.install)
 
   EbonAPI._ready = true
   EbonAPI:Emit("READY", EbonAPI.version)

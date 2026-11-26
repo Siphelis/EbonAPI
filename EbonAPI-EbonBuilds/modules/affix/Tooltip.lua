@@ -135,6 +135,21 @@ local function showKnown(tooltip, link)
     tooltip:Show()
 end
 
+local function restoreFont(tooltip)
+    local shrunk = tooltip.ebShrunk
+    if not shrunk then return end
+    tooltip.ebShrunk = nil
+    shrunk.line:SetFont(shrunk.font, shrunk.size, shrunk.flags)
+end
+
+local function shrinkFont(tooltip, line)
+    restoreFont(tooltip)
+    local font, size, flags = line:GetFont()
+    if not font or not size then return end
+    line:SetFont(font, size - 2, flags)
+    tooltip.ebShrunk = { line = line, font = font, size = size, flags = flags }
+end
+
 local function OnTooltipSetItem(tooltip)
     local _, link = tooltip:GetItem()
     if type(link) ~= "string" then return end
@@ -158,15 +173,13 @@ local function OnTooltipSetItem(tooltip)
     local name = tooltip:GetName()
     if name then
         local line = _G[name .. "TextLeft" .. tooltip:NumLines()]
-        if line then
-            local font, size = line:GetFont()
-            if font and size then line:SetFont(font, size - 2) end
-        end
+        if line then shrinkFont(tooltip, line) end
     end
     tooltip:Show()
 end
 
 local function OnTooltipCleared(tooltip)
+    restoreFont(tooltip)
     tooltip.ebAffixLink = nil
     tooltip.ebKnownLink = nil
 end

@@ -815,6 +815,15 @@ Settings.tree = {
                 EbonAPI.PrestigeAlert.setHidden(value)
               end,
             },
+            tormentSlider = {
+              type = "toggle", order = 2, name = T("UI_TORMENT_RANGE"), desc = T("UI_TORMENT_RANGE_DESC"),
+              get = function()
+                return EbonAPI.TormentSlider.isOn()
+              end,
+              set = function(_, value)
+                EbonAPI.TormentSlider.setOn(value)
+              end,
+            },
           },
         },
         statusLine = {

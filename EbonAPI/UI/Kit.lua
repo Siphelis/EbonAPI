@@ -740,7 +740,7 @@ local function checkShape(owner, kind, spec, level)
   end
 
   if kind == "range" then
-    for _, name in ipairs({ "min", "max", "step" }) do
+    for _, name in ipairs({ "min", "max", "step", "height" }) do
       checkNumber(owner, spec, name, level)
     end
 
@@ -748,9 +748,17 @@ local function checkShape(owner, kind, spec, level)
       error(format("EbonAPI: %s: step expects a number above 0, got %s", owner, tostring(spec.step)), level)
     end
 
+    if spec.inline ~= nil and type(spec.inline) ~= "boolean" then
+      error(format("EbonAPI: %s: inline expects true or false, got %s", owner, tostring(spec.inline)), level)
+    end
+
     if (spec.min or 0) >= (spec.max or 1) then
       error(format("EbonAPI: %s: range expects min lower than max, got min %s and max %s", owner,
         tostring(spec.min or 0), tostring(spec.max or 1)), level)
+    end
+
+    if spec.bubble ~= nil and type(spec.bubble) ~= "function" then
+      error(format("EbonAPI: %s: bubble expects a function, got %s", owner, tostring(spec.bubble)), level)
     end
   end
 
@@ -1424,7 +1432,9 @@ KINDS.range = function(owner, parent, spec)
     local value = evaluate(self, fields.get)
 
     self:SetWidth(fields.width or S("page.unit"))
+    self:SetInline(fields.inline, fields.height)
     self:SetFormat(fields.format)
+    self:SetBubble(fields.bubble)
     self:SetRange(low, high, rangeStep(low, high, fields.step), fields.percent)
     self:SetTitle(textOf(self) or "")
 
