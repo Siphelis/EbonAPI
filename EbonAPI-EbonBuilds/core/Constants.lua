@@ -8,54 +8,43 @@ ns.api = EbonAPI and EbonAPI:NewAddon(ns.NAME, 2, 1, { icon = "Spell_Shadow_Soul
 local Const = {}
 EbonBuilds.Const = Const
 
-Const.QUALITY_RGB = {
-    [0] = { 1.0, 1.0, 1.0 },
-    [1] = { 30/255, 1.0, 0.0 },
-    [2] = { 0.0, 112/255, 221/255 },
-    [3] = { 163/255, 53/255, 238/255 },
-    [4] = { 1.0, 128/255, 0.0 },
-}
-
-Const.QUALITY_HEX = {
-    [0] = "ffffff", [1] = "19ff19", [2] = "0066ff", [3] = "cc66ff", [4] = "ff8000",
-}
-
-local QUALITY_FALLBACK = { [0] = "Common", "Uncommon", "Rare", "Epic", "Legendary" }
-Const.QUALITY_NAME = {}
-for q = 0, 4 do
-    Const.QUALITY_NAME[q] = _G["ITEM_QUALITY" .. (q + 1) .. "_DESC"] or QUALITY_FALLBACK[q]
+function Const.QualityHex(quality)
+    local card = EbonAPI.ClientData.Quality(quality)
+    return card and card.hex
 end
-
-Const.CLASS_RGB = {
-    WARRIOR     = { 0.78, 0.61, 0.43 },
-    PALADIN     = { 0.96, 0.55, 0.73 },
-    HUNTER      = { 0.67, 0.83, 0.45 },
-    ROGUE       = { 1.0,  0.96, 0.41 },
-    PRIEST      = { 1.0,  1.0,  1.0  },
-    DEATHKNIGHT = { 0.77, 0.12, 0.23 },
-    SHAMAN      = { 0.0,  0.44, 0.87 },
-    MAGE        = { 0.41, 0.8,  0.94 },
-    WARLOCK     = { 0.58, 0.51, 0.79 },
-    DRUID       = { 1.0,  0.49, 0.04 },
-}
-
-Const.CLASS_BITS = {
-    WARRIOR = 1, PALADIN = 2, HUNTER = 4, ROGUE = 8, PRIEST = 16,
-    DEATHKNIGHT = 32, SHAMAN = 64, MAGE = 128, WARLOCK = 256, DRUID = 1024,
-}
-
-Const.CLASS_TEXTURE = "Interface\\TargetingFrame\\UI-Classes-Circles"
 
 Const.SAVED_SLOTS = 10
 
 Const.BUILD_LOCKED_SLOTS = 6
 
-Const.FAMILY_MAP = {
-    Tank = "Tank", Survivability = "Survivability", Healer = "Healer",
-    Caster = "Caster", ["Caster DPS"] = "Caster",
-    Melee  = "Melee",  ["Melee DPS"]  = "Melee",
-    Ranged = "Ranged", ["Ranged DPS"] = "Ranged",
-    None   = "No family",
-}
+Const.BUILD_TOTAL_STACKS = 85
 
-Const.FAMILIES = { "Tank", "Survivability", "Healer", "Caster", "Melee", "Ranged", "No family" }
+function Const.CompleteBuild(echoesText, lockedText)
+    local profile = EbonAPI and EbonAPI.Profile
+    if not profile then return false end
+    local ids, stacks, count = profile.DecodeBuild(echoesText)
+    if not ids then return false end
+    local total = 0
+    for i = 1, count do total = total + stacks[i] end
+    if total ~= Const.BUILD_TOTAL_STACKS then return false end
+    local locked, lockedCount = profile.DecodeLocked(lockedText)
+    return locked ~= nil and lockedCount == Const.BUILD_LOCKED_SLOTS
+end
+
+Const.UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+Const.EMPTY_SLOT = "Interface\\Buttons\\UI-EmptySlot"
+Const.SOLID = "Interface\\Buttons\\WHITE8X8"
+
+local roles
+
+function Const.NormFamily(family)
+    if family == nil then return nil end
+    local data = EbonAPI.ClientData
+    if not roles then
+        roles = {}
+        for _, card in ipairs(data.Families()) do roles[card.key] = true end
+    end
+    local key = data.Family(family)
+    if roles[key] then return key end
+    return nil
+end

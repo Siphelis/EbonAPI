@@ -1,6 +1,8 @@
 local Core = AutoCallboardCore or {}
 AutoCallboardCore = Core
-local L = AutoCallboardLocale
+
+Core.PARTIAL_ALPHA = 0.45
+Core.WEAK = { __mode = "k" }
 local Lib = EbonAPI.Lib
 
 local type, tonumber, tostring, pairs, ipairs = type, tonumber, tostring, pairs, ipairs
@@ -36,22 +38,16 @@ end
 
 local DEFAULTS = {
   targetName = "Callboard",
-  summonSpell = "Summon Callboard",
-  summonSpellID = 600647,
-  summonDuration = 30,
-  summonCooldown = 45,
-  rerollFrame = "ObjectivesMainFrame.rerollBtn",
-  objectivePrefix = "ObjectiveFrame",
-  objectiveButtonField = "selectBtn",
-  autoAccept = true,
+  autoClaim = false,
   autoCurrentInstanceQuest = false,
   travelEnabled = true,
   travelAuto = false,
-  remoteRoll = false,
-  showSpeed = false,
-  maxRerolls = 50,
-  rerollDelay = 0.1,
-  rerollTimeout = 1.5,
+  portalFollow = false,
+  portalAuto = false,
+  portalCount = true,
+  questArrow = true,
+  travelDefault = "auto",
+  showOffBoard = true,
   knownQuests = {},
   desiredQuests = {},
   characterProfiles = {},
@@ -62,17 +58,11 @@ local DEFAULTS = {
   accountListSeeded = false,
   presetsMigrated = false,
   arrowPointUnscaled = true,
-  questPanelExpanded = false,
   debug = {
     enabled = false,
     mouseWatch = false,
     sniffer = false,
     maxLog = 120,
-  },
-  goldTracker = {
-    totalSpent = 0,
-    trackedQuestCount = 0,
-    lastQuestSpent = 0,
   },
   buttonShown = true,
   button = {
@@ -86,6 +76,31 @@ local DEFAULTS = {
     angle = 225,
   },
 }
+
+Core.CATEGORY = {
+  DUNGEON = 1,
+  RAID = 2,
+  OPEN_WORLD = 3,
+  PROFESSION = 4,
+  CHALLENGE = 5,
+  OTHER = 6,
+  TORMENT = 7,
+}
+
+Core.CATEGORY_ORDER = {}
+
+for _, category in ipairs(EbonAPI.State.CallboardCategories()) do
+  Core.CATEGORY_ORDER[#(Core.CATEGORY_ORDER) + 1] = category.id
+end
+
+Core.STATE = EbonAPI.State.CALLBOARD_STATE
+Core.CADENCE = EbonAPI.State.CALLBOARD_CADENCE
+
+local CATEGORY_RANK = {}
+
+for i = 1, #(Core.CATEGORY_ORDER) do
+  CATEGORY_RANK[Core.CATEGORY_ORDER[i]] = i
+end
 
 local function trim(value)
   if type(value) ~= "string" then
@@ -127,38 +142,6 @@ local function truncateLetters(value, limit)
 end
 
 Core.truncateLetters = truncateLetters
-
-local function objectiveTextParts(value)
-  local text = trim(value)
-  local cleanText, zoneOrSort, questType = string.match(text, "^(.-),%s*(%d+)%s*,%s*(%d+)%s*%.?%s*$")
-
-  if cleanText then
-    return trim(cleanText), tonumber(zoneOrSort) or 0, tonumber(questType) or 0
-  end
-
-  return text, 0, 0
-end
-
-local VALID_QUEST_TYPES = { [1] = true, [2] = true, [3] = true, [4] = true }
-
-function Core.sanitizeQuestType(value)
-  value = tonumber(value) or 0
-  if VALID_QUEST_TYPES[value] then
-    return value
-  end
-
-  return 0
-end
-
-local function containsAny(value, needles)
-  for i = 1, #(needles) do
-    if string.find(value, needles[i], 1, true) then
-      return true
-    end
-  end
-
-  return false
-end
 
 local function stripColorCodes(value)
   if type(value) ~= "string" then
@@ -212,159 +195,48 @@ end
 
 Core.appendUniqueNormalized = appendUniqueNormalized
 
-local PROFESSION_HINTS = {
-  "bulk order:",
-  "crafting materials:",
-  "saronite",
-  "cobalt bar",
-  "titansteel bar",
-  "dragon's eye",
-  "autumn's glow",
-  "monarch topaz",
-  "twilight opal",
-  "forest emerald",
-  "scarlet ruby",
-  "sky sapphire",
-  "borean leather",
-  "heavy borean leather",
-  "jormungar scale",
-  "frostweave cloth",
-  "moonshroud",
-  "spellweave",
-  "ebonweave",
-  "eternal fire",
-  "eternal earth",
-  "eternal water",
-  "eternal air",
-  "eternal shadow",
-  "eternal life",
-  "crystallized fire",
-  "crystallized earth",
-  "crystallized water",
-  "crystallized air",
-  "crystallized shadow",
-  "crystallized life",
-  "pygmy oil",
-  "dragonfin filet",
-  "snapper extreme",
-  "worm meat",
-  "rhino meat",
-  "shoveltusk flank",
-  "chunk o' mammoth",
-  "chilled meat",
-  "northern spices",
-  "glacial salmon",
-  "constrictor grass",
-}
+local function count(value)
+  value = math.floor(tonumber(value) or 0)
 
-local RAID_HINTS = {
-  "malygos",
-  "kelthuzad",
-  "kel'thuzad",
-  "sartharion",
-  "naxxramas",
-  "obsidian sanctum",
-  "eye of eternity",
-  "construct quarter",
-}
-
-local DUNGEON_HINTS = {
-  "keristrasza",
-  "ingvar",
-  "king ymiron",
-  "prophet tharon'ja",
-  "tharon'ja",
-  "utgarde pinnacle",
-  "drak'tharon keep",
-  "the nexus.",
-  "the nexus ",
-}
-
-local OPEN_WORLD_TITLE_PREFIXES = {
-  "a growing menace:",
-  "clear the roads",
-  "no mercy:",
-  "pacify ",
-  "sweep and clear:",
-  "storm peaks trophy",
-}
-
-local ROLL_DELAY_MIN = 0
-local ROLL_DELAY_MAX = 5
-local ROLL_TIMEOUT_MIN = 0.25
-local ROLL_TIMEOUT_MAX = 10
-
-local ROLL_SPEED_PRESETS = {
-  turbo = { delay = 0, timeout = 1, label = "turbo" },
-  fast = { delay = 0.05, timeout = 1.25, label = "fast" },
-  normal = { delay = 0.1, timeout = 1.5, label = "normal" },
-  safe = { delay = 0.35, timeout = 2.5, label = "safe" },
-}
-
-local ROLL_SPEED_PRESET_ORDER = { "turbo", "fast", "normal", "safe" }
-
-local function clampNumber(value, minimum, maximum)
-  value = tonumber(value)
-
-  if not value then
-    return nil
-  end
-
-  if value < minimum then
-    return minimum
-  end
-
-  if value > maximum then
-    return maximum
+  if value < 0 then
+    return 0
   end
 
   return value
 end
 
-function Core.clampRollDelay(value)
-  return clampNumber(value, ROLL_DELAY_MIN, ROLL_DELAY_MAX) or DEFAULTS.rerollDelay
-end
+Core.count = count
 
-function Core.clampRollTimeout(value)
-  return clampNumber(value, ROLL_TIMEOUT_MIN, ROLL_TIMEOUT_MAX) or DEFAULTS.rerollTimeout
-end
+function Core.sanitizeCategory(value)
+  value = tonumber(value) or 0
 
-function Core.rollSpeedPresetList()
-  local list = {}
-
-  for i = 1, #(ROLL_SPEED_PRESET_ORDER) do
-    local key = ROLL_SPEED_PRESET_ORDER[i]
-    local preset = ROLL_SPEED_PRESETS[key]
-
-    if preset then
-      list[#(list) + 1] = {
-        index = #(list) + 1,
-        key = key,
-        delay = preset.delay,
-        timeout = preset.timeout,
-        label = preset.label,
-      }
-    end
+  if value == Core.CATEGORY.CHALLENGE or CATEGORY_RANK[value] then
+    return value
   end
 
-  return list
+  return 0
 end
 
-function Core.nearestRollSpeedPreset(delay)
-  local list = Core.rollSpeedPresetList()
-  local target = tonumber(delay)
-  local best, bestDiff
-
-  for i = 1, #(list) do
-    local diff = math.abs((target or 0) - list[i].delay)
-
-    if not bestDiff or diff < bestDiff then
-      best = list[i]
-      bestDiff = diff
-    end
+function Core.questCategory(quest)
+  if type(quest) ~= "table" then
+    return 0
   end
 
-  return best or list[1]
+  return Core.sanitizeCategory(quest.category)
+end
+
+function Core.displayCategory(quest)
+  local category = Core.questCategory(quest)
+
+  if CATEGORY_RANK[category] then
+    return category
+  end
+
+  return Core.CATEGORY.OTHER
+end
+
+function Core.categoryRank(category)
+  return CATEGORY_RANK[tonumber(category) or 0] or (#(Core.CATEGORY_ORDER) + 1)
 end
 
 local function copyDefaults()
@@ -375,18 +247,12 @@ function Core.defaultState()
   return copyDefaults()
 end
 
-function Core.autoCurrentInstanceWarningText()
-  return L.AUTO_CURRENT_INSTANCE_WARNING
-end
-
-local MERGE_NONEMPTY_STRING = { "targetName", "rerollFrame", "objectivePrefix", "objectiveButtonField" }
-local MERGE_STRING = { "summonSpell" }
+local MERGE_NONEMPTY_STRING = { "targetName", "travelDefault" }
 local MERGE_BOOLEAN = {
-  "autoAccept", "autoCurrentInstanceQuest", "travelEnabled", "travelAuto", "remoteRoll", "showSpeed",
-  "presetsMigrated", "questPanelExpanded", "buttonShown",
+  "autoClaim", "autoCurrentInstanceQuest", "travelEnabled", "travelAuto", "portalFollow", "portalAuto", "portalCount", "questArrow", "showOffBoard",
+  "presetsMigrated", "buttonShown",
   "accountListSeeded",
 }
-local MERGE_NUMBER_MIN1 = { "summonDuration", "summonCooldown", "maxRerolls" }
 local MERGE_COLLECTION = {
   knownQuests = "copyQuestList",
   desiredQuests = "copyDesiredMap",
@@ -396,7 +262,6 @@ local MERGE_COLLECTION = {
   characterState = "copyCharacterStateMap",
   migratedCharacters = "copyDesiredMap",
 }
-local GOLD_TRACKER_KEYS = { "totalSpent", "trackedQuestCount", "lastQuestSpent" }
 
 local function mergeNested(saved, state, spec)
   for key, kind in pairs(spec) do
@@ -427,28 +292,8 @@ function Core.mergeState(saved, adopt)
     if trim(saved[key]) ~= "" then state[key] = trim(saved[key]) end
   end
 
-  for _, key in ipairs(MERGE_STRING) do
-    if type(saved[key]) == "string" then state[key] = trim(saved[key]) end
-  end
-
   for _, key in ipairs(MERGE_BOOLEAN) do
     if type(saved[key]) == "boolean" then state[key] = saved[key] end
-  end
-
-  for _, key in ipairs(MERGE_NUMBER_MIN1) do
-    if type(saved[key]) == "number" and saved[key] >= 1 then state[key] = saved[key] end
-  end
-
-  if type(saved.summonSpellID) == "number" then
-    state.summonSpellID = saved.summonSpellID
-  end
-
-  if type(saved.rerollDelay) == "number" then
-    state.rerollDelay = Core.clampRollDelay(saved.rerollDelay)
-  end
-
-  if type(saved.rerollTimeout) == "number" then
-    state.rerollTimeout = Core.clampRollTimeout(saved.rerollTimeout)
   end
 
   for key, copier in pairs(MERGE_COLLECTION) do
@@ -464,15 +309,6 @@ function Core.mergeState(saved, adopt)
 
     if type(saved.debug.maxLog) == "number" and saved.debug.maxLog >= 20 then
       state.debug.maxLog = saved.debug.maxLog
-    end
-  end
-
-  if type(saved.goldTracker) == "table" then
-    for _, key in ipairs(GOLD_TRACKER_KEYS) do
-      local value = saved.goldTracker[key]
-      if type(value) == "number" and value >= 0 then
-        state.goldTracker[key] = math.floor(value)
-      end
     end
   end
 
@@ -536,52 +372,11 @@ function Core.objectiveText(quest)
     return ""
   end
 
-  local cleanText = objectiveTextParts(quest.objectiveText)
-  return cleanText
-end
-
-local inferTypeCache = {}
-local inferTypeCacheCount = 0
-local INFER_TYPE_CACHE_MAX = 512
-
-function Core.inferQuestType(quest)
-  if type(quest) ~= "table" then
-    return 0
+  if type(quest.objectiveText) == "string" then
+    return trim(quest.objectiveText)
   end
 
-  local title = string.lower(Core.questTitle(quest))
-  local objective = string.lower(Core.objectiveText(quest))
-  local cacheKey = title .. "\1" .. objective
-  local cached = inferTypeCache[cacheKey]
-
-  if cached then
-    return cached
-  end
-
-  local combined = trim(title .. " " .. objective)
-  local questType = 0
-
-  if containsAny(combined, PROFESSION_HINTS) then
-    questType = 4
-  elseif containsAny(combined, RAID_HINTS) then
-    questType = 3
-  elseif containsAny(combined, DUNGEON_HINTS) then
-    questType = 2
-  elseif containsAny(title, OPEN_WORLD_TITLE_PREFIXES)
-      or string.find(objective, "^kill%s+%d+")
-      or string.find(objective, "^collect%s+%d+%s+rare") then
-    questType = 1
-  end
-
-  if inferTypeCacheCount >= INFER_TYPE_CACHE_MAX then
-    inferTypeCache = {}
-    inferTypeCacheCount = 0
-  end
-
-  inferTypeCache[cacheKey] = questType
-  inferTypeCacheCount = inferTypeCacheCount + 1
-
-  return questType
+  return trim(quest.objectives)
 end
 
 function Core.questKey(quest)
@@ -602,24 +397,33 @@ function Core.questKey(quest)
   return "title:" .. title:lower()
 end
 
-local QUEST_REWARD_FIELDS = {
-  "normalSoulAshes",
-  "hc1SoulAshes",
-  "hc2SoulAshes",
-  "hc3SoulAshes",
-  "hc4SoulAshes",
-  "normalXp",
-  "hc1Xp",
-  "hc2Xp",
-  "hc3Xp",
-  "hc4Xp",
-}
+function Core.outleveledAbove(quest)
+  if type(quest) ~= "table" then
+    return 0
+  end
+
+  return count(quest.outleveledAbove)
+end
+
+function Core.paysNothing(quest)
+  if type(quest) ~= "table" then
+    return false
+  end
+
+  if quest.paysNothing == true then
+    return true
+  end
+
+  return Core.outleveledAbove(quest) > 0 and tonumber(quest.payPct) == 0
+end
+
+local QUEST_REWARD_FIELDS = { "ashes", "xp", "copper", "artisan", "item", "itemCount", "orbs", "shards" }
 
 Core.questRewardFields = QUEST_REWARD_FIELDS
 
 local indexedList, indexedMap, indexedCount
 
-local function questIndexKey(quest)
+function Core.questIndexKey(quest)
   if type(quest) ~= "table" then
     return nil
   end
@@ -631,20 +435,22 @@ local function questIndexKey(quest)
   return Core.questKey(quest)
 end
 
+local questIndexKey = Core.questIndexKey
+
 local function knownQuestIndex(quests)
   if type(quests) ~= "table" then
     return nil
   end
 
-  local count = #(quests)
+  local total = #(quests)
 
-  if indexedList == quests and indexedCount == count then
+  if indexedList == quests and indexedCount == total then
     return indexedMap
   end
 
   local map = {}
 
-  for i = 1, count do
+  for i = 1, total do
     local key = questIndexKey(quests[i])
 
     if key then
@@ -654,7 +460,7 @@ local function knownQuestIndex(quests)
 
   indexedList = quests
   indexedMap = map
-  indexedCount = count
+  indexedCount = total
 
   return map
 end
@@ -668,35 +474,37 @@ local function noteIndexedQuest(quests, key, quest)
   indexedCount = #(quests)
 end
 
-local function copyRewardFields(target, source)
-  local changed = false
+local function setField(target, field, value)
+  if target[field] == value then
+    return false
+  end
+
+  target[field] = value
+
+  return true
+end
+
+local function copyContractFields(target, source)
+  if source.category == nil then
+    return false
+  end
+
+  local changed = setField(target, "category", count(source.category))
+  changed = setField(target, "cadence", count(source.cadence)) or changed
+  changed = setField(target, "accountWide", source.accountWide == true) or changed
 
   for i = 1, #(QUEST_REWARD_FIELDS) do
     local field = QUEST_REWARD_FIELDS[i]
-    local value = tonumber(source[field]) or 0
-
-    if target[field] ~= value then
-      target[field] = value
-      changed = true
-    end
+    changed = setField(target, field, count(source[field])) or changed
   end
 
-  return target, changed
-end
+  local description = trim(source.description)
 
-local function buildQuestEntry(source, key, title, zoneOrSort, questType, seen, lastSeenRoll)
-  local entry = copyRewardFields({
-    key = key,
-    questId = tonumber(source.questId) or 0,
-    title = title,
-    objectiveText = Core.objectiveText(source),
-    zoneOrSort = zoneOrSort,
-    questType = questType,
-    seen = seen,
-    lastSeenRoll = lastSeenRoll,
-  }, source)
+  if description ~= "" then
+    changed = setField(target, "description", description) or changed
+  end
 
-  return entry
+  return changed
 end
 
 function Core.copyQuest(quest)
@@ -704,16 +512,22 @@ function Core.copyQuest(quest)
     return nil
   end
 
-  local zoneOrSort, questType = Core.objectiveMetadata(quest)
+  local key = questIndexKey(quest)
 
-  return buildQuestEntry(
-    quest,
-    quest.key,
-    trim(quest.title),
-    zoneOrSort,
-    questType,
-    tonumber(quest.seen) or 1,
-    tonumber(quest.lastSeenRoll) or 0)
+  if not key then
+    return nil
+  end
+
+  local entry = {
+    key = key,
+    questId = count(quest.questId),
+    title = trim(quest.title),
+    objectiveText = Core.objectiveText(quest),
+  }
+
+  copyContractFields(entry, quest)
+
+  return entry
 end
 
 function Core.copyQuestList(quests)
@@ -723,21 +537,31 @@ function Core.copyQuestList(quests)
     return copy
   end
 
-  local count = 0
+  local total = 0
 
   for i = 1, #(quests) do
     local entry = Core.copyQuest(quests[i])
     if entry then
-      count = count + 1
-      copy[count] = entry
+      total = total + 1
+      copy[total] = entry
     end
   end
 
-  if count < #(quests) then
-    Core.repaired("QUESTS.REPAIRED", { field = "known", value = #(quests), kept = count }, quests)
+  if total < #(quests) then
+    Core.repaired("QUESTS.REPAIRED", { field = "known", value = #(quests), kept = total }, quests)
   end
 
   return copy
+end
+
+function Core.mergeQuest(existing, incoming)
+  local merged = Core.copyQuest(existing) or {}
+
+  for field, value in pairs(Core.copyQuest(incoming) or {}) do
+    merged[field] = value
+  end
+
+  return merged
 end
 
 function Core.copyDesiredMap(desired)
@@ -747,102 +571,47 @@ function Core.copyDesiredMap(desired)
     return copy
   end
 
-  local found, dropped = 0, false
-
   for key, value in pairs(desired) do
-    found = found + 1
-
     if type(key) == "string" and value == true then
       copy[key] = true
-    elseif value ~= false then
-      dropped = true
     end
-  end
-
-  if dropped then
-    local kept = 0
-
-    for _ in pairs(copy) do
-      kept = kept + 1
-    end
-
-    Core.repaired("QUESTS.REPAIRED", { field = "desired", value = found, kept = kept }, desired)
   end
 
   return copy
 end
 
 function Core.desiredQuestCount(desired)
-  local count = 0
+  local total = 0
 
   if type(desired) == "table" then
     for _, value in pairs(desired) do
       if value == true then
-        count = count + 1
+        total = total + 1
       end
     end
   end
 
-  return count
+  return total
 end
 
-function Core.questMatchesTypeFilter(quest, enabledQuestTypes)
-  if not Core.hasEnabledQuestTypeFilter(enabledQuestTypes) then
+function Core.categoryFilterEnabled(enabledCategories, category)
+  if type(enabledCategories) ~= "table" then
+    return false
+  end
+
+  return enabledCategories[tonumber(category) or 0] == true
+end
+
+function Core.hasEnabledCategoryFilter(enabledCategories)
+  return hasEnabledValue(enabledCategories)
+end
+
+function Core.questMatchesCategoryFilter(quest, enabledCategories)
+  if not Core.hasEnabledCategoryFilter(enabledCategories) then
     return true
   end
 
-  local questType = tonumber(quest and quest.questType) or 0
-
-  return Core.questTypeFilterEnabled(enabledQuestTypes, questType)
-end
-
-function Core.questTypeFilterEnabled(enabledQuestTypes, questType)
-  if type(enabledQuestTypes) ~= "table" then
-    return false
-  end
-
-  questType = tonumber(questType) or 0
-
-  return enabledQuestTypes[questType] == true or enabledQuestTypes[tostring(questType)] == true
-end
-
-function Core.hasEnabledQuestTypeFilter(enabledQuestTypes)
-  return hasEnabledValue(enabledQuestTypes)
-end
-
-function Core.hasAllPrimaryQuestTypeFilters(enabledQuestTypes)
-  if type(enabledQuestTypes) ~= "table" then
-    return false
-  end
-
-  return Core.questTypeFilterEnabled(enabledQuestTypes, 1)
-      and Core.questTypeFilterEnabled(enabledQuestTypes, 2)
-      and Core.questTypeFilterEnabled(enabledQuestTypes, 3)
-      and Core.questTypeFilterEnabled(enabledQuestTypes, 4)
-end
-
-function Core.needsKnownTypeFallback(quests, enabledQuestTypes)
-  if type(quests) ~= "table" or not Core.hasAllPrimaryQuestTypeFilters(enabledQuestTypes) then
-    return false
-  end
-
-  if #(quests) == 0 then
-    return false
-  end
-
-  local hasKnownType = false
-
-  for i = 1, #(quests) do
-    if Core.questMatchesTypeFilter(quests[i], enabledQuestTypes) then
-      return false
-    end
-
-    if (tonumber(quests[i] and quests[i].questType) or 0) > 0 then
-      hasKnownType = true
-    end
-  end
-
-  return not hasKnownType
+  return Core.categoryFilterEnabled(enabledCategories, Core.displayCategory(quest))
 end
 
 function Core.hasDesiredQuests(desired)
@@ -877,11 +646,7 @@ function Core.countDesiredKnownQuests(quests, desired)
   return knownCount, missingCount, missingKeys
 end
 
-function Core.needsUntargetedRollConfirm(desired)
-  return not Core.hasDesiredQuests(desired)
-end
-
-function Core.questTypeCounts(quests)
+function Core.questCategoryCounts(quests)
   local counts = {}
 
   if type(quests) ~= "table" then
@@ -889,8 +654,8 @@ function Core.questTypeCounts(quests)
   end
 
   for i = 1, #(quests) do
-    local questType = tonumber(quests[i] and quests[i].questType) or 0
-    counts[questType] = (counts[questType] or 0) + 1
+    local category = Core.displayCategory(quests[i])
+    counts[category] = (counts[category] or 0) + 1
   end
 
   return counts
@@ -901,46 +666,7 @@ function Core.questInSelection(quest, selectedKeys)
     return true
   end
 
-  local key = type(quest) == "table" and type(quest.key) == "string" and quest.key or Core.questKey(quest)
-  return key ~= nil and selectedKeys[key] == true
-end
-
-function Core.objectiveMetadata(objective)
-  local _, parsedZone, parsedType = objectiveTextParts(objective and objective.objectiveText)
-  parsedZone = tonumber(parsedZone) or 0
-  parsedType = Core.sanitizeQuestType(parsedType)
-
-  local storedZone = tonumber(objective and objective.zoneOrSort) or 0
-  local storedType = Core.sanitizeQuestType(objective and objective.questType)
-
-  local zoneOrSort = parsedZone > 0 and parsedZone or storedZone
-  local questType = parsedType > 0 and parsedType or storedType
-
-  if questType == 0 then
-    questType = Core.inferQuestType(objective)
-  end
-
-  return zoneOrSort, questType
-end
-
-function Core.describeObjectiveMetadata(objective)
-  local cleanText, parsedZone, parsedType = objectiveTextParts(objective and objective.objectiveText)
-  local rawType = tonumber(objective and objective.questType) or 0
-  local sanitizedRawType = Core.sanitizeQuestType(rawType)
-  local finalZone, finalType = Core.objectiveMetadata(objective)
-
-  return {
-    rawText = trim(objective and objective.objectiveText),
-    cleanText = cleanText,
-    rawZone = tonumber(objective and objective.zoneOrSort) or 0,
-    rawType = rawType,
-    rawTypeRejected = rawType ~= 0 and sanitizedRawType == 0,
-    hasSuffix = (tonumber(parsedZone) or 0) > 0 or Core.sanitizeQuestType(parsedType) > 0,
-    suffixZone = tonumber(parsedZone) or 0,
-    suffixType = Core.sanitizeQuestType(parsedType),
-    finalZone = finalZone,
-    finalType = finalType,
-  }
+  return selectedKeys[questIndexKey(quest) or ""] == true
 end
 
 local function byTitle(a, b)
@@ -949,10 +675,10 @@ end
 
 Core.byTitle = byTitle
 
-function Core.captureKnownQuests(existing, objectives, rollCount, adopt)
+function Core.captureKnownQuests(existing, quests, adopt)
   local known = (adopt and type(existing) == "table") and existing or Core.copyQuestList(existing)
 
-  if not Core.isObjectiveChoiceList(objectives) then
+  if type(quests) ~= "table" then
     return known, false
   end
 
@@ -960,38 +686,43 @@ function Core.captureKnownQuests(existing, objectives, rollCount, adopt)
   local inserted = false
   local changed = false
 
-  for i = 1, #(objectives) do
-    local objective = objectives[i]
-    local key = Core.questKey(objective)
-    local title = Core.questTitle(objective)
+  for i = 1, #(quests) do
+    local quest = quests[i]
+    local key = Core.questKey(quest)
+    local title = Core.questTitle(quest)
 
-    if key and title ~= "" then
-      local zoneOrSort, questType = Core.objectiveMetadata(objective)
+    if key and title ~= "" and quest.category ~= nil then
       local entry = indexByKey[key]
 
       if entry then
-        local objectiveText = Core.objectiveText(objective)
-        local nextZone = zoneOrSort > 0 and zoneOrSort or entry.zoneOrSort or 0
-        local nextType = questType > 0 and questType or entry.questType or 0
-        local _, rewardsChanged = copyRewardFields(entry, objective)
+        local touched = setField(entry, "title", title)
+        touched = setField(entry, "questId", count(quest.questId)) or touched
+        touched = setField(entry, "objectiveText", Core.objectiveText(quest)) or touched
+        touched = copyContractFields(entry, quest) or touched
 
-        if entry.objectiveText ~= objectiveText
-            or entry.zoneOrSort ~= nextZone
-            or entry.questType ~= nextType
-            or rewardsChanged then
-          entry.objectiveText = objectiveText
-          entry.zoneOrSort = nextZone
-          entry.questType = nextType
+        if touched then
           changed = true
+          Core.onKnownQuestTouched(entry)
         end
-
-        entry.seen = (entry.seen or 0) + 1
-        entry.lastSeenRoll = rollCount or entry.lastSeenRoll or 0
-
-        Core.onKnownQuestTouched(entry)
       else
-        local created = buildQuestEntry(
-          objective, key, title, zoneOrSort, questType, 1, rollCount or 0)
+        local created = Core.copyQuest({
+          key = key,
+          questId = quest.questId,
+          title = title,
+          objectiveText = Core.objectiveText(quest),
+          description = quest.description,
+          category = quest.category,
+          cadence = quest.cadence,
+          accountWide = quest.accountWide,
+          ashes = quest.ashes,
+          xp = quest.xp,
+          copper = quest.copper,
+          artisan = quest.artisan,
+          item = quest.item,
+          itemCount = quest.itemCount,
+          orbs = quest.orbs,
+          shards = quest.shards,
+        })
 
         table.insert(known, created)
         indexByKey[key] = created
@@ -1009,18 +740,7 @@ function Core.captureKnownQuests(existing, objectives, rollCount, adopt)
   return known, changed
 end
 
-function Core.isObjectiveChoiceList(objectives)
-  if type(objectives) ~= "table" or #(objectives) < 3 then
-    return false
-  end
-
-  for i = 1, 3 do
-    if Core.questKey(objectives[i]) == nil or Core.questTitle(objectives[i]) == "" then
-      return false
-    end
-  end
-
-  return true
+function Core.onKnownQuestTouched()
 end
 
 AutoCallboardCore = Core

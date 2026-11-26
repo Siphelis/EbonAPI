@@ -35,6 +35,26 @@ local function runner(...)
   end
 end
 
+local function timedRunner(note, clock, ...)
+  while runIndex <= runCount do
+    local index = runIndex
+    runIndex = index + 1
+
+    local t0 = clock()
+
+    runFns[index](...)
+
+    note(runFns[index], runOwners[index], clock() - t0)
+  end
+end
+
+local run = runner
+local probeNote, probeClock
+
+local function probeRunner(...)
+  return timedRunner(probeNote, probeClock, ...)
+end
+
 function EbonAPI.fanout(fns, owners, count, ...)
   if count == 0 then
     return 0
@@ -45,7 +65,7 @@ function EbonAPI.fanout(fns, owners, count, ...)
   runFns, runOwners, runIndex, runCount = fns, owners, 1, count
 
   while runIndex <= runCount do
-    local ok, err = pcall(runner, ...)
+    local ok, err = pcall(run, ...)
 
     if ok then
       break
@@ -57,6 +77,16 @@ function EbonAPI.fanout(fns, owners, count, ...)
   runFns, runOwners, runIndex, runCount = savedFns, savedOwners, savedIndex, savedCount
 
   return count
+end
+
+function EbonAPI.fanoutProbe(note, clock)
+  if note then
+    probeNote, probeClock = note, clock
+    run = probeRunner
+  else
+    probeNote, probeClock = nil, nil
+    run = runner
+  end
 end
 
 local fanout = EbonAPI.fanout
@@ -492,4 +522,3 @@ function EbonAPI:GetVersion()
 end
 
 EbonAPI:DeclareSticky("READY")
-EbonAPI:DeclareSticky("LANGUAGE_CHANGED")

@@ -17,7 +17,6 @@ local format, gsub, floor, ceil, max, min = string.format, string.gsub, math.flo
 local pcall, tostring, tonumber, type, ipairs, setmetatable = pcall, tostring, tonumber, type, ipairs, setmetatable
 
 local THEME = Palette.THEME
-local NBSP = "\194\160"
 local PIPS = 16
 local RING_STEPS = 40
 
@@ -26,11 +25,15 @@ QueueParts.LIMITS = { wait = { 10, 30 }, average = { 5, 20 }, flow = { 1, 3 }, r
 local LEVEL_COLOR = { ok = "success", warn = "caution", bad = "danger" }
 local LEVEL_FILL = { ok = "success", warn = "caution", bad = "danger", accent = "heading" }
 
+QueueParts.CLASS_KEY = { "success", "success", "success", "caution", "caution", "danger", "danger" }
+
 local function word(key)
   local L = EbonAPI.L
 
   return (L and L[key]) or key
 end
+
+QueueParts.word = word
 
 local function value(key, fallback)
   local ok, found = pcall(Skins.value, key)
@@ -41,6 +44,8 @@ local function value(key, fallback)
   return fallback
 end
 
+QueueParts.value = value
+
 local function num(n)
   n = tonumber(n)
   if not n or n ~= n or n == math.huge or n == -math.huge then
@@ -50,20 +55,14 @@ local function num(n)
   return n
 end
 
+QueueParts.num = num
+
 local function round1(n)
   return floor(num(n) * 10 + 0.5) / 10
 end
 
-function QueueParts.number(n)
-  n = floor(num(n) + 0.5)
-
-  local text, count = format("%.0f", n < 0 and -n or n), 1
-
-  while count > 0 do
-    text, count = gsub(text, "^(%d+)(%d%d%d)", "%1" .. NBSP .. "%2")
-  end
-
-  return (n < 0 and "-" or "") .. text
+QueueParts.number = function(n)
+  return EbonAPI.Format.number(n)
 end
 
 local function separator()
@@ -180,6 +179,9 @@ local function tint(target, method, key, alpha)
   target[method](target, color[1], color[2], color[3], alpha or 1)
 end
 
+QueueParts.hue = hue
+QueueParts.tint = tint
+
 local function same(mem, a, b, c, d, e, f)
   if mem.a == a and mem.b == b and mem.c == c and mem.d == d and mem.e == e and mem.f == f then
     return true
@@ -246,13 +248,9 @@ local function shape_frame(frame, shape, radius, edgeOnly)
   end
 end
 
-local function hide_or_show(target, on)
-  if on then
-    target:Show()
-  else
-    target:Hide()
-  end
-end
+local hide_or_show = EbonAPI.Lib.setShown
+
+QueueParts.hideOrShow = hide_or_show
 
 local function shine(frame, on)
   if on and not frame.shine then

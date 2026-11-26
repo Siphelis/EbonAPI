@@ -12,6 +12,7 @@ local Bricks = EbonAPI.Bricks
 local Skins = EbonAPI.Skins
 local Lib = EbonAPI.Lib
 local L = EbonAPI.L
+local Format = EbonAPI.Format
 
 local format, floor, ceil, min, max, concat = string.format, math.floor, math.ceil, math.min, math.max, table.concat
 local ipairs, pcall, tostring, type, rawget = ipairs, pcall, tostring, type, rawget
@@ -68,7 +69,7 @@ local function lineTotal()
     return ""
   end
 
-  return format(L.QUEUEVIEW_LINE_TOTAL, snap.total, snap.capacity, snap.whispers, snap.channel, snap.server, snap.parts)
+  return format(L.QUEUEVIEW_LINE_TOTAL, Format.number(snap.total), Format.number(snap.capacity), Format.number(snap.whispers), Format.number(snap.channel), Format.number(snap.server), Format.number(snap.parts))
 end
 
 local function lineRate()
@@ -109,7 +110,7 @@ local function linePace()
   local interval = Queue.SEND_INTERVAL
   local rate = 1 / interval
 
-  return format(L.QUEUEVIEW_PACE, format(rate == floor(rate) and "%d" or "%.1f", rate), floor(interval * 1000 + 0.5))
+  return format(L.QUEUEVIEW_PACE, rate == floor(rate) and Format.number(rate) or format("%.1f", rate), Format.number(floor(interval * 1000 + 0.5)))
 end
 
 local function lineTotals()
@@ -119,8 +120,8 @@ local function lineTotals()
     return ""
   end
 
-  return format(L.QUEUEVIEW_LINE_TOTALS, snap.sent.whisper, snap.sent.channel, snap.sent.server,
-    snap.dropped.full, snap.dropped.offline, snap.dropped.failed)
+  return format(L.QUEUEVIEW_LINE_TOTALS, Format.number(snap.sent.whisper), Format.number(snap.sent.channel), Format.number(snap.sent.server),
+    Format.number(snap.dropped.full), Format.number(snap.dropped.offline), Format.number(snap.dropped.failed))
 end
 
 local function lineFetch()
@@ -130,8 +131,8 @@ local function lineFetch()
     return ""
   end
 
-  return format(L.QUEUEVIEW_FETCH_LINE, fetch.live, fetch.window, fetch.perPeer, fetch.waiting, fetch.delayed,
-    fetch.late, fetch.timeout)
+  return format(L.QUEUEVIEW_FETCH_LINE, Format.number(fetch.live), Format.number(fetch.window), Format.number(fetch.perPeer), Format.number(fetch.waiting), Format.number(fetch.delayed),
+    Format.number(fetch.late), fetch.timeout)
 end
 
 local function buckets(list)
@@ -161,7 +162,7 @@ local function contentRows()
     local parts = ""
 
     if row.parts and row.parts > 1 then
-      parts = format("%d/%d", row.left, row.parts)
+      parts = format("%s/%s", Format.number(row.left), Format.number(row.parts))
     end
 
     out[index] = {
@@ -321,10 +322,10 @@ end
 
 local function scaleText(serie)
   if serie.field == "len" then
-    return format("0-%d", scaleOf(serie))
+    return format("0-%s", Format.number(scaleOf(serie)))
   end
 
-  return format("0-%d/s", scaleOf(serie))
+  return format("0-%s/s", Format.number(scaleOf(serie)))
 end
 
 local function seriesBars(serie)
@@ -387,7 +388,7 @@ local function seriesScale(serie)
   end
 
   local function number(value)
-    return serie.field == "len" and format("%d", value) or format("%.1f", value)
+    return serie.field == "len" and Format.number(value) or format("%.1f", value)
   end
 
   return format(L.QUEUEVIEW_CHART_SCALE, scaleText(serie), number(top), number(current), BIN)
@@ -451,7 +452,7 @@ local function drawTips(view, over, edge)
       tip:ClearAllPoints()
       tip:SetPoint("BOTTOM", view.frame, "BOTTOMLEFT", edge + (spike.index - 1) * PITCH + PITCH / 2,
         edge + spike.drawn + 1)
-      tip:SetText(format("%.0f", spike.value))
+      tip:SetText(Format.number(spike.value))
       tip:Show()
     else
       tip:Hide()
@@ -625,7 +626,7 @@ local function dump()
   add(L.QUEUEVIEW_TAB_CONTENT)
 
   for _, row in ipairs(contentRows()) do
-    add(format("%s | %s | %s | %s | %s | %s | %s | %s | %s | %s", row.pos, tostring(row.who), row.lane, row.kind,
+    add(format("%s | %s | %s | %s | %s | %s | %s | %s | %s | %s", Format.number(row.pos), tostring(row.who), row.lane, row.kind,
       row.op, row.detail or "", row.parts, row.age, row.eta, row.state))
   end
 
@@ -642,15 +643,15 @@ local function dump()
 
   for _, row in ipairs(destRows()) do
     add(format("%s | %s | %s | waiting %s queued %s sent %s failed %s mean %s max %s last %s %s", tostring(row.who),
-      row.lane, row.kind, row.waiting, row.queued, row.sent, row.failed, row.avg, row.max, row.last, row.state))
+      row.lane, row.kind, Format.number(row.waiting), Format.number(row.queued), Format.number(row.sent), Format.number(row.failed), row.avg, row.max, row.last, row.state))
   end
 
   add("")
   add(L.QUEUEVIEW_TAB_LANES)
 
   for _, row in ipairs(laneRows()) do
-    add(format("%s | waiting %s queued %s sent %s failed %s mean %s max %s last %s | %s", row.lane, row.waiting,
-      row.queued, row.sent, row.failed, row.avg, row.max, row.last, row.tip))
+    add(format("%s | waiting %s queued %s sent %s failed %s mean %s max %s last %s | %s", row.lane, Format.number(row.waiting),
+      Format.number(row.queued), Format.number(row.sent), Format.number(row.failed), row.avg, row.max, row.last, row.tip))
   end
 
   add("")
@@ -659,18 +660,18 @@ local function dump()
 
   for _, row in ipairs(holderRows()) do
     add(format("%s | in flight %s keys %s answered %s muted %s slow %s limit %s heard %s", tostring(row.peer),
-      row.inflight, row.keys, row.answered, row.muted, row.slow, row.limit, row.heard))
+      Format.number(row.inflight), Format.number(row.keys), Format.number(row.answered), Format.number(row.muted), Format.number(row.slow), row.limit, Format.number(row.heard)))
   end
 
   for _, row in ipairs(flightRows()) do
-    add(format("%s | %s | asked %s limit %s", row.key, tostring(row.peer), row.asked, row.limit))
+    add(format("%s | %s | asked %s limit %s", row.key, tostring(row.peer), Format.number(row.asked), row.limit))
   end
 
   add("")
   add(L.QUEUEVIEW_TAB_HISTORY)
 
   for _, row in ipairs(historyRows()) do
-    add(format("%s s | length %s in %s out %s mean %s max %s", row.time, row.len, row.ins, row.outs, row.avg, row.max))
+    add(format("%s s | length %s in %s out %s mean %s max %s", row.time, Format.number(row.len), Format.number(row.ins), Format.number(row.outs), row.avg, Format.number(row.max)))
   end
 
   return concat(out, "\n")

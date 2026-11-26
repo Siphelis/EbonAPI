@@ -6,7 +6,12 @@ local MIN_BUILDS     = 3
 local MIN_PEOPLE     = 1
 local MIN_BAN_PEOPLE = 3
 
-local Key = EbonBuilds.Catalog.Key
+local function Key(spellId)
+    local E = EbonAPI and EbonAPI.EchoCatalog
+    if not E then return spellId end
+    return E.GroupKey(spellId) or spellId
+end
+EbonBuilds.Matrix.Key = Key
 
 local version = 0
 

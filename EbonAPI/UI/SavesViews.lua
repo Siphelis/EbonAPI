@@ -8,49 +8,105 @@ EbonAPI.SavesViews = { views = {} }
 local Views = EbonAPI.SavesViews
 local Bricks = EbonAPI.Bricks
 local Data = EbonAPI.SavesData
+local Format = EbonAPI.Format
 
 local floor, max, min = math.floor, math.max, math.min
-local ipairs, pairs, pcall, type = ipairs, pairs, pcall, type
+local ipairs, type = ipairs, type
 local lower = string.lower
 local S = Bricks.value
-local PAD = 4
-local DOUBLE = 0.4
-local PCT = 32
 
-local ICONS = {
-  list = 0, grid = 1, gauge = 2, search = 3, sort = 4, plus = 5, close = 6, check = 7, play = 8, half = 9,
-  lock = 10, warn = 11, cross = 12, bolt = 13, dots = 14, left = 15, right = 16, star = 17, starOn = 18,
-}
+local ICONS = Bricks.glyphs
 
 Views.ICONS = ICONS
 
--- SetTexCoord values of the case `k` of an atlas of 8 x 8 cases (case 0 at the top left).
-local function cellCoords(k)
-  local column, line = k % 8, floor(k / 8)
-
-  return column / 8, (column + 1) / 8, line / 8, (line + 1) / 8
-end
-
 function Views.ringCoords(k)
-  return cellCoords(max(0, min(63, floor(k or 0))))
+  return Bricks.caseCoords(max(0, min(63, floor(k or 0))))
 end
 
 function Views.iconCoords(name)
-  return cellCoords(ICONS[name] or 63)
+  return Bricks.glyphCoords(name)
 end
 
 -- Frame:SetShown does not exist in the 3.3.5 client.
-local function show(target, on)
-  if on then
-    target:Show()
-  else
-    target:Hide()
-  end
-end
+local show = EbonAPI.Lib.setShown
 
 local function lookKey(name)
   return S("widgets.saves." .. name)
 end
+
+-- A layout token of the saves block (widgets.saves.metric.*): sizes, offsets and texts come from the skin.
+local function metric(name)
+  return lookKey("metric." .. name)
+end
+
+-- Tints a texture by a palette key and remembers its alpha (Bricks.alpha), so a repaint keeps it.
+local function tint(texture, key, alpha)
+  Bricks.paint(texture, "SetVertexColor", key)
+  Bricks.alpha(texture, alpha)
+end
+
+-- A skin token of the saves block with a coded fallback (the values of the default skin) when the skin gives none.
+local function lookOr(name, default)
+  local value = lookKey(name)
+
+  if value == nil or value == "" then
+    return default
+  end
+
+  return value
+end
+
+Views.lookOr = lookOr
+
+-- RRGGBB text to the three 0..1 components (nil when the text is not a colour).
+function Views.hexColor(hex)
+  if type(hex) ~= "string" or not hex:match("^%x%x%x%x%x%x$") then
+    return nil
+  end
+
+  return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255
+end
+
+-- A small square of a given colour (item.dot / item.currencyDot) with a border of the skin: `token` is "dot" or "coin".
+local function newPastille(parent, token)
+  local pastille = CreateFrame("Frame", nil, parent)
+  local solid = Bricks.media("solid")
+
+  pastille.token = token
+  pastille.edge = pastille:CreateTexture(nil, "ARTWORK")
+  pastille.edge:SetTexture(solid)
+  pastille.edge:SetAllPoints(pastille)
+  Bricks.paint(pastille.edge, "SetVertexColor", lookOr(token .. ".border", "borderDim"))
+  pastille.fill = pastille:CreateTexture(nil, "OVERLAY")
+  pastille.fill:SetTexture(solid)
+  pastille.fill:SetPoint("TOPLEFT", pastille, "TOPLEFT", metric("inset"), -metric("inset"))
+  pastille.fill:SetPoint("BOTTOMRIGHT", pastille, "BOTTOMRIGHT", -metric("inset"), metric("inset"))
+
+  -- Shows the pastille for `hex` (hidden when it is not a colour); returns the width it takes (0 when hidden).
+  function pastille:Set(hex)
+    local r, g, b = Views.hexColor(hex)
+    local size = lookOr(self.token .. ".size", self.token == "coin" and 6 or 8)
+
+    if not r then
+      self:Hide()
+      return 0
+    end
+
+    self:SetWidth(size)
+    self:SetHeight(size)
+    self.fill:SetVertexColor(r, g, b)
+    Bricks.paint(self.edge, "SetVertexColor", lookOr(self.token .. ".border", "borderDim"))
+    self:Show()
+
+    return size
+  end
+
+  pastille:Hide()
+
+  return pastille
+end
+
+Views.newPastille = newPastille
 
 -- A texture of the icon atlas, tinted by a palette key.
 local function iconTexture(parent, name, key, layer)
@@ -83,8 +139,7 @@ local function newRing(parent, size)
     ring[name] = texture
   end
 
-  Bricks.paint(ring.track, "SetVertexColor", "muted")
-  ring.track:SetAlpha(0.3)
+  tint(ring.track, "muted", 0.3)
   ring.track:SetTexCoord(Views.ringCoords(40))
   Bricks.paint(ring.now, "SetVertexColor", lookKey("now"))
 
@@ -172,12 +227,66 @@ local function gaugeFrame(cell, selected)
   Bricks.frame(cell, style == "flat" and "small" or style, fill, cell.border)
 end
 
-local function tipBody(item)
-  if item.marked and item.marked ~= "" then
-    return item.tip and (item.marked .. "\n" .. item.tip) or item.marked
+local function placeTip(box, owner)
+  local tip = GameTooltip
+  local screen = UIParent:GetEffectiveScale() or 1
+  local left, right, top, bottom = box:GetLeft(), box:GetRight(), owner:GetTop(), owner:GetBottom()
+
+  if not tip or not tip:IsShown() or not left or not right or not top or not bottom then
+    return
   end
 
-  return item.tip
+  local function units(frame, value)
+    return value * (frame:GetEffectiveScale() or 1) / screen
+  end
+
+  local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+  local w, h = units(tip, tip:GetWidth()), units(tip, tip:GetHeight())
+  local gap = S("widgets.saves.denseTipGap")
+  local panelLeft, panelRight = units(box, left), units(box, right)
+  local x, y = nil, units(owner, top)
+
+  local dressTree = EbonAPI.DressTree
+  local side = dressTree and dressTree.getPanelSide and dressTree.getPanelSide()
+  local journal = dressTree and dressTree.journalFrame and dressTree.journalFrame()
+  local rightOfPanel
+
+  if side then
+    rightOfPanel = side == "RIGHT"
+  elseif journal and journal:IsShown() and journal:GetLeft() and journal:GetRight() then
+    local journalCenter = units(journal, (journal:GetLeft() + journal:GetRight()) / 2)
+    rightOfPanel = (panelLeft + panelRight) / 2 > journalCenter
+  else
+    rightOfPanel = (panelLeft + panelRight) / 2 > sw / 2
+  end
+
+  if rightOfPanel then
+    x = panelRight + gap
+
+    if x + w > sw then
+      x = nil
+    end
+  else
+    x = panelLeft - gap - w
+
+    if x < 0 then
+      x = nil
+    end
+  end
+
+  if not x then
+    local cx, cy = GetCursorPosition()
+
+    x = min(max(cx / screen - w / 2, 0), sw - w)
+    y = min(cy / screen, units(owner, bottom)) - gap
+  end
+
+  y = min(max(y, h), sh)
+
+  local tipScreen = screen / (tip:GetEffectiveScale() or 1)
+
+  tip:ClearAllPoints()
+  tip:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x * tipScreen, y * tipScreen)
 end
 
 -- Plugs the mouse on a cell of the list: choose, activate (double click), menu, tooltip, hover.
@@ -191,13 +300,16 @@ local function wireCell(box, cell)
     end
 
     if button == "RightButton" then
-      box:OpenMenu(item.id, self)
+      if not item.readonly then
+        box:OpenMenu(item.id, self)
+      end
+
       return
     end
 
     local now = GetTime and GetTime() or 0
 
-    if self.lastClick and now - self.lastClick <= DOUBLE then
+    if self.lastClick and now - self.lastClick <= metric("doubleClick") then
       self.lastClick = nil
       box:DoubleClick(item.id)
       return
@@ -213,7 +325,11 @@ local function wireCell(box, cell)
     paintCell(self)
 
     if item then
-      Bricks.tip(self, item.name, tipBody(item))
+      if item.text and item.text ~= "" then
+        Bricks.tip(self, item.text, nil, box.tipAnchor)
+        placeTip(box, self)
+      end
+
       box:Hover(item.id, self)
     end
   end)
@@ -238,8 +354,7 @@ local function newCell(box, gauge)
   cell.chosen = cell:CreateTexture(nil, "BACKGROUND")
   cell.chosen:SetTexture(solid)
   cell.chosen:SetAllPoints(cell)
-  Bricks.paint(cell.chosen, "SetVertexColor", lookKey("row.selected"))
-  cell.chosen:SetAlpha(0.38)
+  tint(cell.chosen, lookKey("row.selected"), 0.38)
   cell.chosen:Hide()
   cell.gauge = gauge and true or false
 
@@ -247,14 +362,13 @@ local function newCell(box, gauge)
     -- The row is its own bar: owned part, then the part activated now (textures of the solid media).
     cell.barOwned = cell:CreateTexture(nil, "BORDER")
     cell.barOwned:SetTexture(solid)
-    cell.barOwned:SetAlpha(0.5)
+    Bricks.alpha(cell.barOwned, 0.5)
     cell.barNow = cell:CreateTexture(nil, "BORDER")
     cell.barNow:SetTexture(solid)
-    cell.barNow:SetAlpha(0.5)
-    Bricks.paint(cell.barNow, "SetVertexColor", lookKey("now"))
+    tint(cell.barNow, lookKey("now"), 0.5)
     cell.pct = Bricks.text(cell, lookKey("small.font"), "muted")
     cell.pct:SetJustifyH("RIGHT")
-    cell.pct:SetWidth(PCT)
+    cell.pct:SetWidth(metric("pctWidth"))
 
     if cell.pct.SetWordWrap then
       cell.pct:SetWordWrap(false)
@@ -270,10 +384,13 @@ local function newCell(box, gauge)
     cell.name:SetWordWrap(false)
   end
 
+  cell.dotMark = newPastille(cell, "dot")
+  cell.coinMark = newPastille(cell, "coin")
   cell.bolt = iconTexture(cell, "bolt", lookKey("later"))
   cell.mark = iconTexture(cell, "warn", "caution")
   cell.state = iconTexture(cell, "lock", "muted")
   cell.go = CreateFrame("Button", nil, cell)
+  Bricks.under(cell.go)
   cell.go.icon = iconTexture(cell.go, "play", "success")
   cell.go.icon:SetAllPoints(cell.go)
   cell.go:SetScript("OnClick", function(self)
@@ -288,7 +405,11 @@ local function newCell(box, gauge)
     paintCell(cell)
 
     if item then
-      Bricks.tip(self, item.name, tipBody(item))
+      if item.text and item.text ~= "" then
+        Bricks.tip(self, item.text, nil, box.tipAnchor)
+        placeTip(box, self)
+      end
+
       box:Hover(item.id, cell)
     end
   end)
@@ -311,15 +432,15 @@ local function newCell(box, gauge)
     local owned = item.state == "active" and 1 or min(1, max(0, item.owned or 0))
     local now = item.state == "active" and 0 or min(1 - owned, max(0, item.now or 0))
 
-    Bricks.paint(self.barOwned, "SetVertexColor", item.state == "active" and lookKey("now") or lookKey("owned"))
+    tint(self.barOwned, item.state == "active" and lookKey("now") or lookKey("owned"), 0.5)
 
     for _, part in ipairs({ { self.barOwned, 0, owned }, { self.barNow, owned, now } }) do
       local bar, from, share = part[1], part[2], part[3]
 
       bar:ClearAllPoints()
-      bar:SetPoint("TOPLEFT", self, "TOPLEFT", 1 + inner * from, -1)
-      bar:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 1 + inner * from, 1)
-      bar:SetWidth(max(0.01, inner * share))
+      bar:SetPoint("TOPLEFT", self, "TOPLEFT", metric("inset") + inner * from, -metric("inset"))
+      bar:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", metric("inset") + inner * from, metric("inset"))
+      bar:SetWidth(max(metric("minBar"), inner * share))
       show(bar, share > 0)
     end
 
@@ -329,21 +450,21 @@ local function newCell(box, gauge)
   function cell:SetItem(item, state)
     local height = self:GetHeight()
     local ringSize = lookKey("ring.size")
-    local side = max(12, height - 2 * PAD)
+    local side = max(12, height - 2 * metric("pad"))
     local icon, key = stateIcon(item)
-    local nameLeft = PAD * 2 + (self.gauge and 0 or ringSize)
-    local nameRight = side + PAD * 2
-    local pctSpace = self.gauge and (PCT + 2) or 0
+    local nameLeft = metric("pad") * 2 + (self.gauge and 0 or ringSize)
+    local nameRight = side + metric("pad") * 2
+    local pctSpace = self.gauge and (metric("pctWidth") + metric("pctGap")) or 0
 
     self.item = item
     self.saveId = item.id
 
     if self.ring then
       self.ring:Set(item)
-      self.ring:SetPoint("LEFT", self, "LEFT", PAD, 0)
+      self.ring:SetPoint("LEFT", self, "LEFT", metric("pad"), 0)
     else
       self:SetBars(item)
-      self.pct:SetText(floor((item.state == "active" and 1 or (item.owned or 0)) * 100 + 0.5) .. "%")
+      self.pct:SetText(floor((item.state == "active" and 1 or (item.owned or 0)) * 100 + 0.5) .. metric("percentSuffix"))
       self.pct:ClearAllPoints()
       self.pct:SetPoint("RIGHT", self, "RIGHT", -nameRight, 0)
     end
@@ -355,11 +476,11 @@ local function newCell(box, gauge)
     self.go:SetWidth(side)
     self.go:SetHeight(side)
     self.go:ClearAllPoints()
-    self.go:SetPoint("RIGHT", self, "RIGHT", -PAD, 0)
-    self.state:SetWidth(side - 4)
-    self.state:SetHeight(side - 4)
+    self.go:SetPoint("RIGHT", self, "RIGHT", -metric("pad"), 0)
+    self.state:SetWidth(side - metric("stateTrim"))
+    self.state:SetHeight(side - metric("stateTrim"))
     self.state:ClearAllPoints()
-    self.state:SetPoint("RIGHT", self, "RIGHT", -PAD - 2, 0)
+    self.state:SetPoint("RIGHT", self, "RIGHT", -metric("pad") - metric("stateShift"), 0)
     Views.setIcon(self.state, icon)
     Bricks.paint(self.state, "SetVertexColor", key)
 
@@ -372,13 +493,30 @@ local function newCell(box, gauge)
     end
 
     local extra = 0
+    local dotSize = self.dotMark:Set(item.dot)
+
+    self.dotMark:ClearAllPoints()
+
+    if dotSize > 0 then
+      self.dotMark:SetPoint("LEFT", self, "LEFT", nameLeft, 0)
+      nameLeft = nameLeft + dotSize + 4
+    end
+
+    local coinSize = self.coinMark:Set(item.currency and item.currencyDot or nil)
+
+    self.coinMark:ClearAllPoints()
+
+    if coinSize > 0 then
+      self.coinMark:SetPoint("RIGHT", self, "RIGHT", -(nameRight + pctSpace + extra), 0)
+      extra = extra + coinSize + 4
+    end
 
     for _, name in ipairs({ "bolt", "mark" }) do
       local texture = self[name]
       local on = (name == "bolt" and item.progressive) or (name == "mark" and item.marked)
 
-      texture:SetWidth(12)
-      texture:SetHeight(12)
+      texture:SetWidth(metric("iconSize"))
+      texture:SetHeight(metric("iconSize"))
       texture:ClearAllPoints()
 
       if on then
@@ -407,19 +545,20 @@ local function newHeader(box)
   header:RegisterForClicks("LeftButtonUp")
   header.chevron = header:CreateTexture(nil, "OVERLAY")
   header.chevron:SetTexture(Bricks.media("chevron"))
-  header.chevron:SetWidth(10)
-  header.chevron:SetHeight(10)
-  header.chevron:SetPoint("LEFT", header, "LEFT", PAD, 0)
+  header.chevron:SetWidth(metric("chevronSize"))
+  header.chevron:SetHeight(metric("chevronSize"))
+  header.chevron:SetPoint("LEFT", header, "LEFT", metric("pad"), 0)
   Bricks.paint(header.chevron, "SetVertexColor", "muted")
   header.title = Bricks.text(header, lookKey("font"), lookKey("group.color"))
   header.title:SetJustifyH("LEFT")
   header.count = Bricks.text(header, lookKey("small.font"), "muted")
   header.count:SetJustifyH("RIGHT")
   header.check = iconTexture(header, "check", "success")
-  header.check:SetWidth(10)
-  header.check:SetHeight(10)
+  header.check:SetWidth(metric("chevronSize"))
+  header.check:SetHeight(metric("chevronSize"))
   header.dots = CreateFrame("Button", nil, header)
-  header.dots:SetWidth(16)
+  Bricks.under(header.dots)
+  header.dots:SetWidth(metric("dotsWidth"))
   header.dots.icon = iconTexture(header.dots, "dots", "muted")
   header.dots.icon:SetAllPoints(header.dots)
 
@@ -452,26 +591,28 @@ local function newHeader(box)
 
     self.groupId = group.id
     self.title:SetText(Bricks.label(group.name, "widgets.saves.group.upper"))
-    self.count:SetText(active > 0 and (#block.items .. " · " .. active) or tostring(#block.items))
+    self.count:SetText(active > 0 and (#block.items .. metric("countSeparator") .. active) or tostring(#block.items))
     show(self.check, active > 0)
     Bricks.turn(self.chevron, not shut)
 
-    local hasMenu = group.id ~= ""
+    local hasMenu = group.id ~= "" and not group.readonly
 
-    self.dots:SetHeight(max(12, self:GetHeight()))
+    self.dots:SetHeight(max(metric("iconSize"), self:GetHeight()))
     self.dots:ClearAllPoints()
-    self.dots:SetPoint("RIGHT", self, "RIGHT", -PAD, 0)
+    self.dots:SetPoint("RIGHT", self, "RIGHT", -metric("pad"), 0)
+    self.chevron:ClearAllPoints()
+    self.chevron:SetPoint("LEFT", self, "LEFT", metric("pad"), 0)
     show(self.dots, hasMenu)
 
-    local right = hasMenu and (PAD + 18) or PAD
+    local right = hasMenu and (metric("pad") + metric("menuReserve")) or metric("pad")
 
     self.check:ClearAllPoints()
     self.check:SetPoint("RIGHT", self, "RIGHT", -right, 0)
     self.count:ClearAllPoints()
-    self.count:SetPoint("RIGHT", self, "RIGHT", -(right + (active > 0 and 12 or 0)), 0)
+    self.count:SetPoint("RIGHT", self, "RIGHT", -(right + (active > 0 and metric("checkReserve") or 0)), 0)
     self.title:ClearAllPoints()
-    self.title:SetPoint("LEFT", self.chevron, "RIGHT", 4, 0)
-    self.title:SetPoint("RIGHT", self.count, "LEFT", -4, 0)
+    self.title:SetPoint("LEFT", self.chevron, "RIGHT", metric("gap"), 0)
+    self.title:SetPoint("RIGHT", self.count, "LEFT", -metric("gap"), 0)
   end
 
   return header
@@ -484,14 +625,41 @@ local function baseView(box, kind, make)
   local headerPool = Bricks.pool(function() return newHeader(box) end)
 
   view.cellPool, view.headerPool = cellPool, headerPool
+
   view.cursor = Bricks.text(box.scroll.child, lookKey("small.font"), lookKey("group.color"))
   view.cursor:SetJustifyH("CENTER")
   view.cursor:Hide()
 
-  -- The card of a group (skins whose group.frame is not FLAT, with a group.fill): a framed block under the header and
-  -- the cells of the group, from y `top` to y `bottom`.
+  -- The card of a group (skins whose group.frame is not FLAT, with a group.fill): a filled block with a thin border under
+  -- the header and the cells of the group, from y `top` to y `bottom`. It is made of textures of the scroll child (BACKGROUND
+  -- layer): the regions of a frame are always drawn under all its child frames (headers, cells), whatever their levels or
+  -- strata, which an opaque card frame cannot guarantee (it could cover the whole list).
   local cardPool = Bricks.pool(function()
-    return CreateFrame("Frame", nil, box.scroll.child)
+    local card = {}
+    local solid = Bricks.media("solid")
+
+    card.fill = box.scroll.child:CreateTexture(nil, "BACKGROUND")
+    card.fill:SetTexture(solid)
+    card.edges = {}
+
+    for index = 1, 4 do
+      card.edges[index] = box.scroll.child:CreateTexture(nil, "BACKGROUND")
+      card.edges[index]:SetTexture(solid)
+    end
+
+    function card:SetParent() end
+    function card:ClearAllPoints() end
+    function card:SetAlpha() end
+    function card:Show()
+      self.fill:Show()
+      for _, edge in ipairs(self.edges) do edge:Show() end
+    end
+    function card:Hide()
+      self.fill:Hide()
+      for _, edge in ipairs(self.edges) do edge:Hide() end
+    end
+
+    return card
   end)
 
   view.cardPool = cardPool
@@ -505,15 +673,32 @@ local function baseView(box, kind, make)
 
     local child = box.scroll.child
     local card = cardPool:acquire(child)
+    local height, line = max(1, bottom - top), S("border.size")
+    local top1, left, bottom1, right = card.edges[1], card.edges[2], card.edges[3], card.edges[4]
 
-    if card.SetFrameLevel and child.GetFrameLevel then
-      card:SetFrameLevel(child:GetFrameLevel())
+    card.fill:ClearAllPoints()
+    card.fill:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -top)
+    card.fill:SetWidth(width)
+    card.fill:SetHeight(height)
+    Bricks.paint(card.fill, "SetVertexColor", fill)
+
+    for _, edge in ipairs(card.edges) do
+      edge:ClearAllPoints()
+      Bricks.paint(edge, "SetVertexColor", "borderDim")
     end
 
-    card:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -top)
-    card:SetWidth(width)
-    card:SetHeight(max(1, bottom - top))
-    Bricks.frame(card, style, fill, "borderDim")
+    top1:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -top)
+    top1:SetWidth(width)
+    top1:SetHeight(line)
+    bottom1:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -(top + height - line))
+    bottom1:SetWidth(width)
+    bottom1:SetHeight(line)
+    left:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -top)
+    left:SetWidth(line)
+    left:SetHeight(height)
+    right:SetPoint("TOPLEFT", child, "TOPLEFT", width - line, -top)
+    right:SetWidth(line)
+    right:SetHeight(height)
   end
 
   function view:Cells()
@@ -540,7 +725,7 @@ local function baseView(box, kind, make)
     self.cursor:ClearAllPoints()
     self.cursor:SetPoint("TOPLEFT", box.scroll.child, "TOPLEFT", 0, -y)
     self.cursor:SetWidth(width)
-    self.cursor:SetHeight(16)
+    self.cursor:SetHeight(metric("cursorHeight"))
     self.cursor:Show()
 
     return 16
@@ -550,7 +735,7 @@ local function baseView(box, kind, make)
     local child = box.scroll.child
     local rowHeight = lookKey("row.height") + (self.kind == "gauge" and 2 or 0)
     local gap = lookKey("row.gap")
-    local headerHeight = max(18, rowHeight - 6)
+    local baseHeader = max(18, rowHeight - 6)
     local state = box.state
     local y = 0
 
@@ -561,6 +746,7 @@ local function baseView(box, kind, make)
 
       if block.group then
         local header = headerPool:acquire(child)
+        local headerHeight = baseHeader
 
         header:SetWidth(width)
         header:SetHeight(headerHeight)
@@ -642,7 +828,6 @@ end
 
 -- The grid view: square cells spread over the width, state icon, name, mini gauge; the drawer always docks.
 local STATE_BORDER = { active = "success", blocked = "caution", error = "danger", short = "borderDim" }
-local MINI = 3
 
 -- The palette key of the border of a grid cell, by state.
 local function slotBorder(item)
@@ -667,12 +852,12 @@ local function newSlot(box)
   slot.chosen = slot:CreateTexture(nil, "BACKGROUND")
   slot.chosen:SetTexture(solid)
   slot.chosen:SetAllPoints(slot)
-  Bricks.paint(slot.chosen, "SetVertexColor", lookKey("row.selected"))
-  slot.chosen:SetAlpha(0.38)
+  tint(slot.chosen, lookKey("row.selected"), 0.38)
   slot.chosen:Hide()
 
   -- The sharp outline of the chosen cell: an edge-only frame over the cell.
   slot.outline = CreateFrame("Frame", nil, slot)
+  Bricks.under(slot.outline)
   slot.outline:SetAllPoints(slot)
   slot.outline:EnableMouse(false)
   Bricks.frame(slot.outline, "small", "bg", "text")
@@ -681,13 +866,15 @@ local function newSlot(box)
   slot.outline:Hide()
 
   slot.glyph = iconTexture(slot, "lock", "muted")
-  slot.glyph:SetWidth(12)
-  slot.glyph:SetHeight(12)
-  slot.glyph:SetPoint("TOPLEFT", slot, "TOPLEFT", 3, -3)
+  slot.glyph:SetWidth(metric("iconSize"))
+  slot.glyph:SetHeight(metric("iconSize"))
+  slot.glyph:SetPoint("TOPLEFT", slot, "TOPLEFT", metric("slotInset"), -metric("slotInset"))
+  slot.dotMark = newPastille(slot, "dot")
+  slot.coinMark = newPastille(slot, "coin")
   slot.bolt = iconTexture(slot, "bolt", lookKey("later"))
-  slot.bolt:SetWidth(12)
-  slot.bolt:SetHeight(12)
-  slot.bolt:SetPoint("TOPRIGHT", slot, "TOPRIGHT", -3, -3)
+  slot.bolt:SetWidth(metric("iconSize"))
+  slot.bolt:SetHeight(metric("iconSize"))
+  slot.bolt:SetPoint("TOPRIGHT", slot, "TOPRIGHT", -metric("slotInset"), -metric("slotInset"))
   slot.name = Bricks.text(slot, lookKey("small.font"), "text")
   slot.name:SetJustifyH("CENTER")
   slot.name:SetJustifyV("MIDDLE")
@@ -713,7 +900,7 @@ local function newSlot(box)
     local side = self:GetWidth()
     local icon, key = stateIcon(item)
     local lineHeight = (S("fonts." .. lookKey("small.font") .. ".size") or 12) + 1
-    local inner = max(0, side - 2 - 2 * PAD)
+    local inner = max(0, side - 2 - 2 * metric("pad"))
     local active = item.state == "active"
     local owned = active and 1 or min(1, max(0, item.owned or 0))
     local now = active and 0 or min(1 - owned, max(0, item.now or 0))
@@ -733,13 +920,20 @@ local function newSlot(box)
     end
 
     show(self.bolt, item.progressive and true or false)
+
+    self.dotMark:ClearAllPoints()
+    self.dotMark:SetPoint("TOPLEFT", self, "TOPLEFT", metric("markLeft"), -metric("dotTop"))
+    self.dotMark:Set(item.dot)
+    self.coinMark:ClearAllPoints()
+    self.coinMark:SetPoint("TOPRIGHT", self, "TOPRIGHT", item.progressive and -metric("markLeft") or -metric("gap"), -metric("coinTop"))
+    self.coinMark:Set(item.currency and item.currencyDot or nil)
     self.name:SetText(Data.shortName(item.name or ""))
     Bricks.paint(self.name, "SetTextColor",
       (item.state == "short" or item.state == "blocked" or item.state == "error") and "muted" or "text")
     self.name:ClearAllPoints()
-    self.name:SetPoint("TOP", self, "TOP", 0, -(PAD + 10))
-    self.name:SetWidth(max(1, side - 2 * PAD))
-    self.name:SetHeight(3 * lineHeight)
+    self.name:SetPoint("TOP", self, "TOP", 0, -(metric("pad") + metric("nameTop")))
+    self.name:SetWidth(max(1, side - 2 * metric("pad")))
+    self.name:SetHeight(metric("nameLines") * lineHeight)
 
     Bricks.paint(self.barOwned, "SetVertexColor", active and lookKey("now") or lookKey("owned"))
 
@@ -747,9 +941,9 @@ local function newSlot(box)
       local bar, from, share = part[1], part[2], part[3]
 
       bar:ClearAllPoints()
-      bar:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 1 + PAD + inner * from, 1 + PAD / 2)
-      bar:SetWidth(max(0.01, inner * share))
-      bar:SetHeight(MINI)
+      bar:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", metric("inset") + metric("pad") + inner * from, metric("inset") + metric("pad") / 2)
+      bar:SetWidth(max(metric("minBar"), inner * share))
+      bar:SetHeight(metric("miniBar"))
       show(bar, share > 0)
     end
 
@@ -776,7 +970,7 @@ Views.views.grid = function(box)
     local child = box.scroll.child
     local size, gap = lookKey("cell.size"), lookKey("cell.gap")
     local rowGap = lookKey("row.gap")
-    local headerHeight = max(18, lookKey("row.height") - 6)
+    local baseHeader = max(18, lookKey("row.height") - 6)
     local columns = max(1, floor(width / (size + gap)))
     local side = (width - (columns - 1) * gap) / columns
     local state = box.state
@@ -790,6 +984,7 @@ Views.views.grid = function(box)
 
       if block.group then
         local header = headerPool:acquire(child)
+        local headerHeight = baseHeader
 
         header:SetWidth(width)
         header:SetHeight(headerHeight)
@@ -875,16 +1070,15 @@ function Views.drawer(box)
   local fontRole, smallRole = lookKey("font"), lookKey("small.font")
   local big = lookKey("ring.big")
   local nameHeight, dotsSize = 20, 20
-  local STRIP = 3
 
   drawer:EnableMouse(true)
   frameKeys(drawer, "drawer")
 
   drawer.strip = drawer:CreateTexture(nil, "ARTWORK")
   drawer.strip:SetTexture(Bricks.media("solid"))
-  drawer.strip:SetWidth(STRIP)
-  drawer.strip:SetPoint("TOPLEFT", drawer, "TOPLEFT", 1, -1)
-  drawer.strip:SetPoint("BOTTOMLEFT", drawer, "BOTTOMLEFT", 1, 1)
+  drawer.strip:SetWidth(metric("stripWidth"))
+  drawer.strip:SetPoint("TOPLEFT", drawer, "TOPLEFT", metric("inset"), -metric("inset"))
+  drawer.strip:SetPoint("BOTTOMLEFT", drawer, "BOTTOMLEFT", metric("inset"), metric("inset"))
 
   drawer.ring = newRing(drawer, big)
   drawer.percent = Bricks.text(drawer, smallRole, "text")
@@ -894,8 +1088,6 @@ function Views.drawer(box)
   drawer.state = Bricks.text(drawer, smallRole, "muted")
   drawer.state:SetJustifyH("LEFT")
   drawer.state:SetJustifyV("TOP")
-  drawer.probe = Bricks.text(drawer, smallRole, "muted")
-  drawer.probe:Hide()
   drawer.nodes = Bricks.text(drawer, smallRole, "muted")
   drawer.nodes:SetJustifyH("LEFT")
   drawer.rest = Bricks.text(drawer, smallRole, "muted")
@@ -903,17 +1095,16 @@ function Views.drawer(box)
   drawer.doneText = Bricks.text(drawer, smallRole, "success")
   drawer.doneText:SetJustifyH("RIGHT")
 
-  for _, fs in ipairs({ drawer.name, drawer.probe, drawer.nodes, drawer.rest, drawer.doneText }) do
+  for _, fs in ipairs({ drawer.state, drawer.name, drawer.nodes, drawer.rest, drawer.doneText }) do
     if fs.SetWordWrap then
       fs:SetWordWrap(false)
     end
   end
 
-  if drawer.state.SetWordWrap then
-    drawer.state:SetWordWrap(true)
-  end
-
+  drawer.dotMark = newPastille(drawer, "dot")
+  drawer.coinMark = newPastille(drawer, "coin")
   drawer.dots = CreateFrame("Button", nil, drawer)
+  Bricks.under(drawer.dots)
   drawer.dots:SetWidth(dotsSize)
   drawer.dots:SetHeight(dotsSize)
   drawer.dots.icon = iconTexture(drawer.dots, "dots", "muted")
@@ -926,6 +1117,7 @@ function Views.drawer(box)
   drawer.dots:SetScript("OnEnter", function(self)
     if drawer.item then
       Bricks.tip(self, (textOf("SAVES_MENU")):format(drawer.item.name or ""))
+      placeTip(box, self)
     end
   end)
   drawer.dots:SetScript("OnLeave", function()
@@ -944,29 +1136,9 @@ function Views.drawer(box)
     end
   end
 
-  drawer.button = Bricks.create("button", drawer)
-  drawer.button.onClick = function()
-    if drawer.item then
-      box:Activate(drawer.item.id)
-    end
-  end
-
   drawer.done = iconTexture(drawer, "check", "success")
-  drawer.done:SetWidth(12)
-  drawer.done:SetHeight(12)
-
-  -- Number of lines taken by the state text (0 to 2) for the width it has.
-  function drawer:StateLines(available)
-    local item = self.item
-
-    if not item or not item.text or item.text == "" then
-      return 0
-    end
-
-    self.probe:SetText(item.text)
-
-    return (self.probe:GetStringWidth() or 0) > available + 0.5 and 2 or 1
-  end
+  drawer.done:SetWidth(metric("iconSize"))
+  drawer.done:SetHeight(metric("iconSize"))
 
   function drawer:SetItem(item)
     local active = item.state == "active"
@@ -975,29 +1147,26 @@ function Views.drawer(box)
 
     self.item = item
     self.ring:Set(item)
-    self.percent:SetText(floor((active and 1 or (item.owned or 0)) * 100 + 0.5) .. "%")
+    self.percent:SetText(floor((active and 1 or (item.owned or 0)) * 100 + 0.5) .. metric("percentSuffix"))
     self.name:SetText(item.name or "")
     self.state:SetText(item.text or "")
     Bricks.paint(self.state, "SetTextColor", tint)
     Bricks.paint(self.strip, "SetVertexColor", tint)
-    self.nodes:SetText(nodes and (textOf("SAVES_NODES")):format(nodes.owned or 0, nodes.total or 0) or "")
+    self.nodes:SetText(nodes and textOf("SAVES_NODES"):format(Format.number(nodes.owned or 0), Format.number(nodes.total or 0)) or "")
 
     if active then
       self.rest:SetText(textOf("SAVES_ACQUIRED"))
     elseif item.remaining ~= nil then
       self.rest:SetText((textOf("SAVES_REMAINING")):format(Data.compact(item.remaining)))
     else
-      self.rest:SetText("?")
+      self.rest:SetText(metric("unknown"))
     end
 
+    show(self.dots, not item.readonly)
+    self.dotMark:Set(item.dot)
+    self.coinMark:Set(item.currency and item.currencyDot or nil)
     self.toggle:SetValue(item.progressive and true or false)
-    self.button:SetLabel(item.count and (textOf("SAVES_ACTIVATE_COUNT")):format(item.count) or textOf("SAVES_ACTIVATE"))
-    self.button:Fit()
-    self.button:SetDisabledState(not item.canActivate)
-    self.button.tipTitle = (not item.canActivate and item.why and item.why ~= "") and item.why or nil
-    self.button.tipBody = nil
     self.doneText:SetText(textOf("SAVES_ACTIVE"))
-    show(self.button, not active)
     show(self.done, active)
     show(self.doneText, active)
 
@@ -1006,24 +1175,29 @@ function Views.drawer(box)
 
   -- Lays the content out for `width`, sets the frame size and returns the height.
   function drawer:Fit(width)
-    local left, right, gap = STRIP + PAD + 1, PAD, 4
+    local left, right, gap = metric("stripWidth") + metric("pad") + metric("inset"), metric("pad"), metric("gap")
     local textLeft = left + big + 6
     local available = max(1, width - textLeft - right)
-    local lines = self:StateLines(available)
+    local lines = (self.item and self.item.text and self.item.text ~= "") and 1 or 0
     local smallHeight = fontSize(smallRole) + 2
     local stateHeight = lines * smallHeight
     local top = max(big, nameHeight + stateHeight)
-    local actionHeight = max(S("widgets.button.height"), S("widgets.toggle.height"))
-    local y = PAD
+    local actionHeight = S("widgets.toggle.height")
+    local y = metric("pad")
 
     self:SetWidth(width)
-    self.stateLines = lines
     self.ring:SetPoint("TOPLEFT", self, "TOPLEFT", left, -(y + (top - big) / 2))
     self.dots:ClearAllPoints()
     self.dots:SetPoint("TOPRIGHT", self, "TOPRIGHT", -right, -y)
+    local dotSize = self.dotMark:IsShown() and self.dotMark:GetWidth() or 0
+    local nameLeft = textLeft + (dotSize > 0 and (dotSize + 4) or 0)
+    local nameRight = (self.item and self.item.readonly) and right or (right + dotsSize + 2)
+
+    self.dotMark:ClearAllPoints()
+    self.dotMark:SetPoint("TOPLEFT", self, "TOPLEFT", textLeft, -(y + (nameHeight - dotSize) / 2))
     self.name:ClearAllPoints()
-    self.name:SetPoint("TOPLEFT", self, "TOPLEFT", textLeft, -y)
-    self.name:SetPoint("TOPRIGHT", self, "TOPRIGHT", -(right + dotsSize + 2), -y)
+    self.name:SetPoint("TOPLEFT", self, "TOPLEFT", nameLeft, -y)
+    self.name:SetPoint("TOPRIGHT", self, "TOPRIGHT", -nameRight, -y)
     self.name:SetHeight(nameHeight)
     self.state:ClearAllPoints()
     self.state:SetPoint("TOPLEFT", self, "TOPLEFT", textLeft, -(y + nameHeight))
@@ -1035,27 +1209,48 @@ function Views.drawer(box)
     self.nodes:ClearAllPoints()
     self.nodes:SetPoint("TOPLEFT", self, "TOPLEFT", left, -y)
     self.nodes:SetHeight(smallHeight)
-    self.nodes:SetWidth(max(1, (width - left - right) * 0.55))
+    self.nodes:SetWidth(max(1, (width - left - right) * metric("nodesShare")))
     self.rest:ClearAllPoints()
-    self.rest:SetPoint("TOPRIGHT", self, "TOPRIGHT", -right, -y)
-    self.rest:SetHeight(smallHeight)
-    self.rest:SetWidth(max(1, (width - left - right) * 0.42))
+    self.coinMark:ClearAllPoints()
+
+    if self.coinMark:IsShown() and lookOr("coin.line", false) == true then
+      -- coin.line: the currency sits on its own line under the nodes: pastille, then the amount.
+      local coinSize = self.coinMark:GetWidth()
+
+      y = y + smallHeight + gap
+      self.rest:SetJustifyH("LEFT")
+      self.coinMark:SetPoint("TOPLEFT", self, "TOPLEFT", left, -(y + (smallHeight - self.coinMark:GetHeight()) / 2))
+      self.rest:SetPoint("TOPLEFT", self, "TOPLEFT", left + coinSize + metric("coinGap"), -y)
+      self.rest:SetHeight(smallHeight)
+      self.rest:SetWidth(max(1, width - left - right - coinSize - metric("coinGap")))
+    elseif self.coinMark:IsShown() then
+      self.rest:SetJustifyH("RIGHT")
+      self.rest:SetPoint("TOPRIGHT", self, "TOPRIGHT", -right, -y)
+      self.rest:SetHeight(smallHeight)
+      self.rest:SetWidth(max(1, (width - left - right) * metric("restShare")))
+      local textWidth = min(self.rest:GetWidth(), self.rest:GetStringWidth() or 0)
+
+      self.coinMark:SetPoint("TOPRIGHT", self, "TOPRIGHT", -(right + textWidth + metric("gap")), -(y + (smallHeight - self.coinMark:GetHeight()) / 2))
+    else
+      self.rest:SetJustifyH("RIGHT")
+      self.rest:SetPoint("TOPRIGHT", self, "TOPRIGHT", -right, -y)
+      self.rest:SetHeight(smallHeight)
+      self.rest:SetWidth(max(1, (width - left - right) * metric("restShare")))
+    end
+
     y = y + smallHeight + gap
 
-    self.button:ClearAllPoints()
-    self.button:SetPoint("TOPRIGHT", self, "TOPRIGHT", -right, -y)
-    self.button:SetHeight(actionHeight)
     self.doneText:ClearAllPoints()
     self.doneText:SetPoint("TOPRIGHT", self, "TOPRIGHT", -right, -y)
-    self.doneText:SetWidth(60)
+    self.doneText:SetWidth(metric("doneWidth"))
     self.doneText:SetHeight(actionHeight)
     self.done:ClearAllPoints()
-    self.done:SetPoint("RIGHT", self.doneText, "LEFT", -4, 0)
+    self.done:SetPoint("RIGHT", self.doneText, "LEFT", -metric("gap"), 0)
     self.toggle:ClearAllPoints()
     self.toggle:SetPoint("TOPLEFT", self, "TOPLEFT", left, -y)
     self.toggle:SetHeight(actionHeight)
-    self.toggle:SetWidth(max(20, min(self.toggle:TextWidth(), width - left - right - self.button:GetWidth() - gap)))
-    y = y + actionHeight + PAD
+    self.toggle:SetWidth(max(metric("toggleMin"), min(self.toggle:TextWidth(), width - left - right - metric("doneWidth") - gap)))
+    y = y + actionHeight + metric("pad")
 
     self:SetHeight(y)
 

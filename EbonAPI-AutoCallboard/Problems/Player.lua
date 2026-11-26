@@ -19,6 +19,7 @@ RT.api:Problems("ACB", {
   ["ARROW.MODEL_LOAD_FAILED"] = { class = "echec", key = "skin" },
   ["ARROW.NO_COORDINATES"] = { class = "partiel", key = "route" },
   ["ARROW.UNKNOWN_ZONE"] = { class = "partiel", key = "map" },
+  ["PORTAL.PLAYER_POSITION_UNKNOWN"] = { class = "partiel", key = "map" },
 })
 
 EbonAPI.Locale.register("AutoCallboard", {
@@ -41,6 +42,7 @@ EbonAPI.Locale.register("AutoCallboard", {
     PROBLEM_ARROW_MODEL_LOAD_FAILED = "the arrow skin {skin} could not be loaded: the game refused the model {path} ({detail}). The arrow stays blank; choose another arrow skin in the settings",
     PROBLEM_ARROW_NO_COORDINATES = "step {position} of the route {route} has no map coordinates (it was recorded before they existed), so the arrow cannot point to it. Playback goes on without guidance",
     PROBLEM_ARROW_UNKNOWN_ZONE = "the arrow cannot aim at step {position} of the route {route}: the zone {map} is unknown to the addon. Playback goes on without guidance",
+    PROBLEM_PORTAL_PLAYER_POSITION_UNKNOWN = "your position cannot be read in this zone (map {map}, zone number {area}): the addon does not know this map. Demon Portals cannot be chosen by distance here",
     ROUTE_ARROW_UNKNOWN_SPOT = "Unknown zone",
   },
   frFR = {
@@ -62,6 +64,7 @@ EbonAPI.Locale.register("AutoCallboard", {
     PROBLEM_ARROW_MODEL_LOAD_FAILED = "la flèche {skin} n'a pas pu être chargée : le jeu a refusé le modèle {path} ({detail}). La flèche reste vide ; choisissez une autre flèche dans les réglages",
     PROBLEM_ARROW_NO_COORDINATES = "l'étape {position} du parcours {route} n'a pas de coordonnées sur la carte (elle a été enregistrée avant leur existence) : la flèche ne peut pas la montrer. La lecture continue sans guidage",
     PROBLEM_ARROW_UNKNOWN_ZONE = "la flèche ne peut pas viser l'étape {position} du parcours {route} : la zone {map} est inconnue de l'addon. La lecture continue sans guidage",
+    PROBLEM_PORTAL_PLAYER_POSITION_UNKNOWN = "votre position ne peut pas être lue dans cette zone (carte {map}, numéro de zone {area}) : l'addon ne connaît pas cette carte. Les Portails démoniaques ne peuvent pas être choisis selon la distance ici",
     ROUTE_ARROW_UNKNOWN_SPOT = "Zone inconnue",
   },
   deDE = {
@@ -83,6 +86,7 @@ EbonAPI.Locale.register("AutoCallboard", {
     PROBLEM_ARROW_MODEL_LOAD_FAILED = "der Pfeil {skin} konnte nicht geladen werden: das Spiel hat das Modell {path} abgelehnt ({detail}). Der Pfeil bleibt leer; wählen Sie in den Einstellungen einen anderen Pfeil",
     PROBLEM_ARROW_NO_COORDINATES = "Schritt {position} der Route {route} hat keine Kartenkoordinaten (er wurde aufgenommen, bevor es sie gab), daher kann der Pfeil nicht darauf zeigen. Die Wiedergabe läuft ohne Führung weiter",
     PROBLEM_ARROW_UNKNOWN_ZONE = "der Pfeil kann Schritt {position} der Route {route} nicht anpeilen: die Zone {map} ist dem Addon unbekannt. Die Wiedergabe läuft ohne Führung weiter",
+    PROBLEM_PORTAL_PLAYER_POSITION_UNKNOWN = "Ihre Position kann in dieser Zone nicht gelesen werden (Karte {map}, Zonennummer {area}): das Addon kennt diese Karte nicht. Dämonenportale können hier nicht nach Entfernung gewählt werden",
     ROUTE_ARROW_UNKNOWN_SPOT = "Unbekannte Zone",
   },
   esES = {
@@ -104,6 +108,7 @@ EbonAPI.Locale.register("AutoCallboard", {
     PROBLEM_ARROW_MODEL_LOAD_FAILED = "no se pudo cargar la flecha {skin}: el juego rechazó el modelo {path} ({detail}). La flecha queda en blanco; elija otra flecha en los ajustes",
     PROBLEM_ARROW_NO_COORDINATES = "el paso {position} de la ruta {route} no tiene coordenadas en el mapa (se grabó antes de que existieran), así que la flecha no puede señalarlo. La reproducción continúa sin guía",
     PROBLEM_ARROW_UNKNOWN_ZONE = "la flecha no puede apuntar al paso {position} de la ruta {route}: el addon no conoce la zona {map}. La reproducción continúa sin guía",
+    PROBLEM_PORTAL_PLAYER_POSITION_UNKNOWN = "no se puede leer su posición en esta zona (mapa {map}, número de zona {area}): el addon no conoce este mapa. Aquí no se pueden elegir los Portales demoníacos por distancia",
     ROUTE_ARROW_UNKNOWN_SPOT = "Zona desconocida",
   },
 })

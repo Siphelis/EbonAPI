@@ -36,9 +36,15 @@ local frame = CreateFrame("Frame")
 NS.api:Track("Events", frame)
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:SetScript("OnEvent", function(_, event, name)
     if event == "ADDON_LOADED" then
         if name == ADDON_NAME then Step("Data", NS.Data.Init) end
+        return
+    end
+
+    if event == "PLAYER_REGEN_ENABLED" then
+        if NS.UI and NS.UI.RetryAutoAdd then Step("AutoAdd", NS.UI.RetryAutoAdd) end
         return
     end
 

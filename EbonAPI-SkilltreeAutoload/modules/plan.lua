@@ -3,9 +3,10 @@ local NS = SkillTreeAutoLoad
 local Plan = {}
 NS.Plan = Plan
 
-local parentsOf, childrenOf, maxRankOf, costsOf, isStartNode
+local parentsOf, childrenOf, maxRankOf, nodeOf, isStartNode
+local chainOf, chainsOfClass
 
-local EMPTY = {}
+local EMPTY = NS.EMPTY
 
 local function BuildGraph()
     if parentsOf then return true end
@@ -14,11 +15,11 @@ local function BuildGraph()
     local tree = db and db[0]
     if not (tree and tree.nodes and tree.links) then return false end
 
-    parentsOf, childrenOf, maxRankOf, costsOf, isStartNode = {}, {}, {}, {}, {}
+    parentsOf, childrenOf, maxRankOf, nodeOf, isStartNode = {}, {}, {}, {}, {}
 
     for _, node in ipairs(tree.nodes) do
         maxRankOf[node.id] = #(node.spells or {})
-        costsOf[node.id] = node.soulPointsCosts or {}
+        nodeOf[node.id] = node
         if node.isStart then isStartNode[node.id] = true end
     end
 
@@ -40,18 +41,43 @@ local function BuildGraph()
         kids[#kids + 1] = childId
     end
 
+    chainOf, chainsOfClass = {}, {}
+    local startsOfClass = {}
+    for _, node in ipairs(tree.nodes) do
+        if node.isStart and node.classId then
+            local list = startsOfClass[node.classId]
+            if not list then
+                list = {}
+                startsOfClass[node.classId] = list
+            end
+            list[#list + 1] = node.id
+        end
+    end
+    for classId, starts in pairs(startsOfClass) do
+        table.sort(starts)
+        local chains = {}
+        for k = 1, #starts do
+            local members, stack = {}, { starts[k] }
+            while #stack > 0 do
+                local nodeId = stack[#stack]
+                stack[#stack] = nil
+                if not chainOf[nodeId] then
+                    chainOf[nodeId] = k
+                    members[#members + 1] = nodeId
+                    local kids = childrenOf[nodeId]
+                    for i = 1, (kids and #kids or 0) do stack[#stack + 1] = kids[i] end
+                end
+            end
+            chains[k] = members
+        end
+        chainsOfClass[classId] = chains
+    end
+
     return true
 end
 
-local function RankCost(nodeId, fromRank, toRank)
-    local costs = costsOf[nodeId]
-    if not costs then return 0 end
-
-    local total = 0
-    for rank = fromRank + 1, toRank do
-        total = total + (costs[rank] or 0)
-    end
-    return total
+local function NextCost(nodeId, rank)
+    return NS.Cost.RankCost(nodeOf[nodeId], rank + 1)
 end
 
 function Plan.ComputeMissing(targets, snapshot)
@@ -107,19 +133,16 @@ function Plan.ComputeProgress(targets, snapshot)
     if not BuildGraph() then return nil end
 
     snapshot = snapshot or EMPTY
-    local ownedCost, totalCost, ownedNodes, totalNodes = 0, 0, 0, 0
+    local ownedCost, totalCost, ownedNodes, totalNodes = {}, {}, 0, 0
 
     for nodeId, targetRank in pairs(targets or EMPTY) do
         if maxRankOf[nodeId] then
-            local costs = costsOf[nodeId]
+            local node = nodeOf[nodeId]
             local currentRank = snapshot[nodeId] or 0
             if currentRank > targetRank then currentRank = targetRank end
 
-            for rank = 1, targetRank do
-                local cost = costs[rank] or 0
-                totalCost = totalCost + cost
-                if rank <= currentRank then ownedCost = ownedCost + cost end
-            end
+            NS.Cost.AddRanks(totalCost, node, 0, targetRank)
+            NS.Cost.AddRanks(ownedCost, node, 0, currentRank)
 
             totalNodes = totalNodes + 1
             if currentRank >= targetRank then ownedNodes = ownedNodes + 1 end
@@ -178,7 +201,7 @@ local function HeapPop(costs, ids, size)
     return topCost, topId, size
 end
 
-local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end end
+local wipe = NS.wipe
 
 local goals, waiting = {}, {}
 local heapCosts, heapIds = {}, {}
@@ -208,7 +231,7 @@ local function ClassifyNode(nodeId, snapshot)
     return false
 end
 
-function Plan.ComputeProgressive(targets, snapshot, budget)
+function Plan.ComputeProgressive(targets, snapshot, budgets)
     if not BuildGraph() then return nil end
 
     snapshot = snapshot or EMPTY
@@ -229,55 +252,123 @@ function Plan.ComputeProgressive(targets, snapshot, budget)
 
     for nodeId in pairs(goals) do
         if ClassifyNode(nodeId, snapshot) then
-            local rank = snapshot[nodeId] or 0
             heapSize = HeapPush(heapCosts, heapIds, heapSize,
-                RankCost(nodeId, rank, rank + 1), nodeId)
+                (NextCost(nodeId, snapshot[nodeId] or 0)), nodeId)
         end
     end
 
-    local chosen, chosenCount, spent = {}, 0, 0
-    local remaining = budget or 0
-    local blockedCost
+    local remaining = {}
+    for currency, amount in pairs(budgets or EMPTY) do remaining[currency] = amount end
+
+    local free = {}
+    for classId, slots in pairs(NS.Core.ClassSlots()) do free[classId] = slots end
+
+    local chosen, chosenCount, spent, blocked = {}, 0, {}, nil
+
+    local specClass, specChain, specRemaining, deferred = nil, nil, 0, {}
+    local specTab = NS.Core.SpecTab and NS.Core.SpecTab()
+    local playerClassId = specTab and NS.Core.PlayerClassId and NS.Core.PlayerClassId()
+    local chains = playerClassId and chainsOfClass[playerClassId]
+    local members = chains and chains[specTab]
+    if members then
+        specClass, specChain = playerClassId, specTab
+        for i = 1, #members do
+            if goals[members[i]] then specRemaining = specRemaining + 1 end
+        end
+    end
 
     while heapSize > 0 do
-        local cost, nodeId
-        cost, nodeId, heapSize = HeapPop(heapCosts, heapIds, heapSize)
-
-        if cost > remaining then
-            blockedCost = cost
-            break
-        end
+        local _, nodeId
+        _, nodeId, heapSize = HeapPop(heapCosts, heapIds, heapSize)
 
         local newRank = (chosen[nodeId] or snapshot[nodeId] or 0) + 1
-        if not chosen[nodeId] then chosenCount = chosenCount + 1 end
-        chosen[nodeId] = newRank
-        remaining = remaining - cost
-        spent = spent + cost
+        local cost, currency = NS.Cost.RankCost(nodeOf[nodeId], newRank)
+        local classId = nodeOf[nodeId].classId
+        local needsSlot = classId ~= nil and newRank == 1
 
-        if newRank < goals[nodeId] then
-            heapSize = HeapPush(heapCosts, heapIds, heapSize,
-                RankCost(nodeId, newRank, newRank + 1), nodeId)
-        end
+        if needsSlot and classId == specClass and specRemaining > 0 and chainOf[nodeId] ~= specChain then
+            deferred[#deferred + 1] = nodeId
+        elseif needsSlot and (free[classId] or 0) < 1 then
+            -- aucun emplacement libre pour cette classe : le nœud reste hors du lot
+        elseif cost > (remaining[currency] or 0) then
+            blocked = blocked or {}
+            if not blocked[currency] or cost < blocked[currency] then blocked[currency] = cost end
+        else
+            if not chosen[nodeId] then chosenCount = chosenCount + 1 end
+            if needsSlot then free[classId] = free[classId] - 1 end
+            chosen[nodeId] = newRank
+            remaining[currency] = (remaining[currency] or 0) - cost
+            spent[currency] = (spent[currency] or 0) + cost
 
-        if newRank >= (maxRankOf[nodeId] or 0) then
-            local kids = childrenOf[nodeId]
-            for i = 1, (kids and #kids or 0) do
-                local childId = kids[i]
-                local unmet = waiting[childId]
-                if unmet then
-                    unmet = unmet - 1
-                    if unmet > 0 then
-                        waiting[childId] = unmet
-                    else
-                        waiting[childId] = nil
-                        local rank = chosen[childId] or snapshot[childId] or 0
+            if newRank < goals[nodeId] then
+                heapSize = HeapPush(heapCosts, heapIds, heapSize,
+                    (NextCost(nodeId, newRank)), nodeId)
+            end
+
+            if specRemaining > 0 and classId == specClass and chainOf[nodeId] == specChain and newRank >= goals[nodeId] then
+                specRemaining = specRemaining - 1
+                if specRemaining == 0 then
+                    for i = 1, #deferred do
+                        local deferredId = deferred[i]
                         heapSize = HeapPush(heapCosts, heapIds, heapSize,
-                            RankCost(childId, rank, rank + 1), childId)
+                            (NextCost(deferredId, chosen[deferredId] or snapshot[deferredId] or 0)), deferredId)
+                    end
+                end
+            end
+
+            if newRank >= (maxRankOf[nodeId] or 0) then
+                local kids = childrenOf[nodeId]
+                for i = 1, (kids and #kids or 0) do
+                    local childId = kids[i]
+                    local unmet = waiting[childId]
+                    if unmet then
+                        unmet = unmet - 1
+                        if unmet > 0 then
+                            waiting[childId] = unmet
+                        else
+                            waiting[childId] = nil
+                            heapSize = HeapPush(heapCosts, heapIds, heapSize,
+                                (NextCost(childId, chosen[childId] or snapshot[childId] or 0)), childId)
+                        end
                     end
                 end
             end
         end
     end
 
-    return chosen, spent, chosenCount, blockedCost
+    return chosen, spent, chosenCount, blocked
+end
+
+-- Ancêtres (transitifs, nœuds de départ exclus) des nœuds de `nodeRanks` qui n'y figurent pas,
+-- avec leur rang max. Renvoie nil si l'arbre n'est pas encore chargé. Sert aux presets :
+-- un nœud ne s'active que si ses parents sont au rang max (ClassifyNode).
+function Plan.Ancestors(nodeRanks)
+    if not BuildGraph() then return nil end
+
+    local added, count = {}, 0
+    local seen, stack = {}, {}
+    for nodeId in pairs(nodeRanks or EMPTY) do
+        seen[nodeId] = true
+        stack[#stack + 1] = nodeId
+    end
+
+    while #stack > 0 do
+        local nodeId = stack[#stack]
+        stack[#stack] = nil
+
+        local parents = parentsOf[nodeId]
+        for i = 1, (parents and #parents or 0) do
+            local parentId = parents[i]
+            if not seen[parentId] then
+                seen[parentId] = true
+                if not isStartNode[parentId] then
+                    added[parentId] = maxRankOf[parentId] or 0
+                    count = count + 1
+                    stack[#stack + 1] = parentId
+                end
+            end
+        end
+    end
+
+    return added, count
 end

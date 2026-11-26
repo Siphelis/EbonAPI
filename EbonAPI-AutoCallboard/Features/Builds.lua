@@ -1,28 +1,25 @@
-local Lib = EbonAPI.Lib
 local Core = AutoCallboardCore
 local Skin = AutoCallboardSkin
 local L = AutoCallboardLocale
 local RT = AutoCallboardRuntime
+local Error = RT.Error
 local Localized = RT.Localized
+
+local Log = RT.Log
 
 RT.buildsRefreshDelay = 5
 RT.buildsRefreshThrottle = 30
 
 local State = EbonAPI.State
-local CS = EbonAPI.CS
-
-function RT.SendEchoMessage(opcode, body)
-  return RT.api:SendServer(opcode, body)
-end
 
 local function OnServerBuilds(_, builds)
-  RT.api:Trace("builds.list", builds.active)
+  Log("builds", "list received active=", builds.active)
   RT.RefreshBuildsWindowIfShown()
   RT.RefreshEchoBar()
 end
 
 local function OnServerBuildActive(_, slot)
-  RT.api:Trace("builds.active", slot)
+  Log("builds", "active slot=", slot)
   RT.RefreshBuildsWindowIfShown()
   RT.RefreshEchoBar()
 end
@@ -50,18 +47,17 @@ function RT.BuildLabel(build)
   return name
 end
 
-function RT.RequestBuildsRefresh(source)
-  local now = GetTime()
+function RT.RequestBuildsRefresh(source, force)
+  local opcode = EbonAPI.CS.REQUEST_PERK_LOADOUTS
+  local ok
 
-  if RT.lastBuildsRequestAt
-      and now - RT.lastBuildsRequestAt < RT.buildsRefreshThrottle then
-    return false
+  if force then
+    ok = RT.api:SendServer(opcode, "")
+  else
+    ok = RT.api:RequestServer(opcode, "", RT.buildsRefreshThrottle)
   end
 
-  RT.lastBuildsRequestAt = now
-
-  RT.api:RequestServer(CS.REFRESH_PERKS, "", RT.buildsRefreshThrottle)
-  local ok = RT.api:RequestServer(CS.REFRESH_BUILDS, "", RT.buildsRefreshThrottle)
+  Log("builds", "refresh requested source=", source, " ok=", tostring(ok))
 
   return ok
 end
@@ -71,7 +67,21 @@ function RT.CanSwitchBuild()
     return false, L.BUILD_SWITCH_BLOCKED_COMBAT
   end
 
+  if UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then
+    return false, L.BUILD_SWITCH_BLOCKED_DEAD
+  end
+
   return true
+end
+
+local function ActivateLoadout(slot)
+  local perks = EbonAPI.Ebonhold.Service("PerkService")
+
+  if perks and type(perks.ActivateServerBuildSlot) == "function" then
+    return perks.ActivateServerBuildSlot(slot)
+  end
+
+  return RT.api:SendServer(EbonAPI.CS.REQUEST_PERK_LOADOUT_ACTIVATE, tostring(slot))
 end
 
 function RT.SwitchToBuild(slot, source)
@@ -81,14 +91,13 @@ function RT.SwitchToBuild(slot, source)
     return false
   end
 
-  local builds = State.sortedBuilds()
-  local label = string.format(L.BUILD_SLOT_FALLBACK, tostring(slot))
+  local builds = State.GetBuilds()
+  local build = builds and type(builds.slots) == "table" and builds.slots[slot]
+  local label = build and RT.BuildLabel(build) or string.format(L.BUILD_SLOT_FALLBACK, tostring(slot))
 
-  for i = 1, #(builds) do
-    if tonumber(builds[i].slot) == slot then
-      label = RT.BuildLabel(builds[i])
-      break
-    end
+  if (build and build.kind == "wishlist") or (builds and tonumber(builds.maxSlots) and slot > builds.maxSlots) then
+    Error(string.format(L.BUILD_SWITCH_NOT_LIVE, label))
+    return false
   end
 
   local _, activeSlot = State.activeBuild()
@@ -96,17 +105,20 @@ function RT.SwitchToBuild(slot, source)
     return false
   end
 
-  if not RT.CanSwitchBuild() then
+  local allowed, reason = RT.CanSwitchBuild()
+  if not allowed then
     RT.api:Report(RT.api:Problem("BUILDS.SWITCH_BLOCKED_COMBAT", { slot = slot }))
+    Log("builds", "switch refused slot=", slot, " reason=", reason)
     return false
   end
 
-  if not RT.SendEchoMessage(CS.BUILD_SELECT, tostring(slot)) then
+  if not ActivateLoadout(slot) then
     RT.api:Report(RT.api:Problem("BUILDS.SWITCH_SEND_FAILED", { slot = slot, source = source }))
+    Log("builds", "switch not sent slot=", slot)
     return false
   end
 
-  RT.api:Trace("builds.switch", slot, source)
+  Log("builds", "switch sent slot=", slot, " name=", label, " source=", source)
 
   return true
 end
@@ -186,6 +198,18 @@ function RT.CreateBuildRow(index)
   return row
 end
 
+local function LiveBuilds()
+  local live = {}
+
+  for _, build in ipairs(State.sortedBuilds()) do
+    if build.kind == "live" then
+      live[#live + 1] = build
+    end
+  end
+
+  return live
+end
+
 function RT.RefreshBuildsWindow()
   local buildsWindow = RT.buildsWindow
 
@@ -193,7 +217,7 @@ function RT.RefreshBuildsWindow()
     return
   end
 
-  local builds = State.sortedBuilds()
+  local builds = LiveBuilds()
   local count = #(builds)
   local rows = RT.buildRows
 
@@ -229,7 +253,11 @@ function RT.RefreshBuildsWindow()
   end
 
   if buildsWindow.emptyLabel then
-    Lib.setShown(buildsWindow.emptyLabel, count == 0)
+    if count == 0 then
+      buildsWindow.emptyLabel:Show()
+    else
+      buildsWindow.emptyLabel:Hide()
+    end
   end
 
   Skin.SizeWindow(buildsWindow, BUILDS_WIDTH,
@@ -263,8 +291,7 @@ function RT.CreateBuildsWindow()
       { "BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 0 },
     },
     onClick = function()
-      RT.lastBuildsRequestAt = nil
-      RT.RequestBuildsRefresh("bouton")
+      RT.RequestBuildsRefresh("bouton", true)
       end,
   })
 end
@@ -326,7 +353,13 @@ local function BuildBySlot(slot)
     return nil
   end
 
-  return builds.slots[slot]
+  local build = builds.slots[slot]
+
+  if type(build) ~= "table" or build.kind == "wishlist" then
+    return nil
+  end
+
+  return build
 end
 
 local function PaintEchoCell(cell)

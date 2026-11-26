@@ -1,7 +1,7 @@
 local Core = AutoCallboardCore
 local RT = AutoCallboardRuntime
 
-local stateDown = false
+local Log = RT.Log
 
 local function Refresh()
   RT.RefreshRouteWindow()
@@ -16,7 +16,6 @@ local WINDOW_ACTIONS = { accept = true, complete = true, turnin = true }
 local gossipCache = { available = {}, active = {}, options = {} }
 local currentStep
 local stepClosedAt
-local hookedServices = setmetatable({}, { __mode = "k" })
 local questItem
 local window
 local questLog
@@ -24,9 +23,18 @@ local readingLog = false
 local echoed = false
 local echoUntil = 0
 local expected = {}
+local stateDown = false
+local logUnreadable = false
 
 local function CharacterState()
-  return RT.EnsureCharacterState()
+  local entry = RT.EnsureCharacterState()
+
+  if entry and stateDown then
+    stateDown = false
+    RT.api:Restore("RECORDER.STATE_UNAVAILABLE")
+  end
+
+  return entry
 end
 
 function RT.GetRouteDraft()
@@ -39,11 +47,6 @@ function RT.GetRouteDraft()
     end
 
     return {}
-  end
-
-  if stateDown then
-    stateDown = false
-    RT.api:Restore("RECORDER.STATE_UNAVAILABLE")
   end
 
   if type(entry.routeDraft) ~= "table" then
@@ -103,6 +106,7 @@ local function PushStep(step)
 
   table.insert(draft, step)
   RT.TouchState()
+  Log("route", tostring(step.kind), " step ", tostring(step.npcName or step.title or step.checkpoint))
   Refresh()
 
   return step
@@ -164,7 +168,7 @@ function RT.StartRouteRecording(source)
   window = nil
   expected = {}
   RT.WatchRouteQuestLog(true)
-  RT.api:Trace("route", "recording_started", source)
+  Log("route", "recording started source=", tostring(source))
   Refresh()
 
   return true
@@ -179,7 +183,7 @@ function RT.StopRouteRecording(source)
   SetCharacterFlag("routeRecording", false)
   currentStep = nil
   stepClosedAt = nil
-  RT.api:Trace("route", "recording_stopped", source)
+  Log("route", "recording stopped source=", tostring(source), " steps=", #(RT.GetRouteDraft()))
   Refresh()
 
   return true
@@ -192,6 +196,7 @@ function RT.ResumeRouteRecording()
 
   currentStep = nil
   stepClosedAt = nil
+  Log("route", "recording resumed steps=", #(RT.GetRouteDraft()))
 
   return true
 end
@@ -436,6 +441,7 @@ local function AppendAction(action)
 
   table.insert(currentStep.actions, copy)
   RT.TouchState()
+  Log("route", "action ", tostring(copy.kind), " ", tostring(copy.title ~= "" and copy.title or copy.text))
   Refresh()
 
   return copy
@@ -464,13 +470,14 @@ end
 
 local function ScanQuestLog()
   local count, quests = GetNumQuestLogEntries()
-  local snapshot, seen, collapsed = {}, 0, {}
+  local snapshot, seen, collapsed, rank = {}, 0, {}, 0
 
   for index = 1, (tonumber(count) or 0) + (tonumber(quests) or 0) do
     local entry = RT.GetQuestLogEntryInfo(index)
 
     if entry and entry.isHeader then
-      collapsed[entry.title] = entry.isCollapsed and true or nil
+      rank = rank + 1
+      collapsed[rank] = entry.isCollapsed and true or nil
     elseif entry and entry.questID and not snapshot[entry.questID] then
       snapshot[entry.questID] = { title = entry.title, complete = entry.isComplete == 1 }
       seen = seen + 1
@@ -486,14 +493,23 @@ local function ReadQuestLog()
   if not complete and next(collapsed) then
     readingLog, echoed = true, false
     ExpandQuestHeader(0)
-    local rescanned
-    snapshot, complete, rescanned, seen, total = ScanQuestLog()
+    local _, seen2, total2
+    snapshot, complete, _, seen2, total2 = ScanQuestLog()
+    seen, total = seen2, total2
 
-    for index = GetNumQuestLogEntries(), 1, -1 do
+    local headers = {}
+
+    for index = 1, GetNumQuestLogEntries() do
       local entry = RT.GetQuestLogEntryInfo(index)
 
-      if entry and entry.isHeader and collapsed[entry.title] then
-        CollapseQuestHeader(index)
+      if entry and entry.isHeader then
+        headers[#headers + 1] = index
+      end
+    end
+
+    for headerRank = #headers, 1, -1 do
+      if collapsed[headerRank] then
+        CollapseQuestHeader(headers[headerRank])
       end
     end
 
@@ -501,7 +517,14 @@ local function ReadQuestLog()
     echoUntil = echoed and 0 or GetTime() + ECHO_GRACE
   end
 
-  return complete and snapshot or nil, seen, total
+  if complete then
+    logUnreadable = false
+  elseif not logUnreadable then
+    logUnreadable = true
+    RT.api:Report(RT.api:Problem("RECORDER.QUESTLOG_UNREADABLE", { seen = seen, total = total }))
+  end
+
+  return complete and snapshot or nil
 end
 
 local function ResolveQuestTitle(title, questId)
@@ -555,10 +578,9 @@ function RT.WatchRouteQuestLog(reset)
   end
 
   local before = questLog
-  local snapshot, seen, total = ReadQuestLog()
+  local snapshot = ReadQuestLog()
 
   if not snapshot then
-    RT.api:Reject("RECORDER.QUESTLOG_UNREADABLE", { seen = seen, total = total })
     return
   end
 
@@ -602,23 +624,8 @@ local function InstallHook(name, handler)
   return true
 end
 
-function RT.HookRouteCheckpointService()
-  local service = EbonAPI.Ebonhold.Checkpoints()
-
-  if not service or type(service.UseCheckpoint) ~= "function" then
-    RT.api:Degrade(RT.api:Problem("RECORDER.CHECKPOINTS_UNAVAILABLE", {}))
-    return false
-  end
-
-  if hookedServices[service] then
-    return true
-  end
-
-  RT.api:Restore("RECORDER.CHECKPOINTS_UNAVAILABLE")
-
-  local original = service.UseCheckpoint
-
-  local function after(checkpointId, result, ...)
+local function RecordCheckpoint(useCheckpoint, checkpointId, ...)
+  local function after(result, ...)
     if result == false then
       RT.api:Report(RT.api:Problem("RECORDER.CHECKPOINT_NOT_USED", { checkpoint = checkpointId }))
     else
@@ -628,13 +635,25 @@ function RT.HookRouteCheckpointService()
     return result, ...
   end
 
-  service.UseCheckpoint = function(checkpointId, ...)
-    return after(checkpointId, original(checkpointId, ...))
+  return after(useCheckpoint(checkpointId, ...))
+end
+
+local function RecordWaystone(useWaystone, slot, ...)
+  local toolbelt = EbonAPI.Ebonhold.Service("ToolbeltService")
+  local toolbeltState = toolbelt and type(toolbelt.GetState) == "function" and toolbelt.GetState()
+  local waystones = type(toolbeltState) == "table" and toolbeltState.waystones
+
+  RT.RecordRouteTravel(type(waystones) == "table" and waystones[tonumber(slot)] or nil)
+
+  return useWaystone(slot, ...)
+end
+
+local function HookTravels()
+  if not RT.api:HookEbonhold("CheckpointService", "UseCheckpoint", RecordCheckpoint) then
+    RT.api:Degrade(RT.api:Problem("RECORDER.CHECKPOINTS_UNAVAILABLE", {}))
   end
 
-  hookedServices[service] = true
-
-  return true
+  RT.api:HookEbonhold("ToolbeltService", "UseWaystone", RecordWaystone)
 end
 
 function RT.InstallRouteRecorderHooks()
@@ -702,7 +721,7 @@ function RT.InstallRouteRecorderHooks()
     Expect("out", { title = title })
   end)
 
-  RT.HookRouteCheckpointService()
+  HookTravels()
 end
 
 function RT.SaveRouteDraftAs(name, category)
@@ -739,20 +758,20 @@ function RT.CanEditRoutes()
   return not RT.IsPlayingRoute()
 end
 
-local function ApplyDraftToRoute(what, update, id)
+function RT.OverwriteRouteFromDraft(id)
   if not RT.CanEditRoutes() then
-    RT.api:Report(RT.api:Problem("RECORDER.EDIT_LOCKED", { what = what }))
+    RT.api:Report(RT.api:Problem("RECORDER.EDIT_LOCKED", { what = "overwrite" }))
     return false
   end
 
   local draft = RT.GetRouteDraft()
 
   if #(draft) == 0 then
-    RT.api:Report(RT.api:Problem("RECORDER.DRAFT_EMPTY", { what = what }))
+    RT.api:Report(RT.api:Problem("RECORDER.DRAFT_EMPTY", { what = "overwrite" }))
     return false
   end
 
-  local nextProfile, ok = update(RT.GetAccountProfile(), id, draft)
+  local nextProfile, ok = Core.setRouteSteps(RT.GetAccountProfile(), id, draft)
 
   if not ok then
     RT.api:Report(RT.api:Problem("RECORDER.ROUTE_NOT_UPDATED", { route = id, reason = "unknown_route" }))
@@ -765,12 +784,30 @@ local function ApplyDraftToRoute(what, update, id)
   return true
 end
 
-function RT.OverwriteRouteFromDraft(id)
-  return ApplyDraftToRoute("overwrite", Core.setRouteSteps, id)
-end
-
 function RT.AppendRouteFromDraft(id)
-  return ApplyDraftToRoute("append", Core.appendRouteSteps, id)
+  if not RT.CanEditRoutes() then
+    RT.api:Report(RT.api:Problem("RECORDER.EDIT_LOCKED", { what = "append" }))
+    return false
+  end
+
+  local draft = RT.GetRouteDraft()
+
+  if #(draft) == 0 then
+    RT.api:Report(RT.api:Problem("RECORDER.DRAFT_EMPTY", { what = "append" }))
+    return false
+  end
+
+  local nextProfile, ok = Core.appendRouteSteps(RT.GetAccountProfile(), id, draft)
+
+  if not ok then
+    RT.api:Report(RT.api:Problem("RECORDER.ROUTE_NOT_UPDATED", { route = id, reason = "unknown_route" }))
+    return false
+  end
+
+  RT.SaveAccountProfile(nextProfile)
+  RT.ClearRouteDraft()
+
+  return true
 end
 
 function RT.GetActiveRouteId()
@@ -789,11 +826,6 @@ function RT.SetActiveRouteId(id)
     end
 
     return
-  end
-
-  if stateDown then
-    stateDown = false
-    RT.api:Restore("RECORDER.STATE_UNAVAILABLE")
   end
 
   entry.activeRouteId = tonumber(id)
@@ -827,14 +859,15 @@ function RT.ResumeRoutePlayback()
   local route = RT.GetActiveRoute()
 
   if not route then
-    RT.SetRoutePlaying(false)
     RT.api:Report(RT.api:Problem("RECORDER.ACTIVE_ROUTE_MISSING", { route = RT.GetActiveRouteId() }))
+    RT.SetRoutePlaying(false)
     return false
   end
 
   RT.ResetRoutePlayback()
   RT.SetRouteCursor(RT.StoredRouteCursor())
   RT.PointRouteArrowAtNextStep(route, RT.RouteCursor())
+  Log("route", "playback resumed route=", tostring(route.name))
 
   return true
 end
@@ -866,6 +899,7 @@ function RT.StartRoutePlayback(source, routeId, from)
   if tonumber(routeId) and tonumber(routeId) ~= RT.GetActiveRouteId() then
     if not Core.findRoute(RT.GetAccountProfile(), tonumber(routeId)) then
       RT.api:Report(RT.api:Problem("RECORDER.ACTIVE_ROUTE_MISSING", { route = routeId }))
+      Log("route", "active route missing id=", tostring(routeId))
       return false
     end
 
@@ -889,6 +923,7 @@ function RT.StartRoutePlayback(source, routeId, from)
   RT.SetRoutePlaying(true)
   RT.WatchRouteQuestLog(true)
   RT.BeginRoutePlaybackRun(route, from)
+  Log("route", "playback from ", tostring(from or 1), " source=", tostring(source), " route=", tostring(route.name))
   Refresh()
 
   return true
@@ -902,7 +937,7 @@ function RT.StopRoutePlayback(source)
   RT.SetRoutePlaying(false)
   RT.ResetRoutePlayback()
   RT.ClearRouteArrowTarget()
-  RT.api:Trace("route", "playback_stopped", source)
+  Log("route", "playback stopped source=", tostring(source))
   Refresh()
 
   return true

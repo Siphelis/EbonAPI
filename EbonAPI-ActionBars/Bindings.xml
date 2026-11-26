@@ -1,0 +1,122 @@
+<Bindings xmlns="http://www.blizzard.com/wow/ui/">
+    <Binding name="CLICK EbonAPIActionBars_1_1:LeftButton" header="EBONAPIACTIONBARS_1"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_1_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_1:LeftButton" header="EBONAPIACTIONBARS_2"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_2_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_1:LeftButton" header="EBONAPIACTIONBARS_3"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_3_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_1:LeftButton" header="EBONAPIACTIONBARS_4"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_4_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_1:LeftButton" header="EBONAPIACTIONBARS_5"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_5_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_1:LeftButton" header="EBONAPIACTIONBARS_6"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_6_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_1:LeftButton" header="EBONAPIACTIONBARS_7"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_7_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_1:LeftButton" header="EBONAPIACTIONBARS_8"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_8_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_1:LeftButton" header="EBONAPIACTIONBARS_9"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_9_12:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_1:LeftButton" header="EBONAPIACTIONBARS_10"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_2:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_3:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_4:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_5:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_6:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_7:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_8:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_9:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_10:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_11:LeftButton"></Binding>
+    <Binding name="CLICK EbonAPIActionBars_10_12:LeftButton"></Binding>
+</Bindings>

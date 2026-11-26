@@ -1,7 +1,8 @@
-local ADDON_NAME = ...
 local Core = AutoCallboardCore
 local L = AutoCallboardLocale
 local RT = AutoCallboardRuntime
+local Error = RT.Error
+local Log = RT.Log
 
 local BUTTON_NAME = "AutoCallboardEternalButton"
 local DEFAULT_BINDING = "CTRL-W"
@@ -63,6 +64,10 @@ local combatQueued = false
 local nextQuestCheckAt
 local StopPending
 local FlushAfterCombat
+
+local function Log(message)
+  RT.Log("eternals", message)
+end
 
 local function IsEnabled()
   if type(EbonAPIAutoCallboardEternalsDB) ~= "table" then
@@ -198,6 +203,7 @@ local function HideButton()
   if InCombatLockdown and InCombatLockdown() then
     pendingHide = true
     WaitCombatEnd()
+    Log("masquage reporte (combat)")
     return false
   end
 
@@ -217,7 +223,8 @@ local function ConfigureButton(entry, step)
   if InCombatLockdown and InCombatLockdown() then
     pendingConfig = { entry = entry, step = step }
     WaitCombatEnd()
-    RT.api:Notify(string.format(L.ETERNALS_CONVERSION_WAITING_COMBAT, EntryItemName(entry)))
+    Log("config reportee (combat) element=" .. EntryLabel(entry) .. " step=" .. tostring(step))
+    Error(string.format(L.ETERNALS_CONVERSION_WAITING_COMBAT, EntryItemName(entry)))
     return false
   end
 
@@ -232,6 +239,8 @@ local function ConfigureButton(entry, step)
 
   button:Show()
   ApplyBinding()
+
+  Log("bouton arme element=" .. EntryLabel(entry) .. " step=" .. tostring(step) .. " item=" .. tostring(itemID))
 
   return true
 end
@@ -256,7 +265,7 @@ StopPending = function(reason)
   end
 
   if pending then
-    RT.api:Trace("eternals.end", reason)
+    Log("sequence terminee element=" .. EntryLabel(pending.entry) .. " raison=" .. tostring(reason))
   end
 
   pending = nil
@@ -354,13 +363,13 @@ local function SequenceQuestGone()
   return false
 end
 
-function RT.CheckEternalQuestStillActive(source, force)
+function RT.CheckEternalQuestStillActive(source)
   if not pending then
     return
   end
 
   local now = GetTime()
-  if not force and nextQuestCheckAt and now < nextQuestCheckAt then
+  if nextQuestCheckAt and now < nextQuestCheckAt then
     return
   end
 
@@ -422,6 +431,7 @@ function RT.HandleEternalQuest()
   if crystals < CRYSTAL_STACK_SIZE then
     RT.api:Report(RT.api:Problem("ETERNALS.NOT_ENOUGH_CRYSTALS",
         { item = EntryItemName(entry), count = crystals, required = CRYSTAL_STACK_SIZE }))
+    Log("quete detectee sans cristaux suffisants element=" .. EntryLabel(entry) .. " count=" .. tostring(crystals))
     return
   end
 
@@ -439,11 +449,12 @@ function RT.HandleEternalQuest()
 
   WatchSequenceEvents(true)
   ConfigureButton(entry, 1)
+  Log("eternals: close hint shown")
 end
 
 local function OnEvent(event, arg1, arg2, arg3, arg4, arg5)
   if event == "ADDON_LOADED" then
-    if arg1 == ADDON_NAME then
+    if arg1 == "EbonAPI-AutoCallboard" then
       events:Unlisten("ADDON_LOADED")
 
       if type(EbonAPIAutoCallboardEternalsDB) ~= "table" then
@@ -457,27 +468,6 @@ local function OnEvent(event, arg1, arg2, arg3, arg4, arg5)
           CreateButton()
         end
       end)
-
-      SLASH_AUTOCALLBOARDETERNALS1 = "/acbe"
-      SlashCmdList.AUTOCALLBOARDETERNALS = function(input)
-        local command = string.lower(input or "")
-        command = command:gsub("^%s+", ""):gsub("%s+$", "")
-
-        if command == "bind" or string.find(command, "^bind ") then
-          local key = string.upper((command:gsub("^bind%s*", "")))
-          if key ~= "" then
-            EbonAPIAutoCallboardEternalsDB.binding = key
-            if pending then
-              ConfigureButton(pending.entry, pending.step)
-            end
-            RT.api:Notify(string.format(L.ETERNALS_BIND_DONE, key))
-          else
-            RT.api:Report(RT.api:Problem("ETERNALS.BIND_KEY_MISSING", { input = command }))
-          end
-        else
-          RT.api:Report(RT.api:Problem("ETERNALS.UNKNOWN_COMMAND", { input = command }))
-        end
-      end
     end
 
     return

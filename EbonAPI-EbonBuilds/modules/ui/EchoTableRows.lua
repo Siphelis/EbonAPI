@@ -18,8 +18,6 @@ local EDIT_W     = 52
 local EDIT_H     = 18
 local EDIT_RIGHT = 8
 
-local QUALITY_COLORS = EbonBuilds.Const.QUALITY_HEX
-
 local function UpdateScores(row, entry)
     local weight = EbonBuilds.Weights.Get(entry.name) or 0
     local form = EbonBuilds.BuildForm
@@ -29,12 +27,12 @@ local function UpdateScores(row, entry)
         if entry.qualities[q] then
             local spellId = entry.spellIds and entry.spellIds[q]
             if spellId and form.IsLocked(spellId) then
-                parts[#parts + 1] = string.format("|cff%s%s|r", QUALITY_COLORS[q], EbonBuilds.L.LOCKED)
+                parts[#parts + 1] = string.format("|cff%s%s|r", EbonBuilds.Const.QualityHex(q), EbonBuilds.L.LOCKED)
             elseif spellId and form.IsBanned(spellId) then
-                parts[#parts + 1] = string.format("|cff%s%s|r", QUALITY_COLORS[q], EbonBuilds.L.BANNED)
+                parts[#parts + 1] = string.format("|cff%s%s|r", EbonBuilds.Const.QualityHex(q), EbonBuilds.L.BANNED)
             else
                 local score = EbonBuilds.Scoring.ScorePerQuality(entry, weight, settings, q)
-                parts[#parts + 1] = string.format("|cff%s%d|r", QUALITY_COLORS[q], score)
+                parts[#parts + 1] = string.format("|cff%s%d|r", EbonBuilds.Const.QualityHex(q), score)
             end
         end
     end
@@ -109,6 +107,7 @@ function EbonBuilds.EchoTableRows.CreateRow(parent, index)
     local iconFrame = row:Add("icon", {
         size = ICON_SIZE,
         icon = function(self) return self.spellId and select(3, GetSpellInfo(self.spellId)) end,
+        badge = function(self) return EbonBuilds.Weights.SpecBadgeOfSpell(self.spellId) end,
     })
     W.SpellTip(iconFrame, IconSpell, { describe = true })
     W.Gap(row, NAME_LEAD, 1)

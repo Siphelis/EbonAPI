@@ -7,7 +7,6 @@ local PAGE_SIZE    = 8
 local MARGIN       = 10
 local GAP          = 4
 local LIST_ROOM    = 40
-local CLASS_TOKENS = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
 
 local ALL_CLASSES  = "ALL"
 local FILTER_WIDTH = 150
@@ -71,8 +70,8 @@ EbonBuilds.PublicBuildsView.Collect = Collect
 
 local function ClassItems()
     local items = { { value = ALL_CLASSES, text = L.ALL_CLASSES } }
-    for _, token in ipairs(CLASS_TOKENS) do
-        items[#items + 1] = { value = token, text = EbonBuilds.ClassName(token) }
+    for _, card in ipairs(EbonAPI.ClientData.Classes()) do
+        items[#items + 1] = { value = card.token, text = EbonBuilds.ClassName(card.token) }
     end
     return items
 end

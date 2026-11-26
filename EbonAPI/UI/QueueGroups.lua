@@ -21,40 +21,15 @@ local OVERSCAN = 1
 local SORTS = { "depart", "az", "wait" }
 local SORT_KEY = { depart = "QUEUEVIEW_GROUPS_SORT_DEPART", az = "QUEUEVIEW_GROUPS_SORT_AZ", wait = "QUEUEVIEW_GROUPS_SORT_WAIT" }
 
-local function S(key, fallback)
-  local ok, found = pcall(Skins.value, key)
-  if ok and found ~= nil then
-    return found
-  end
+local S = EbonAPI.QueueParts.value
 
-  return fallback
-end
+local word = EbonAPI.QueueParts.word
 
-local function word(key)
-  local L = EbonAPI.L
+local num = EbonAPI.QueueParts.num
 
-  return (L and L[key]) or key
-end
+local hue, tint = EbonAPI.QueueParts.hue, EbonAPI.QueueParts.tint
 
-local function num(n)
-  n = tonumber(n)
-  if not n or n ~= n or n == math.huge or n == -math.huge then
-    return 0
-  end
-
-  return n
-end
-
-local function hue(key)
-  local color = THEME[key] or THEME.text
-
-  return color[1] + color[2] * 1000 + color[3] * 1000000
-end
-
-local function tint(target, method, key, alpha)
-  local color = THEME[key] or THEME.text
-  target[method](target, color[1], color[2], color[3], alpha or 1)
-end
+QueueGroups.word, QueueGroups.hue, QueueGroups.tint = word, hue, tint
 
 local function clamp(n, low, high)
   return max(low, min(high, n))

@@ -3,7 +3,6 @@ EbonBuilds.SettingsView = {}
 local L = EbonBuilds.L
 local W = EbonBuilds.Widgets
 
-local FAMILIES = EbonBuilds.Const.FAMILIES
 
 local WEIGHT_THRESHOLDS = {
     { key = "autoBanishPct",  label = "T_BANISH_PCT", flavor = "T_BANISH_PCT_HINT", min = 0, max = 100, step = 1 },
@@ -51,7 +50,8 @@ end
 
 local function AllProtected()
     local whitelist = Whitelist()
-    for _, fam in ipairs(FAMILIES) do
+    for _, card in ipairs(EbonAPI.ClientData.Families()) do
+        local fam = card.key
         if not whitelist[fam] then return false end
     end
     return true
@@ -65,7 +65,7 @@ local function RecomputePeak()
         return
     end
     local class = EbonBuilds.BuildForm.GetEditingClass()
-    local name, score = EbonBuilds.Scoring.ComputePeak(class, Settings(), EbonBuilds.Build.GetActiveWeights())
+    local name, score = EbonBuilds.Scoring.ComputePeak(class, Settings(), EbonBuilds.Build.GetActiveWeights(), (EbonBuilds.Build.GetActive() or {}).spec or EbonBuilds.Build.PlayerTopTalentTab())
     cachedPeak, cachedPeakName = score or 0, name
 end
 
@@ -131,7 +131,7 @@ function EbonBuilds.SettingsView.RefreshBanList()
     for spellId in pairs(banList) do banned[#banned + 1] = spellId end
     table.sort(banned)
 
-    local perkDb = EbonAPI.Ebonhold.PerkDatabase() or {}
+    local perkDb = EbonAPI.EchoCatalog.Database() or {}
     for i, spellId in ipairs(banned) do
         local data = perkDb[spellId]
         local btn = BanIcon(i)
@@ -155,7 +155,7 @@ local function AddEchoToBan(name, spellId)
 end
 
 local function OpenBanPicker()
-    local allList = EbonBuilds.Catalog.AllQualities()
+    local allList = EbonAPI.EchoCatalog.QualityList() or {}
     local banList = Settings().echoBanList or {}
     local filtered = {}
     for _, entry in ipairs(allList) do
@@ -173,11 +173,11 @@ local function BuildBanishWhitelistSection(parent, width)
     section:Add("status", { key = "BANISH_PROTECTION_HINT", width = width - TEXT_MARGIN })
 
     local grid = section:Add("grid", { columns = TOGGLE_COLUMNS })
-    for _, fam in ipairs(FAMILIES) do
-        local family = fam
+    for _, card in ipairs(EbonAPI.ClientData.Families()) do
+        local family = card.key
         grid:Add("toggle", {
             width = TOGGLE_WIDTH,
-            text = function() return L.FAMILY[family] or family end,
+            text = function() return EbonBuilds.FamilyName(family) end,
             get = function() return Whitelist()[family] or false end,
             onChange = function(_, value)
                 Whitelist()[family] = value and true or nil

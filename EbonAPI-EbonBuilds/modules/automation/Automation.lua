@@ -1,6 +1,5 @@
 EbonBuilds.Automation = {}
 
-local FAMILY_MAP = EbonBuilds.Const.FAMILY_MAP
 
 local function GetEvalDelay()
     return (EbonAPIEbonBuildsDB.globalSettings and EbonAPIEbonBuildsDB.globalSettings.evalDelay) or 2
@@ -14,23 +13,34 @@ local cachedPeak           = nil
 
 local REFERENCE_OFFER_SIZE = 3
 
+local SPEC_NOTE_BONUS = 3
 local QUALITY_BONUS = { [0] = 0, [1] = 0.5, [2] = 1.0, [3] = 1.5 }
 
-local function Perks()
-    return EbonAPI.Ebonhold.Perks()
+local function HasPerkApi()
+    return (EbonAPI.Ebonhold.IsPresent() and EbonAPI.EchoCatalog.Database()) and true or false
 end
 
-local function HasPerkApi()
-    local svc = Perks()
-    return (svc and EbonAPI.Ebonhold.PerkDatabase()
-            and svc.GetCurrentChoice and svc.SelectPerk) and true or false
+local defaultBuild = nil
+
+local function DefaultBuild()
+    defaultBuild = defaultBuild or {
+        settings     = EbonBuilds.Build.DefaultSettings(),
+        echoWeights  = {},
+        lockedEchoes = {},
+    }
+    return defaultBuild
+end
+
+local function AutomatedBuild()
+    if EbonBuilds.Reroll and EbonBuilds.Reroll.IsHunting() then return nil end
+    local build = EbonBuilds.Build and EbonBuilds.Build.GetActive()
+    if not build then return DefaultBuild() end
+    return build.automationEnabled and build or nil
 end
 
 local function ShouldAutomate()
     if not HasPerkApi() then return false end
-    if EbonBuilds.Reroll and EbonBuilds.Reroll.IsHunting() then return false end
-    local build = EbonBuilds.Build and EbonBuilds.Build.GetActive()
-    return (build and build.automationEnabled) and true or false
+    return AutomatedBuild() ~= nil
 end
 
 local function OnEvalTimer()
@@ -52,7 +62,7 @@ function EbonBuilds.Automation.GetPeak()
     local build = EbonBuilds.Build.GetActive()
     if not build then return 1 end
     local settings = build.settings or EbonBuilds.Build.DefaultSettings()
-    local _, score = EbonBuilds.Scoring.ComputePeak(build.class, settings, build.echoWeights or {})
+    local _, score = EbonBuilds.Scoring.ComputePeak(build.class, settings, build.echoWeights or {}, build.spec)
     cachedPeak = (score and score > 0) and score or 1
     return cachedPeak
 end
@@ -61,31 +71,13 @@ function EbonBuilds.Automation.ResetPeakCache()
     cachedPeak = nil
 end
 
-local function StacksOwned(spellId)
-    local owned = EbonBuilds.Protocol and EbonBuilds.Protocol.GetOwnedEchoes()
-    if not owned then return nil end
-
-    local total = 0
-    local variants = EbonBuilds.Catalog.Variants(spellId)
-    if variants then
-        for i = 1, #variants do
-            local held = owned[variants[i]]
-            if held then total = total + (held.stacks or 1) end
-        end
-    else
-        local held = owned[spellId]
-        if held then total = total + (held.stacks or 1) end
-    end
-    return total
-end
-
-local function ScoreChoice(choice, settings, weights)
+local function ScoreChoice(choice, settings, weights, classToken, spec)
     local spellId = choice.spellId
     local name = GetSpellInfo(spellId)
     if not name then
         return nil, EbonBuilds.api:Problem("AUTOMATION.CHOICE_UNKNOWN", { spellId = spellId, detail = "no spell name" })
     end
-    local data = EbonBuilds.Catalog.Entry(spellId)
+    local data = EbonAPI.EchoCatalog.Entry(spellId)
     if not data then
         return nil, EbonBuilds.api:Problem("AUTOMATION.CHOICE_UNKNOWN", { spellId = spellId, detail = "not in the Echo catalog" })
     end
@@ -96,22 +88,9 @@ local function ScoreChoice(choice, settings, weights)
         families  = data.families,
         classMask = data.classMask,
     }
-    local weightKey = EbonBuilds.Catalog.WeightKey(spellId) or name
-    local weight = EbonBuilds.Scoring.WeightOf(weights, weightKey)
-    local stacks = StacksOwned(spellId)
-    local isNovel
-    if stacks ~= nil then
-        isNovel = (stacks == 0)
-    else
-        local granted = Perks().GetGrantedPerks()
-        isNovel = not granted or not granted[name]
-    end
-    local score
-    if isNovel then
-        score = EbonBuilds.Scoring.Score(entry, weight, settings)
-    else
-        score = EbonBuilds.Scoring.ScorePerQuality(entry, weight, settings, entry.quality)
-    end
+    local weightKey = EbonAPI.EchoCatalog.NameKey(spellId) or name
+    local weight = EbonBuilds.Scoring.WeightOf(weights, weightKey, entry, classToken, spec)
+    local score = EbonBuilds.Scoring.ScorePerQuality(entry, weight, settings, entry.quality)
     local matrixScore
     if EbonBuilds.Matrix then
         matrixScore = EbonBuilds.Matrix.CombinedScore(
@@ -123,17 +102,19 @@ local function ScoreChoice(choice, settings, weights)
         spellId     = spellId,
         name        = name,
         quality     = choice.quality,
-        stacks      = stacks,
         score       = score,
         matrixScore = matrixScore,
+        ownSpec     = EbonBuilds.Weights.IsOwnSpec(entry, classToken, spec),
+        weight      = weight,
         entry     = entry,
         data      = data,
-        isFrozen  = choice.isFrozen,
-        isCarried = choice.isCarried,
+        frozen    = choice.frozen,
+        carried   = choice.carried,
+        memory    = choice.memory,
     }
 end
 
-local function NormFamily(f) return FAMILY_MAP[f] end
+local NormFamily = EbonBuilds.Const.NormFamily
 
 local function IsProtected(data, whitelist)
     if not whitelist or next(whitelist) == nil then return false end
@@ -148,10 +129,10 @@ local function IsProtected(data, whitelist)
     return false
 end
 
-local function ScoreLockedEcho(lockedId, settings, weights)
+local function ScoreLockedEcho(lockedId, settings, weights, classToken, spec)
     local name = GetSpellInfo(lockedId)
     if not name then return 0 end
-    local data = EbonBuilds.Catalog.Entry(lockedId)
+    local data = EbonAPI.EchoCatalog.Entry(lockedId)
     if not data then return 0 end
     local entry = {
         spellId   = lockedId,
@@ -160,8 +141,8 @@ local function ScoreLockedEcho(lockedId, settings, weights)
         families  = data.families,
         classMask = data.classMask,
     }
-    local weightKey = EbonBuilds.Catalog.WeightKey(lockedId) or name
-    local w = EbonBuilds.Scoring.WeightOf(weights, weightKey)
+    local weightKey = EbonAPI.EchoCatalog.NameKey(lockedId) or name
+    local w = EbonBuilds.Scoring.WeightOf(weights, weightKey, entry, classToken, spec)
     return EbonBuilds.Scoring.Score(entry, w, settings)
 end
 
@@ -197,14 +178,15 @@ end
 
 local function TrySelect(scored, settings, build)
     local banList = settings.echoBanList or {}
-    local nonBanned, all = {}, {}
+    local fit, nonBanned, all = {}, {}, {}
     for _, s in ipairs(scored) do
         all[#all + 1] = s
         if not banList[s.spellId] then
             nonBanned[#nonBanned + 1] = s
+            if not s.isOffClass then fit[#fit + 1] = s end
         end
     end
-    local candidates = #nonBanned > 0 and nonBanned or all
+    local candidates = (#fit > 0 and fit) or (#nonBanned > 0 and nonBanned) or all
     if #candidates == 0 then return false, nil end
 
     table.sort(candidates, function(a, b)
@@ -221,17 +203,27 @@ local function TrySelect(scored, settings, build)
         pick = candidates[1]
     end
 
-    if not EbonAPI.Ebonhold.SelectPerk(pick.spellId) then return false, nil end
+    if not EbonAPI.Actions.SelectEcho(pick.spellId).sent then return false, nil end
     UpdateStat(build, "picks")
     RecordQualityPick(build, pick.quality)
     return true, pick
 end
 
-local function AnnotateScored(scored, banList, whitelist, lockedList)
+local function IsOffClass(s, class, matrixMode)
+    local mask = s.data.classMask or 0
+    local bitVal = class and EbonAPI.EchoCatalog.ClassBit(class)
+    if mask ~= 0 and bitVal and bit.band(mask, bitVal) == 0 then return true end
+    if not matrixMode or (s.weight or 0) > 0 then return false end
+    return EbonBuilds.Matrix.InclusionRate(s.spellId, class) == 0
+end
+
+local function AnnotateScored(scored, banList, whitelist, lockedList, matrixMode)
+    local class = EbonBuilds.Build.PlayerClassToken()
     for _, s in ipairs(scored) do
         s.isBanned    = banList[s.spellId] and true or false
+        s.isOffClass  = IsOffClass(s, class, matrixMode)
         s.isProtected = IsProtected(s.data, whitelist)
-        s.isSecured   = (s.isFrozen or s.isCarried
+        s.isSecured   = (s.frozen or s.carried or s.memory
                          or locallyFrozenIndices[s.index]) and true or false
         s.isLocked    = false
         for i = 1, EbonBuilds.Build.LOCKED_SLOTS do
@@ -247,10 +239,12 @@ end
 local function ScoreOffer(build, choices)
     local settings = build.settings or EbonBuilds.Build.DefaultSettings()
     local weights = build.echoWeights or {}
+    local classToken = build.class or EbonBuilds.Build.PlayerClassToken()
+    local spec = build.spec or EbonBuilds.Build.PlayerTopTalentTab()
 
     local scored, unknown = {}, {}
     for i, choice in ipairs(choices) do
-        local s, problem = ScoreChoice(choice, settings, weights)
+        local s, problem = ScoreChoice(choice, settings, weights, classToken, spec)
         if s then
             s.index = i
             scored[#scored + 1] = s
@@ -283,17 +277,19 @@ local function ScoreOffer(build, choices)
             local s = scored[i]
             local share = s.score / peak
             if share > 1 then share = 1 elseif share < -1 then share = -1 end
-            s.score = (s.matrixScore or 0) + (QUALITY_BONUS[s.quality] or 0) + share * factor
+            s.score = (s.matrixScore or 0) + (QUALITY_BONUS[s.quality] or 0) + share * factor + (s.ownSpec and SPEC_NOTE_BONUS or 0)
         end
     end
 
     AnnotateScored(scored, settings.echoBanList or {}, settings.banishFamilyWhitelist or {},
-        build.lockedEchoes or {})
+        build.lockedEchoes or {}, matrixMode)
 
     return {
         build      = build,
         settings   = settings,
         weights    = weights,
+        classToken = classToken,
+        spec       = spec,
         scored     = scored,
         matrixMode = matrixMode,
         peak       = peak,
@@ -304,7 +300,7 @@ end
 local function TakeLocked(round)
     for _, s in ipairs(round.scored) do
         if s.isLocked then
-            if not EbonAPI.Ebonhold.SelectPerk(s.spellId) then return false end
+            if not EbonAPI.Actions.SelectEcho(s.spellId).sent then return false end
             UpdateStat(round.build, "picks")
             RecordQualityPick(round.build, s.quality)
             LogAndToast(round.scored, "Select (Locked)", s.index)
@@ -315,11 +311,7 @@ local function TakeLocked(round)
 end
 
 local function Banish(round, s)
-    if not Perks().BanishPerk(s.index - 1) then
-        EbonBuilds.api:Report(EbonBuilds.api:Problem("AUTOMATION.BANISH_REFUSED",
-            { echo = s.name, left = round.runData and round.runData.remainingBanishes or 0 }))
-        return false
-    end
+    if not EbonAPI.Actions.BanishEcho(s.index - 1).sent then return false end
     UpdateStat(round.build, "banishesUsed")
     table.sort(round.scored, ByIndex)
     LogAndToast(round.scored, "Banish", s.index)
@@ -340,6 +332,12 @@ local function TryBanish(round)
         end
     end
 
+    for _, s in ipairs(scored) do
+        if not s.isSecured and not s.isProtected and s.isOffClass and Banish(round, s) then
+            return true
+        end
+    end
+
     local threshold
     if round.matrixMode then
         threshold = settings.matrixBanishBelow or -1
@@ -354,6 +352,10 @@ local function TryBanish(round)
 
     table.sort(scored, ByIndex)
     return false
+end
+
+local function MatrixGoodEnough(score, settings)
+    return score >= (settings.matrixRerollBelow or 0.5)
 end
 
 local function TryReroll(round)
@@ -377,18 +379,14 @@ local function TryReroll(round)
         for _, s in ipairs(scored) do
             if s.score > best then best = s.score end
         end
-        trigger = best < (settings.matrixRerollBelow or 0.5)
+        trigger = not MatrixGoodEnough(best, settings)
     else
         local sum = 0
         for _, s in ipairs(scored) do sum = sum + s.score end
         trigger = sum * REFERENCE_OFFER_SIZE / #scored < round.peak * settings.autoRerollPct / 100
     end
     if not trigger then return false end
-    if not Perks().RequestReroll() then
-        EbonBuilds.api:Report(EbonBuilds.api:Problem("AUTOMATION.REROLL_REFUSED",
-            { left = (runData.totalRerolls or 0) - (runData.usedRerolls or 0) }))
-        return false
-    end
+    if not EbonAPI.Actions.RerollEchoes().sent then return false end
 
     UpdateStat(round.build, "rerollsUsed")
     LogAndToast(scored, "Reroll", 0)
@@ -418,7 +416,7 @@ local function TryFreeze(round)
     local lockedList = build.lockedEchoes or {}
     for i = 1, EbonBuilds.Build.LOCKED_SLOTS do
         local lockedId = lockedList[i]
-        if lockedId and ScoreLockedEcho(lockedId, settings, round.weights) > threshold then
+        if lockedId and ScoreLockedEcho(lockedId, settings, round.weights, round.classToken, round.spec) > threshold then
             lockedAbove = lockedAbove + 1
         end
     end
@@ -427,11 +425,7 @@ local function TryFreeze(round)
 
     table.sort(above, ByScoreDescending)
     local lowest = above[#above]
-    if not Perks().FreezePerk(lowest.index - 1) then
-        EbonBuilds.api:Report(EbonBuilds.api:Problem("AUTOMATION.FREEZE_REFUSED",
-            { echo = lowest.name, left = (runData.totalFreezes or 0) - (runData.usedFreezes or 0) }))
-        return false
-    end
+    if not EbonAPI.Actions.FreezeEcho(lowest.index - 1).sent then return false end
 
     UpdateStat(build, "freezesUsed")
     locallyFrozenIndices[lowest.index] = true
@@ -450,18 +444,59 @@ local function Select(round)
     return ok
 end
 
+local function MemoryCard(round)
+    if round.settings.manageSouvenirs == false then return nil end
+    for _, s in ipairs(round.scored) do
+        if s.memory then return s end
+    end
+    return nil
+end
+
+local function IsMemoryGood(round, s)
+    if s.isBanned then return false end
+    if round.matrixMode then
+        return MatrixGoodEnough(s.score, round.settings)
+    end
+    return s.score * REFERENCE_OFFER_SIZE >= round.peak * round.settings.autoRerollPct / 100
+end
+
+local function TryMemory(round)
+    local s = MemoryCard(round)
+    if not s then return false end
+    if IsMemoryGood(round, s) then
+        if not EbonAPI.Actions.SelectEcho(s.spellId).sent then return false end
+        UpdateStat(round.build, "picks")
+        RecordQualityPick(round.build, s.quality)
+        LogAndToast(round.scored, "Select (Memory)", s.index)
+        return true
+    end
+    local r = EbonAPI.Actions.DrawMemory()
+    if not (r and r.sent) then return false end
+    LogAndToast(round.scored, "Memory declined", 0)
+    return true
+end
+
+function EbonBuilds.Automation.ManagesSouvenirs()
+    if not ShouldAutomate() then return nil end
+    local build = AutomatedBuild()
+    local settings = build and build.settings
+    return not (settings and settings.manageSouvenirs == false)
+end
+
 local evalInProgress = false
 
 local function Decide()
-    local build = EbonBuilds.Build.GetActive()
-    if not build or not build.automationEnabled then return false end
-    if EbonBuilds.Reroll and EbonBuilds.Reroll.IsHunting() then return false end
+    local build = AutomatedBuild()
+    if not build then return false end
 
-    local choices = Perks().GetCurrentChoice()
+    local offer = EbonAPI.State.GetOffer()
+    local choices = offer and offer.choices
     if not choices or #choices == 0 then return false end
 
     local round = ScoreOffer(build, choices)
     if not round then return false end
+
+    if MemoryCard(round) then return TryMemory(round) end
 
     return TakeLocked(round) or TryBanish(round) or TryReroll(round) or TryFreeze(round) or Select(round)
 end
@@ -490,6 +525,10 @@ function EbonBuilds.Automation.Init()
             locallyFrozenIndices = {}
 
             if not ShouldAutomate() then return false end
+
+            if EbonBuilds.Automation.ManagesSouvenirs() == false and EbonAPI.Ebonhold.HasMemoryCard() then
+                return false
+            end
 
             pendingChoices = choices
             StartEvalTimer()

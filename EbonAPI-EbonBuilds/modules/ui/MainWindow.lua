@@ -118,12 +118,6 @@ function EbonBuilds.MainWindow._ShowInitialView()
     end
 end
 
-_G["SLASH_" .. EbonBuilds.NAME .. "1"] = "/ebb"
-_G["SLASH_" .. EbonBuilds.NAME .. "2"] = "/ebonbuilds"
-SlashCmdList[EbonBuilds.NAME] = function(input)
-    EbonBuilds.MainWindow.Toggle()
-end
-
 function EbonBuilds.MainWindow.Toggle()
     Build()
     local frame = EbonBuilds.MainWindow._frame

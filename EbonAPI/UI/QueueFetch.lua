@@ -13,7 +13,6 @@ local pcall, tostring, tonumber, type, ipairs, setmetatable = pcall, tostring, t
 local concat = table.concat
 
 local WAIT_LIMITS = { 10, 20 }
-local MAX_VISIBLE = 8
 local SHAPES = {
   square = { bg = "card", bgAlpha = 0.9, edge = "borderDim", edgeAlpha = 1, size = 1, inset = 1 },
   bevel = { bg = "card", bgAlpha = 0.9, edge = "borderDim", edgeAlpha = 1, size = 2, inset = 2, black = true },
@@ -25,42 +24,12 @@ local SHAPES = {
   round = { bg = "card", bgAlpha = 1, edge = "borderDim", edgeAlpha = 1, size = 8, rounded = true },
 }
 
-local function value(key, fallback)
-  local ok, found = pcall(EbonAPI.Skins.value, key)
-  if ok and found ~= nil then
-    return found
-  end
-
-  return fallback
-end
+local value = EbonAPI.QueueParts.value
 
 local NOTHING = ""
 
-local function word(key)
-  local L = EbonAPI.L
-
-  return (L and L[key]) or key
-end
-
-local function num(n)
-  n = tonumber(n)
-  if not n or n ~= n or n == math.huge or n == -math.huge then
-    return 0
-  end
-
-  return n
-end
-
-local function hue(key)
-  local color = EbonAPI.Palette.THEME[key] or EbonAPI.Palette.THEME.text
-
-  return color[1] + color[2] * 1000 + color[3] * 1000000
-end
-
-local function tint(target, method, key, alpha)
-  local color = EbonAPI.Palette.THEME[key] or EbonAPI.Palette.THEME.text
-  target[method](target, color[1], color[2], color[3], alpha or 1)
-end
+local num = EbonAPI.QueueParts.num
+local word, hue, tint = EbonAPI.QueueGroups.word, EbonAPI.QueueGroups.hue, EbonAPI.QueueGroups.tint
 
 local backdrops = {}
 

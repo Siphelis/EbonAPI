@@ -3,13 +3,9 @@ EbonBuilds.BuildOverview = {}
 local L = EbonBuilds.L
 local W = EbonBuilds.Widgets
 
-local CLASS_TEXTURE  = EbonBuilds.Const.CLASS_TEXTURE
-local QUALITY_LABELS = EbonBuilds.Const.QUALITY_NAME
-local QUALITY_HEX    = EbonBuilds.Const.QUALITY_HEX
-local CLASS_MASK     = EbonBuilds.Const.CLASS_BITS
 local BUILD_SLOTS    = EbonBuilds.Const.BUILD_LOCKED_SLOTS
-local UNKNOWN_ICON   = "Interface\\Icons\\INV_Misc_QuestionMark"
-local EMPTY_SLOT     = "Interface\\Buttons\\UI-EmptySlot"
+local UNKNOWN_ICON   = EbonBuilds.Const.UNKNOWN_ICON
+local EMPTY_SLOT     = EbonBuilds.Const.EMPTY_SLOT
 
 local CLASS_ICON_SIZE = 32
 local LOCKED_SIZE     = 36
@@ -35,38 +31,27 @@ local tabs
 local contentArea
 local state = { build = nil }
 
-local PREFIXES = { "tome of ", "codex of ", "scroll of ", "manual of ", "grimoire of ", "libram of ", "tablet of " }
-local QUALITY_SUFFIXES = { " %- common", " %- uncommon", " %- rare", " %- epic", " %- legendary" }
+local function CatalogName(name)
+    local E = EbonAPI and EbonAPI.EchoCatalog
+    if not E then return nil end
+    return (E.NormalizeName(name))
+end
 
-local function NormalizeEchoName(name)
-    if not name then return nil end
-    local n = strlower(name)
-    for _, prefix in ipairs(PREFIXES) do
-        if n:sub(1, #prefix) == prefix then
-            n = n:sub(#prefix + 1)
-            break
-        end
-    end
-    for _, suffix in ipairs(QUALITY_SUFFIXES) do
-        if n:sub(-#suffix) == suffix then
-            n = n:sub(1, -(#suffix + 1))
-            break
-        end
-    end
-    return n
+local function GroupOf(spellId)
+    local E = EbonAPI and EbonAPI.EchoCatalog
+    if not E or not E.HasGroup(spellId) then return nil end
+    return E.GroupKey(spellId)
 end
 
 local function ComputeMissingEchoes(build)
     if not build or not build.class then return nil end
 
-    local classMask = CLASS_MASK[build.class] or 0
+    local classMask = EbonAPI.EchoCatalog.ClassBit(build.class) or 0
     local playerLevel = UnitLevel("player")
 
     local ownedLower = {}
     local ownedGroups = {}
     local spellbookIds = {}
-    -- The tabs are read whatever their name: the client translates it ("Echoes" is not the same text in every
-    -- language), and a tome is told apart by its spell id below, not by the tab that holds it.
     local numTabs = GetNumSpellTabs and GetNumSpellTabs() or 0
     for tabIdx = 1, numTabs do
         local _, _, offset, numSpells = GetSpellTabInfo(tabIdx)
@@ -79,7 +64,7 @@ local function ComputeMissingEchoes(build)
         end
     end
 
-    local perkDb = EbonAPI.Ebonhold.PerkDatabase()
+    local perkDb = EbonAPI.EchoCatalog and EbonAPI.EchoCatalog.Database()
     if perkDb == nil then
         EbonBuilds.api:Degrade(EbonBuilds.api:Problem("OVERVIEW.PERK_DATABASE_MISSING", {}))
         perkDb = {}
@@ -90,19 +75,18 @@ local function ComputeMissingEchoes(build)
         local isOwned = spellbookIds[data.requiredSpell] or spellbookIds[spellId + 100000]
         if isOwned then
             local name = GetSpellInfo(spellId)
-            local norm = NormalizeEchoName(name)
+            local norm = CatalogName(name)
             if norm then ownedLower[norm] = true end
-            if data.groupId then ownedGroups[data.groupId] = true end
+            local group = GroupOf(spellId)
+            if group then ownedGroups[group] = true end
         end
     end
 
-    local perks = EbonAPI.Ebonhold.Perks()
-    if perks and perks.GetGrantedPerks then
-        local granted = perks.GetGrantedPerks()
-        for name in pairs(granted or {}) do
-            local norm = NormalizeEchoName(name)
-            if norm then ownedLower[norm] = true end
-        end
+    local owned = EbonAPI.State.GetOwned()
+    for _, perk in ipairs(owned and owned.perks or {}) do
+        local name = GetSpellInfo(perk.spellId)
+        local norm = name and CatalogName(name)
+        if norm then ownedLower[norm] = true end
     end
 
     local lockedLower = {}
@@ -111,7 +95,8 @@ local function ComputeMissingEchoes(build)
             local spellId = build.lockedEchoes[i]
             if spellId then
                 local name = GetSpellInfo(spellId)
-                if name then lockedLower[NormalizeEchoName(name)] = true end
+                local lockedKey = name and CatalogName(name)
+                if lockedKey then lockedLower[lockedKey] = true end
             end
         end
     end
@@ -119,9 +104,10 @@ local function ComputeMissingEchoes(build)
     local byName = {}
     for spellId, data in pairs(perkDb) do
         local spellName = GetSpellInfo(spellId)
-        if spellName then
-            local key = NormalizeEchoName(spellName)
-            local isOwned = ownedLower[key] or (data.groupId and ownedGroups[data.groupId])
+        local key = spellName and CatalogName(spellName)
+        if key then
+            local group = GroupOf(spellId)
+            local isOwned = ownedLower[key] or (group and ownedGroups[group])
             if not isOwned then
                 if classMask == 0 or bit.band(data.classMask or 0, classMask) ~= 0 then
                     if not data.minLevel or playerLevel >= data.minLevel then
@@ -143,8 +129,9 @@ local function ComputeMissingEchoes(build)
     local dropByGroup = EbonAPI.Ebonhold.PerkDropSourceByGroup()
     for key, entry in pairs(byName) do
         local source = dropSources and dropSources[entry.spellId]
-        if not source and entry.data.groupId and dropByGroup then
-            source = dropByGroup[entry.data.groupId]
+        local entryGroup = GroupOf(entry.spellId)
+        if not source and entryGroup and dropByGroup then
+            source = dropByGroup[entryGroup]
         end
         local needsTome = entry.data.requiredSpell and entry.data.requiredSpell > 0
         if not banList[entry.spellId] and needsTome then
@@ -155,13 +142,10 @@ local function ComputeMissingEchoes(build)
                 families = entry.data.families,
                 classMask = entry.data.classMask,
             }
-            local weightKey = EbonBuilds.Catalog.WeightKey(entry.spellId)
+            local weightKey = EbonAPI.EchoCatalog.NameKey(entry.spellId)
                               or entry.displayName
             local weight = weights[weightKey] or 0
             local score = EbonBuilds.Scoring.Score(scoringEntry, weight, settings)
-            if source == nil then
-                EbonBuilds.api:Report(EbonBuilds.api:Problem("OVERVIEW.DROP_SOURCE_UNKNOWN", { echo = entry.displayName }))
-            end
             missing[#missing + 1] = {
                 spellId = entry.spellId,
                 name = entry.displayName,
@@ -265,7 +249,8 @@ local function BuildOverviewTab(area)
         size = CLASS_ICON_SIZE,
         icon = function()
             local build = state.build
-            return build and CLASS_ICON_TCOORDS[build.class] and CLASS_TEXTURE or UNKNOWN_ICON
+            local class = build and EbonAPI.ClientData.Class(build.class)
+            return class and class.texture or UNKNOWN_ICON
         end,
     })
     W.ClassIcon(classIcon, function() return state.build and state.build.class end)
@@ -287,8 +272,8 @@ local function BuildOverviewTab(area)
         text = function()
             local build = state.build
             if not build then return "" end
-            local specs = EbonBuilds.SpecData and EbonBuilds.SpecData[build.class]
-            local specName = specs and specs[build.spec or 1] and specs[build.spec or 1].name or ""
+            local spec = EbonAPI.ClientData.Spec(build.class, build.spec or 1)
+            local specName = spec and spec.name or ""
             return string.format(L.BUILD_META, build.author or L.UNKNOWN, specName, build.lastModified or "")
         end,
     })
@@ -307,6 +292,7 @@ local function BuildOverviewTab(area)
                 local spellId = LockedSpell(slot)
                 return spellId and select(3, GetSpellInfo(spellId)) or EMPTY_SLOT
             end,
+            badge = function() return EbonBuilds.Weights.SpecBadgeOfSpell(LockedSpell(slot)) end,
         })
         W.SpellTip(btn, function() return LockedSpell(slot) end)
         btn._ring = W.Ring(btn)
@@ -409,7 +395,7 @@ local function BuildStatsTab(area)
         local quality = q
         values[#values + 1] = StatRow(right, 18, {
             width = 90,
-            text = function() return QUALITY_LABELS[quality] .. ":" end,
+            text = function() return EbonAPI.ClientData.Quality(quality).name .. ":" end,
         }, {
             width = 80,
             text = function()
@@ -417,7 +403,7 @@ local function BuildStatsTab(area)
                 local count = (st.qualityPicks or {})[quality] or 0
                 local total = st.picks or 0
                 local pct = total > 0 and math.floor(count / total * 100) or 0
-                return string.format("%d (%d%%)", count, pct)
+                return string.format("%s (%d%%)", EbonAPI.Format.number(count), pct)
             end,
         })
     end
@@ -450,7 +436,7 @@ local function RefreshOverview()
     for i = 1, BUILD_SLOTS do
         local btn = overviewPage._lockedButtons[i]
         local spellId = LockedSpell(i)
-        local data = spellId and EbonBuilds.Catalog.Entry(spellId)
+        local data = spellId and EbonAPI.EchoCatalog.Entry(spellId)
         W.SetRing(btn._ring, spellId and (data and data.quality or 0) or nil)
     end
 
@@ -473,6 +459,7 @@ local function CreateMissingRow(content)
     local icon = row:Add("icon", {
         size = MISSING_ICON,
         icon = function() return row._spellId and select(3, GetSpellInfo(row._spellId)) end,
+        badge = function() return EbonBuilds.Weights.SpecBadgeOfSpell(row._spellId) end,
     })
     W.SpellTip(icon, function() return row._spellId end, { describe = true, anchor = "ANCHOR_LEFT" })
     row:Add("text", { width = MISSING_NAME, text = function() return row._name end })
@@ -507,7 +494,7 @@ local function RefreshMissing()
             missingRows[rowIdx] = row
         end
         row._spellId = entry.spellId
-        row._name    = "|cff" .. (QUALITY_HEX[entry.quality] or QUALITY_HEX[0]) .. entry.name .. "|r"
+        row._name    = "|cff" .. (EbonBuilds.Const.QualityHex(entry.quality) or EbonBuilds.Const.QualityHex(0)) .. entry.name .. "|r"
         row._source  = (entry.dropSource or ""):gsub("^Can be found on ", "")
         row._score   = string.format("%.0f", entry.score)
         row:Show()

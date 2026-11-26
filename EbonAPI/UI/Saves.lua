@@ -7,6 +7,7 @@ EbonAPI.Saves = { looks = {} }
 
 local Saves = EbonAPI.Saves
 local Bricks = EbonAPI.Bricks
+local Common = EbonAPI.Common
 local Kit = EbonAPI.Kit
 local Lib = EbonAPI.Lib
 local Data = EbonAPI.SavesData
@@ -23,11 +24,11 @@ Bricks.CONTRACT.saves = {
   "Refresh", "PreferredWidth",
 }
 
-local VIEWS = { list = true, grid = true, gauge = true }
-local DETAILS = { inline = true, dock = true }
-local SORTS = { name = true, pct = true, cost = true }
+local VIEWS = EbonAPI.SavesData.VIEWS
+local DETAILS = EbonAPI.SavesData.DETAILS
+local SORTS = EbonAPI.SavesData.SORTS
 local CALLBACKS = {
-  "onActivate", "onMode", "onMenu", "onGroupMenu", "onHover", "onLeave", "onNew", "onSelect", "onView", "onSort",
+  "onActivate", "onMode", "onMenu", "onGroupMenu", "onHover", "onLeave", "onNew", "onSelect", "onOpen", "onView", "onSort",
 }
 
 local function text(key)
@@ -125,6 +126,7 @@ function BOX:InlineDrawer(item, cell, y, width)
   local drawer = self:Drawer()
 
   drawer:SetParent(self.scroll.child)
+  Bricks.underAll(drawer)
   drawer:ClearAllPoints()
   drawer:SetItem(item)
 
@@ -148,6 +150,7 @@ function BOX:DockDrawer(width)
   local drawer = self:Drawer()
 
   drawer:SetParent(self)
+  Bricks.underAll(drawer)
   drawer:ClearAllPoints()
   drawer:SetItem(item)
 
@@ -168,13 +171,9 @@ function BOX:Relayout()
 
   local state = self.state
 
-  -- A slide only shows in the list and gauge views of a visible, full widget: elsewhere it jumps to its end.
-  if self.fx and (state.reduced or state.view == "grid" or not self:IsVisible()) then
+  -- A slide only shows in the list and gauge views of a visible widget: elsewhere it jumps to its end.
+  if self.fx and (state.view == "grid" or not self:IsVisible()) then
     self:FxStop()
-  end
-
-  if state.reduced then
-    return self:RelayoutReduced()
   end
 
   local width = max(1, (self.boxWidth or self:GetWidth() or 1))
@@ -219,14 +218,27 @@ function BOX:Relayout()
   self.scroll:SetOffset(offset)
 
   if arranged.count == 0 then
-    self.empty:SetText(arranged.total == 0 and (self.spec and self.spec.empty or "") or text("SAVES_NO_MATCH"))
+    self.empty:SetText(self.spec and self.spec.empty or "")
     self.empty:SetWidth(max(1, viewWidth - 16))
     self.empty:Show()
   else
     self.empty:Hide()
   end
 
+  local openId = self:OpenId()
+
+  if openId ~= state.announced then
+    state.announced = openId
+    self:CallBack("onOpen", openId, self)
+  end
+
   return self:UpdateBar()
+end
+
+function BOX:OpenId()
+  local state = self.state
+
+  return state.open and state.selected or nil
 end
 
 function BOX:Place()
@@ -301,24 +313,19 @@ function BOX:SetSort(sort, grouped)
 end
 
 function BOX:SetHeight(height)
-  -- Reduced, the widget keeps the height of its one line; the height asked for comes back with the full display.
-  if self.state.reduced then
-    self.fullHeight = height
-
-    return self
-  end
-
   self.nativeSetHeight(self, height)
 
   return self:Relayout()
 end
 
-function BOX:SetWidth(width)
+function Saves.setBoxWidth(self, width)
   self.boxWidth = width
   self.nativeSetWidth(self, width)
 
   return self:Relayout()
 end
+
+BOX.SetWidth = Saves.setBoxWidth
 
 function BOX:Select(id)
   if id == nil or self.byId[id] then
@@ -348,8 +355,8 @@ end
 
 -- Keyboard. A frame with EnableKeyboard swallows every key of the 3.3.5 client (movement included) and there is no
 -- SetPropagateKeyboardInput: the keys are read through a hidden one-pixel EditBox (self.keys) that takes the focus on a
--- click in the widget and gives it back as soon as the mouse leaves, on Escape, when the widget hides, when the
--- search field takes over and when it loses the focus by itself.
+-- click in the widget and gives it back as soon as the mouse leaves, on Escape, when the widget hides and when it
+-- loses the focus by itself.
 local ARROWS = { UP = "UP", DOWN = "DOWN", LEFT = "LEFT", RIGHT = "RIGHT" }
 
 -- The 3.3.5 client has no OnArrowPressed script on an EditBox (SetScript raises "doesn't have a script"): when the
@@ -371,7 +378,7 @@ end
 function BOX:Focus()
   local keys = self.keys
 
-  if not keys or self.keysOn or not self:IsShown() or self.state.reduced then
+  if not keys or self.keysOn or not self:IsShown() then
     return self
   end
 
@@ -651,7 +658,7 @@ function BOX:DoubleClick(id)
   if why and why ~= "" then
     self:SetStatus(why, "bad")
 
-    if UIErrorsFrame then
+    if UIErrorsFrame and Lib.errorsShown() then
       UIErrorsFrame:AddMessage(why, 1, 0.2, 0.2)
     end
   end
@@ -666,6 +673,13 @@ function BOX:ToggleMode(id)
 end
 
 function BOX:OpenMenu(id, anchor)
+  local item = self:Find(id)
+
+  -- A read-only item (a preset delivered with STAL) has no menu.
+  if item and item.readonly then
+    return self
+  end
+
   self:CallBack("onMenu", id, anchor)
 
   return self
@@ -680,14 +694,24 @@ end
 function BOX:ToggleFold(groupId)
   local fold = self.state.fold
   local key = "g:" .. tostring(groupId)
-
-  fold[groupId] = (not fold[groupId]) or nil
+  local opening, closing = {}, {}
 
   if fold[groupId] then
-    return self:Slide({}, { key })
+    fold[groupId] = nil
+    opening[1] = key
+
+    for _, group in ipairs(self.model and self.model.groups or {}) do
+      if group.id ~= groupId and not fold[group.id] then
+        fold[group.id] = true
+        closing[#closing + 1] = "g:" .. tostring(group.id)
+      end
+    end
+  else
+    fold[groupId] = true
+    closing[1] = key
   end
 
-  return self:Slide({ key }, {})
+  return self:Slide(opening, closing)
 end
 
 -- The vertical slide of a group (key "g:<id>") and of an inline drawer (key "d:<save id>"): the view reserves the
@@ -781,7 +805,7 @@ function BOX:Slide(opening, closing)
   local duration = S("widgets.saves.fold") or 0
   local state = self.state
 
-  if not (duration > 0 and self.model and not state.reduced and state.view ~= "grid" and self:IsVisible()) then
+  if not (duration > 0 and self.model and state.view ~= "grid" and self:IsVisible()) then
     self:FxStop()
 
     return self:Relayout()
@@ -839,21 +863,47 @@ function BOX:Unhover()
   return self
 end
 
--- The status line: empty shows the reminder; a text goes away after STATUS_DELAY seconds, driven by an OnUpdate
--- that exists only during that delay.
+-- T16: true when the pointer is inside the visible list (scroll) enlarged by the margin on the 4 sides
+function BOX:IsPointerNear()
+  local scroll = self.scroll
+
+  if not scroll or not scroll:IsShown() then
+    return false
+  end
+
+  local margin = max(0, Common.get("saves.hoverMargin") + (EbonAPI.Skins.value("saves.hoverMarginAdd") or 0))
+
+  return scroll:IsMouseOver(margin, -margin, -margin, margin) and true or false
+end
+
+-- The status line: empty gives its room back to the list (statusHeight = 0); a text takes statusRoom and goes away
+-- after STATUS_DELAY seconds, driven by an OnUpdate that exists only during that delay.
 function BOX:SetStatus(message, kind)
   local line = self.status
+  local before = self.statusHeight
 
   if message == nil or message == "" then
     self:SetScript("OnUpdate", nil)
     self.statusLeft = nil
-    line:SetText(text("SAVES_HINT"))
-    Bricks.paint(line, "SetTextColor", "muted")
+    self.statusHeight = 0
+    line:SetText("")
+    line:Hide()
+
+    if before ~= 0 and self.model then
+      self:Relayout()
+    end
 
     return self
   end
 
+  self.statusHeight = self.statusRoom
+  line:Show()
   line:SetText(message)
+
+  if before ~= self.statusHeight and self.model then
+    self:Relayout()
+  end
+
   Bricks.paint(line, "SetTextColor", statusColor(kind))
   self.statusLeft = STATUS_DELAY
   self:SetScript("OnUpdate", function(box, elapsed)
@@ -867,20 +917,10 @@ function BOX:SetStatus(message, kind)
   return self
 end
 
--- Tool bar: three view buttons on the left; search, sort and "+" on the right. The search field takes the bar's place
--- (or sits between the view buttons and the sort button when widgets.saves.search keeps it open).
+-- Tool bar: three view buttons on the left; sort and "+" on the right.
 local BUTTON, BAR_PAD = 22, 2
 local VIEW_ICONS = { list = "list", grid = "grid", gauge = "gauge" }
 local VIEW_TIPS = { list = "SAVES_VIEW_LIST", grid = "SAVES_VIEW_GRID", gauge = "SAVES_VIEW_GAUGE" }
-
--- Frame:SetShown does not exist in the 3.3.5 client.
-local function show(target, on)
-  if on then
-    target:Show()
-  else
-    target:Hide()
-  end
-end
 
 local function barButton(parent, icon, tip)
   local button = CreateFrame("Button", nil, parent)
@@ -911,229 +951,7 @@ local function setPressed(button, on)
   Bricks.paint(button, "SetBackdropBorderColor", on and "focus" or "buttonBorder")
 end
 
--- Reduced mode: the bar and the scrolled area give way to one line, < [list] > and the button of the chosen save, above
--- the status line. The drawer is shut, the keyboard released and the preview of the tree freed.
-local function miniButton(parent, icon, tip)
-  local button = barButton(parent, icon, tip or "")
-
-  button:RegisterForClicks("LeftButtonUp")
-
-  -- No tip text for a button without key.
-  if not tip then
-    button:SetScript("OnEnter", function(self)
-      Bricks.paint(self, "SetBackdropBorderColor", "buttonHover")
-    end)
-  end
-
-  return button
-end
-
-function BOX:BuildMini()
-  local mini = CreateFrame("Frame", nil, self)
-
-  self.mini = mini
-  mini:SetHeight(self.barHeight)
-  mini:SetPoint("TOPLEFT", self, "TOPLEFT", 0, 0)
-  mini:SetPoint("TOPRIGHT", self, "TOPRIGHT", 0, 0)
-  mini:Hide()
-
-  mini.prev = miniButton(mini, "left", "SAVES_PREVIOUS")
-  mini.prev:SetPoint("TOPLEFT", mini, "TOPLEFT", 0, -BAR_PAD)
-  mini.prev:SetScript("OnClick", function()
-    self:StepReduced(-1)
-  end)
-
-  mini.go = miniButton(mini, "play", "SAVES_ACTIVATE")
-  mini.go:SetPoint("TOPRIGHT", mini, "TOPRIGHT", 0, -BAR_PAD)
-  mini.go:SetScript("OnClick", function()
-    local id = self.state.selected
-
-    if id ~= nil then
-      self:DoubleClick(id)
-    end
-  end)
-
-  mini.next = miniButton(mini, "right", "SAVES_NEXT")
-  mini.next:SetPoint("TOPRIGHT", mini.go, "TOPLEFT", -BAR_PAD, 0)
-  mini.next:SetScript("OnClick", function()
-    self:StepReduced(1)
-  end)
-
-  mini.select = Bricks.create("select", mini)
-  -- The list keeps its title row above the button (widgets.select.top); no title here, so the box rises by that row and
-  -- the button itself sits level with the arrows.
-  local titleRow = S("widgets.select.top")
-
-  mini.select:SetPoint("TOPLEFT", mini.prev, "TOPRIGHT", BAR_PAD, titleRow)
-  mini.select:SetPoint("TOPRIGHT", mini.next, "TOPLEFT", -BAR_PAD, titleRow)
-  mini.select:SetHeight(BUTTON)
-  mini.select.onPick = function(id)
-    if self.state.selected ~= id then
-      self:Pick(id)
-    end
-  end
-
-  -- The hover follows the chosen save over the line (the tree shows it like over a cell).
-  for _, target in ipairs({ mini.select.button, mini.go }) do
-    target:HookScript("OnEnter", function(control)
-      if self.state.selected ~= nil then
-        self:Hover(self.state.selected, control)
-      end
-    end)
-    target:HookScript("OnLeave", function()
-      self:Unhover()
-    end)
-  end
-
-  return mini
-end
-
--- Moves the choice by one save in the order of the display (filter and folds do not count here).
-function BOX:StepReduced(delta)
-  local ids = self.reducedIds
-
-  if not ids then
-    return self
-  end
-
-  local target = Data.neighbor(ids, self.state.selected, delta)
-
-  if target ~= nil and target ~= self.state.selected then
-    self:Pick(target)
-  end
-
-  return self
-end
-
-function BOX:RelayoutReduced()
-  local state = self.state
-  local mini = self.mini or self:BuildMini()
-  local arranged = Data.arrange(self.model, { sort = state.sort, grouped = state.grouped, query = "", fold = {} })
-  local items = {}
-
-  self.arranged, self.reducedIds, self.dockHeight = arranged, arranged.ids, 0
-
-  for _, id in ipairs(arranged.ids) do
-    items[#items + 1] = { key = id, text = self.byId[id].name }
-  end
-
-  if self.drawer then
-    self.drawer:Hide()
-  end
-
-  self.nativeSetHeight(self, self.barHeight + self.statusHeight)
-  mini:Show()
-  mini.select:SetItems(items)
-  mini.select:SetValue(state.selected)
-
-  local item = state.selected ~= nil and self.byId[state.selected] or nil
-  local can = item and item.canActivate
-
-  if item then
-    local icon = "play"
-
-    if item.state == "active" then
-      icon = "check"
-    elseif not can then
-      icon = item.state == "blocked" and "warn" or item.state == "error" and "cross" or "lock"
-    end
-
-    Views.setIcon(mini.go.glyph, icon)
-    mini.go.tipKey = "SAVES_ACTIVATE"
-    mini.go:Show()
-  else
-    mini.go:Hide()
-  end
-
-  show(mini.prev, true)
-  show(mini.next, true)
-
-  return self
-end
-
-function BOX:SetReduced(on)
-  on = on and true or false
-
-  local state = self.state
-
-  if (state.reduced and true or false) == on then
-    return self
-  end
-
-  state.reduced = on
-
-  if on then
-    self:ReleaseKeys()
-    self.bar:Hide()
-    self.scroll:Hide()
-    self.empty:Hide()
-
-    if self.drawer then
-      self.drawer:Hide()
-    end
-
-    if state.hover ~= nil then
-      self:Unhover()
-    end
-
-    self.fullHeight = self.fullHeight or self:GetHeight()
-    self.nativeSetHeight(self, self.barHeight + self.statusHeight)
-    self:Relayout()
-  else
-    if self.mini then
-      self.mini:Hide()
-    end
-
-    self.bar:Show()
-    self.scroll:Show()
-    self.nativeSetHeight(self, self.fullHeight or S("kit.list"))
-    self.fullHeight = nil
-    self:Relayout()
-  end
-
-  return self
-end
-
-function BOX:Reduced()
-  return self.state.reduced and true or false
-end
-
-function BOX:SearchPermanent()
-  return lookKey("search") and true or false
-end
-
--- Places the buttons and the search field according to the search state.
-function BOX:LayoutBar()
-  local bar, field = self.bar, self.field
-  local permanent = self:SearchPermanent()
-  local open = self.state.searchOpen or permanent
-
-  for _, name in ipairs({ "list", "grid", "gauge" }) do
-    show(self.viewButtons[name], permanent or not open)
-  end
-
-  show(self.searchButton, not open)
-  show(self.sortButton, permanent or not open)
-  show(self.newButton, permanent or not open)
-  show(field, open)
-  show(field.close, open and not permanent)
-  field:ClearAllPoints()
-
-  if permanent then
-    field:SetPoint("TOPLEFT", bar, "TOPLEFT", 3 * (BUTTON + BAR_PAD), -BAR_PAD)
-    field:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -2 * (BUTTON + BAR_PAD), BAR_PAD)
-  else
-    field:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, -BAR_PAD)
-    field:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, BAR_PAD)
-  end
-
-  field.edit:SetPoint("RIGHT", field, "RIGHT", permanent and -40 or -(BUTTON + 40), 0)
-  field.count:SetPoint("RIGHT", field, "RIGHT", permanent and -4 or -(BUTTON + 4), 0)
-
-  return self
-end
-
--- Pressed state of the view buttons, counter and placeholder of the field.
+-- Pressed state of the view buttons.
 function BOX:UpdateBar()
   if not self.bar then
     return self
@@ -1143,71 +961,7 @@ function BOX:UpdateBar()
     setPressed(button, self.state.view == name)
   end
 
-  local arranged = self.arranged
-
-  self.field.count:SetText(Data.counter(arranged and arranged.count or 0, arranged and arranged.total or 0))
-  self.field.placeholder:SetText(text("SAVES_SEARCH_PLACEHOLDER"))
-  show(self.field.placeholder, (self.field.edit:GetText() or "") == "")
-
   return self
-end
-
-function BOX:OpenSearch()
-  self.state.searchOpen = true
-  self:LayoutBar()
-  self:UpdateBar()
-  self:ReleaseKeys()
-  self.field.edit:SetFocus()
-
-  return self
-end
-
--- Applies the text of the field as the filter; a chosen save that disappears gives way to the first visible one.
-function BOX:ApplyQuery()
-  local state = self.state
-
-  state.query = self.field.edit:GetText() or ""
-  self:Relayout()
-
-  local selected = state.selected
-
-  if selected ~= nil and self.arranged then
-    local seen = false
-
-    for _, id in ipairs(self.arranged.ids) do
-      if id == selected then
-        seen = true
-        break
-      end
-    end
-
-    if not seen then
-      local first = self.arranged.ids[1]
-
-      state.selected, state.open = first, false
-      self:Relayout()
-
-      if first ~= nil then
-        self:CallBack("onSelect", first)
-      end
-    end
-  end
-
-  return self:UpdateBar()
-end
-
--- Clears the text; closes the field unless widgets.saves.search keeps it open.
-function BOX:CloseSearch()
-  self.field.edit:SetText("")
-  self.field.edit:ClearFocus()
-
-  if not self:SearchPermanent() then
-    self.state.searchOpen = false
-  end
-
-  self:ApplyQuery()
-
-  return self:LayoutBar()
 end
 
 function BOX:OpenSortMenu()
@@ -1230,9 +984,8 @@ function BOX:OpenSortMenu()
     }
   end
 
-  -- Kit.openMenu marks one entry only (the last checked): the sort carries the mark, the grouping a text mark.
   items[#items + 1] = {
-    text = (state.grouped and "[x] " or "[ ] ") .. text("SAVES_GROUPED"), grouped = state.grouped,
+    text = text("SAVES_GROUPED"), checked = state.grouped, grouped = state.grouped,
     onClick = function()
       self:ChooseSort(state.sort, not state.grouped)
     end,
@@ -1290,63 +1043,6 @@ function BOX:BuildBar()
     self:OpenSortMenu()
   end)
 
-  self.searchButton = barButton(bar, "search", "SAVES_SEARCH")
-  self.searchButton:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -2 * (BUTTON + BAR_PAD), -BAR_PAD)
-  self.searchButton:SetScript("OnClick", function()
-    self:OpenSearch()
-  end)
-
-  local field = CreateFrame("Frame", nil, bar)
-
-  Bricks.frame(field, "small", "bgSoft", "borderDim")
-  self.field = field
-
-  local edit = CreateFrame("EditBox", nil, field)
-
-  edit:SetAutoFocus(false)
-  edit:SetPoint("TOPLEFT", field, "TOPLEFT", 6, -2)
-  edit:SetPoint("BOTTOMLEFT", field, "BOTTOMLEFT", 6, 2)
-  edit:SetPoint("RIGHT", field, "RIGHT", -(BUTTON + 40), 0)
-  Bricks.font(edit, lookKey("small.font"))
-  Bricks.paint(edit, "SetTextColor", "text")
-  field.edit = edit
-
-  field.placeholder = Bricks.text(field, lookKey("small.font"), "muted")
-  field.placeholder:SetPoint("LEFT", edit, "LEFT", 0, 0)
-  field.placeholder:SetJustifyH("LEFT")
-
-  field.count = Bricks.text(field, lookKey("small.font"), "muted")
-  field.count:SetPoint("RIGHT", field, "RIGHT", -(BUTTON + 4), 0)
-  field.count:SetJustifyH("RIGHT")
-
-  field.close = barButton(field, "close", "SAVES_SEARCH_CLOSE")
-  field.close:SetPoint("RIGHT", field, "RIGHT", -1, 0)
-  field.close:SetScript("OnClick", function()
-    self:CloseSearch()
-  end)
-
-  edit:SetScript("OnTextChanged", function()
-    self:ApplyQuery()
-  end)
-  edit:SetScript("OnEscapePressed", function()
-    self:CloseSearch()
-  end)
-  onArrows(edit, function(name)
-    if name == "UP" then
-      self:Step(-1)
-    elseif name == "DOWN" then
-      self:Step(1)
-    end
-  end)
-  edit:SetScript("OnEnterPressed", function(control)
-    control:ClearFocus()
-
-    if self.state.selected ~= nil then
-      self:Activate(self.state.selected)
-    end
-  end)
-
-  self:LayoutBar()
   self:UpdateBar()
 
   return self
@@ -1364,12 +1060,13 @@ function Saves.build(parent, look)
   end
 
   box.state = {
-    view = lookKey("view"), detail = lookKey("detail"), sort = "name", grouped = true, query = "",
-    searchOpen = lookKey("search") and true or false, fold = {}, selected = nil, open = false, hover = nil,
+    view = lookKey("view"), detail = lookKey("detail"), sort = "name", grouped = true,
+    fold = {}, selected = nil, open = false, hover = nil,
   }
   box.byId = {}
   box.barHeight, box.dockHeight = BUTTON + 2 * BAR_PAD, 0
-  box.statusHeight = math.ceil(smallSize * 2) + 4
+  box.statusRoom = math.ceil(smallSize * Common.get("saves.statusLines")) + Common.get("saves.statusPad")
+  box.statusHeight = 0
   box.nativeSetWidth(box, box:PreferredWidth())
   box.nativeSetHeight(box, S("kit.list"))
 
@@ -1388,9 +1085,9 @@ function Saves.build(parent, look)
   end
 
   box.status = Bricks.text(box, lookKey("small.font"), "muted")
-  box.status:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", 4, 2)
-  box.status:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -4, 2)
-  box.status:SetHeight(box.statusHeight - 2)
+  box.status:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", 4, Common.get("saves.statusInset"))
+  box.status:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -4, Common.get("saves.statusInset"))
+  box.status:SetHeight(box.statusRoom - Common.get("saves.statusInset"))
   box.status:SetJustifyH("LEFT")
   box.status:SetJustifyV("TOP")
 

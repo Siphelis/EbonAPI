@@ -1,10 +1,7 @@
 local ADDON_NAME = ...
 local Core = AutoCallboardCore
-local L = AutoCallboardLocale
 
 local RT = AutoCallboardRuntime
-
-RT.api = EbonAPI:NewAddon("AutoCallboard", 2, 1,{ icon = "Achievement_Quests_Completed_08" })
 
 local frame = CreateFrame("Frame")
 RT.eventFrame = frame
@@ -12,46 +9,10 @@ RT.api:Track("Scheduler", frame)
 local characterProfileKey
 local state = RT.state
 
+local Log = RT.Log
+
 RT.controlCollapsedWidth = 404
 RT.controlCollapsedHeight = 44
-RT.controlExpandedWidth = 620
-RT.controlExpandedHeight = 580
-RT.questPanelAnimationSeconds = 0.35
-RT.statusPollInterval = 0.25
-RT.summonVerifyPollInterval = 0.1
-RT.pendingCooldownPollInterval = 0.1
-RT.rollStatePollInterval = 0.05
-
-RT.rollPendingPollInterval = 0
-
-local UpdateSummonStatus = RT.UpdateSummonStatus
-local QueueCallboardFollowup = RT.QueueCallboardFollowup
-local MarkCallboardSummoned = RT.MarkCallboardSummoned
-
-function RT.GetSummonSpellName()
-  if not state then
-    return ""
-  end
-
-  if GetSpellInfo and state.summonSpellID then
-    local name = GetSpellInfo(state.summonSpellID)
-    if type(name) == "string" and name ~= "" then
-      return name
-    end
-  end
-
-  return state.summonSpell or ""
-end
-
-function RT.GetSummonMacroText()
-  local spellName = RT.GetSummonSpellName()
-
-  if spellName ~= "" then
-    return "/cast " .. spellName
-  end
-
-  return nil
-end
 
 function RT.FlushQuestStateBackup()
   EbonAPIAutoCallboardQuestDB = nil
@@ -60,19 +21,11 @@ end
 local function ApplyState(nextState)
   RT.PersistState(nextState)
 
-  RT.RefreshQuestWindow()
+  RT.RefreshBoardGraft()
 
   RT.PositionMinimapButton()
 
   RT.RefreshOptions()
-end
-
-function RT.SaveQuestPanelExpanded(expanded)
-  if not state or state.questPanelExpanded == expanded then
-    return
-  end
-
-  state.questPanelExpanded = expanded and true or false
 end
 
 function RT.SaveControlFrameShown(shown)
@@ -108,7 +61,7 @@ end
 
 local function CommitStateChange()
   RT.TouchState()
-  RT.RefreshQuestWindow()
+  RT.RefreshBoardGraft()
   RT.PositionMinimapButton()
   RT.RefreshOptions()
 end
@@ -119,49 +72,23 @@ function RT.SetField(field, value)
 
   if field == "targetName" then
     RT.SetCallboardButtonText(value)
-  elseif field == "summonSpellID" then
-    RT.ApplySummonButtonAttributes()
   elseif field == "travelEnabled" then
     RT.OnTravelEnabledChanged()
   elseif field == "travelAuto" then
     RT.OnTravelAutoChanged()
+  elseif field == "questArrow" then
+    RT.RefreshQuestArrow("setting")
+  elseif field == "travelDefault" then
+    RT.RefreshTravelSuggestion("setting", true)
+  elseif field == "portalFollow" then
+    RT.RefreshTravelSuggestion("setting", true)
+  elseif field == "portalCount" then
+    RT.LayoutMainToolbar()
   elseif field == "autoCurrentInstanceQuest" then
     RT.currentInstanceQuestSignature = nil
 
     RT.InvalidateInstanceTarget()
     RT.RefreshCurrentInstanceQuestTarget("setting")
-  elseif field == "showSpeed" then
-    RT.LayoutMainToolbar()
-  end
-end
-
-function RT.SetRollSpeed(delay, timeout, label)
-  state.rerollDelay = Core.clampRollDelay(delay)
-  state.rerollTimeout = Core.clampRollTimeout(timeout)
-  CommitStateChange()
-
-  RT.api:Trace("roll_speed", delay, timeout)
-end
-
-local function HandleSlash(input)
-  local parsed = Core.parseSlash(input)
-
-  if parsed.kind == "version" then
-    RT.ShowAddonHelp("about")
-  elseif parsed.kind == "set" then
-    RT.SetField(parsed.field, parsed.value)
-  elseif parsed.kind == "debug" then
-    if RT.HandleDebugAction then
-      RT.HandleDebugAction(parsed.action, parsed.value)
-    else
-      RT.api:Report(RT.api:Problem("BOOT.DEBUG_MODULE_MISSING", { action = tostring(parsed.action) }))
-    end
-  else
-    RT.api:Report(RT.api:Problem("BOOT.SLASH_INVALID", {
-      kind = tostring(parsed.kind),
-      input = string.sub(tostring(input or ""), 1, 60),
-      usage = tostring(parsed.message),
-    }))
   end
 end
 
@@ -169,46 +96,25 @@ local nextTickAt
 local ACTIVE_INTERVAL = 0.066
 local IDLE_INTERVAL = 0.25
 
-local UpdateQuestPanelAnimation = RT.UpdateQuestPanelAnimation
 local UpdateBrowserAnimations = RT.UpdateBrowserAnimations
-local ProcessRolling = RT.ProcessRolling
-local RefreshQuestWindowIfNeeded = RT.RefreshQuestWindowIfNeeded
-local SyncCallboardActiveFromCooldown = RT.SyncCallboardActiveFromCooldown
-local CheckPendingSummonAttempt = RT.CheckPendingSummonAttempt
-local SyncPendingSummonCooldown = RT.SyncPendingSummonCooldown
-local IsSummonStatusBusy = RT.IsSummonStatusBusy
-
-local indoorTask = { fn = RT.RefreshCallboardButtonEnabled, every = 2 }
 
 local TASKS = {
   { fn = RT.WatchDifficultyChange, every = 0.5 },
-  indoorTask,
   { fn = function() return RT.WatchEternalSequence() end, every = 1 },
   { fn = function() return RT.WatchTravelSuggestion() end, every = 1 },
+  { fn = function() return RT.WatchQuestArrow() end, every = 1 },
   { fn = function() return RT.ProcessRoutePlayback() end, every = 0.35 },
+  { fn = function() RT.RefreshBoardStatus() end, every = 1 },
 }
 
-RT.api:Tick("objectives", 0.5, RT.WatchCurrentObjectives)
 RT.api:Tick("overlays", 0.5, RT.SyncOverlayFrameLevels)
-RT.api:Tick("speed", 0.2, RT.RefreshSpeedDisplay)
-RT.api:Tick("routeShare", 1, function() RT.ProcessRouteShare() end)
-
-local function WakeIndoorCheck()
-  indoorTask.nextAt = nil
-end
 
 local function Busy()
-  return RT.rolling
-      or RT.questPanelAnimation
-      or RT.IsAnyBrowserAnimating()
-      or RT.pendingSummonVerifyUntil
-      or RT.pendingCooldownSyncUntil
+  return RT.IsAnyBrowserAnimating()
 end
 
 local function Awake()
-  return RT.IsQuestWindowShown()
-      or (RT.listsWindow and RT.listsWindow:IsShown())
-      or IsSummonStatusBusy()
+  return RT.IsCollectionsShown()
 end
 
 local taskNow
@@ -226,13 +132,7 @@ local function Tick()
     nextTickAt = now + (Awake() and ACTIVE_INTERVAL or IDLE_INTERVAL)
   end
 
-  UpdateQuestPanelAnimation()
   UpdateBrowserAnimations()
-  ProcessRolling()
-  RefreshQuestWindowIfNeeded(now)
-  SyncCallboardActiveFromCooldown("cooldown inference")
-  CheckPendingSummonAttempt()
-  SyncPendingSummonCooldown()
 
   for i = 1, #(TASKS) do
     local task = TASKS[i]
@@ -250,19 +150,6 @@ local function Tick()
     end
   end
 
-  if IsSummonStatusBusy() then
-    if not RT.nextStatusUpdateAt or now >= RT.nextStatusUpdateAt then
-      RT.nextStatusUpdateAt = now + RT.statusPollInterval
-      UpdateSummonStatus()
-    end
-    RT.summonStatusWasBusy = true
-  elseif RT.summonStatusWasBusy then
-    SyncCallboardActiveFromCooldown("status settle")
-    RT.nextStatusUpdateAt = nil
-    UpdateSummonStatus()
-    RT.summonStatusWasBusy = IsSummonStatusBusy()
-  end
-
   if RT.buildsRefreshAt and now >= RT.buildsRefreshAt then
     RT.buildsRefreshAt = nil
     RT.RequestBuildsRefresh("post-connexion")
@@ -277,6 +164,7 @@ frame:SetScript("OnUpdate", function()
   if nextTickAt and GetTime() < nextTickAt and not Busy() then
     return
   end
+
   RT.api:Guard("Scheduler.tick", Tick)
 end)
 
@@ -320,46 +208,47 @@ EVENTS.ADDON_LOADED = function(arg1)
   EVENTS.ADDON_LOADED = nil
 
   local api = RT.api
-  local chosenLanguage = type(EbonAPIAutoCallboardDB) == "table" and EbonAPIAutoCallboardDB.language or nil
 
-  api:Guard("Boot.state", function()
+  local function Boot(name, fn)
+    return api:Guard("Boot." .. name, fn)
+  end
+
+  Boot("state", function()
     ApplyState(Core.restoreQuestState(EbonAPIAutoCallboardDB, EbonAPIAutoCallboardQuestDB))
   end)
 
-  api:Guard("Boot.language", function()
-    if type(chosenLanguage) == "string" and chosenLanguage ~= ""
-        and not EbonAPI:IsLanguageChosen() and RT.IsLanguageAvailable(chosenLanguage) then
-      RT.SetLanguage(chosenLanguage)
-    end
-  end)
-
-  api:Guard("Boot.repair", function()
+  Boot("repair", function()
     RT.RepairKnownQuestState()
     RT.PersistState(Core.migrateLegacyPresets(state, AutoCallboardPresetsDB))
   end)
-  api:Guard("Boot.character", SetUpCharacter)
-  api:Guard("Boot.hooks", function()
+  Boot("character", SetUpCharacter)
+  Boot("hooks", function()
     RT.InstallAbandonQuestHook()
     RT.InstallRouteRecorderHooks()
   end)
-  api:Guard("Boot.routes", function()
+  Boot("routes", function()
     RT.ResumeRouteRecording()
     RT.ResumeRoutePlayback()
   end)
-  api:Guard("Boot.appearance", RT.InitAppearance)
-  api:On("READY", CreateInterface)
-  api:On("READY", EVENTS.ZONE_CHANGED_NEW_AREA)
-  api:Guard("Boot.bindings", RT.RefreshBindingNames)
-  api:Guard("Boot.version", RT.InitVersionWatch)
-  api:Guard("Boot.share", RT.InitRouteShare)
-  api:Guard("Boot.builds", RT.InitBuilds)
-  api:Guard("Boot.languageInit", RT.InitLanguage)
-  RT.ListenOptionalEvents()
+  Boot("appearance", RT.InitAppearance)
+  Boot("ready", function()
+    RT.api:On("READY", CreateInterface)
+    RT.api:On("READY", EVENTS.ZONE_CHANGED_NEW_AREA)
+  end)
+  Boot("bindings", RT.RefreshBindingNames)
+  Boot("version", RT.InitVersionWatch)
+  Boot("share", RT.InitRouteShare)
+  Boot("portals", RT.InitPortals)
+  Boot("builds", RT.InitBuilds)
+  Boot("board", RT.InitBoard)
+  Boot("questArrow", function()
+    RT.api:On("SERVER_CALLBOARD", function() RT.RefreshQuestArrow("SERVER_CALLBOARD") end)
+    RT.api:On("SERVER_CALLBOARD_RESULT", function() RT.RefreshQuestArrow("SERVER_CALLBOARD_RESULT") end)
+  end)
 
   RT.buildsRefreshAt = GetTime() + RT.buildsRefreshDelay
 
-  SLASH_AUTOCALLBOARD1 = "/acb"
-  SlashCmdList.AUTOCALLBOARD = HandleSlash
+  Log("load", "AutoCallboard loaded")
 end
 
 EVENTS.PLAYER_REGEN_DISABLED = function()
@@ -379,11 +268,9 @@ end
 
 EVENTS.GOSSIP_SHOW = function()
   local npcName = GossipFrameNpcNameText and GossipFrameNpcNameText:GetText()
-  local npcBoard = RT.GetNpcBoardInfo()
 
-  if RT.IsObjectiveBoardName(npcName) or npcBoard then
-    RT.MarkObjectiveBoardOpened("GOSSIP_SHOW:" .. tostring(npcName)
-        .. ":" .. tostring(npcBoard and npcBoard.objectId or "no-id"))
+  if RT.IsBoardName(npcName) or RT.GetNpcBoardInfo() then
+    RT.SyncOverlayFrameLevels()
     return
   end
 
@@ -403,7 +290,6 @@ EVENTS.QUEST_COMPLETE = function()
 end
 
 EVENTS.GOSSIP_CLOSED = function()
-  RT.MarkObjectiveBoardClosed("GOSSIP_CLOSED")
   RT.EndRouteNpcStep()
 end
 
@@ -412,12 +298,12 @@ EVENTS.QUEST_DETAIL = function()
 
   local acceptUntil = RT.GetPendingAcceptUntil()
 
-  if not (state and state.autoAccept and acceptUntil and GetTime() <= acceptUntil) then
+  if not (RT.IsStarted() and acceptUntil and GetTime() <= acceptUntil) then
     return
   end
 
-  if RT.IsQuestOfferFromPlayer() then
-    RT.api:Trace("auto_accept_skipped", "QUEST_DETAIL", "player_offer")
+  if not RT.IsQuestOfferFromBoard() then
+    Log("quest", "auto accept skipped source=QUEST_DETAIL reason=offer not from the board")
     return
   end
 
@@ -430,85 +316,38 @@ EVENTS.QUEST_ACCEPT_CONFIRM = function(_, title)
   RT.OnRouteDialogueOpened("QUEST_ACCEPT_CONFIRM", title)
 end
 
-local function CheckEternalQuest(source, force)
-  RT.CheckEternalQuestStillActive(source, force)
-end
-
-EVENTS.QUEST_TURNED_IN = function(arg1)
-  local questID = tonumber(arg1) or 0
-  local selected = RT.GetSelectedQuest()
-
-  CheckEternalQuest("QUEST_TURNED_IN", true)
-
-  if selected and questID > 0 and tonumber(selected.questId) == questID then
-    RT.ResumeAfterSelectedQuest("QUEST_TURNED_IN")
-  else
-    RT.ResetSelectedQuestCheck()
-    RT.CheckSelectedQuestProgress("QUEST_TURNED_IN")
-  end
-end
-
-EVENTS.QUEST_REMOVED = function()
-  CheckEternalQuest("QUEST_REMOVED", true)
-end
-
 EVENTS.QUEST_ACCEPTED = function(arg1, arg2)
   RT.ClearPendingAcceptUntil()
   RT.TrackAcceptedQuest(arg1, arg2)
-  RT.ResetSelectedQuestCheck()
-  RT.CheckSelectedQuestProgress("QUEST_ACCEPTED")
 end
 
 EVENTS.QUEST_LOG_UPDATE = function()
-  RT.WatchRouteQuestLog()
-  RT.RefreshLastAcceptedQuest()
-  RT.ResetSelectedQuestCheck()
-  RT.CheckSelectedQuestProgress("QUEST_LOG_UPDATE")
-  CheckEternalQuest("QUEST_LOG_UPDATE")
+  if not RT.IsBoardQuestPassQuiet() then
+    RT.WatchRouteQuestLog()
+    RT.RefreshLastAcceptedQuest()
+    RT.WatchBoardQuestLog()
+  end
+
+  RT.RefreshQuestArrow("QUEST_LOG_UPDATE")
+  RT.CheckEternalQuestStillActive("QUEST_LOG_UPDATE")
 end
 
 EVENTS.QUEST_FINISHED = function()
   RT.EndRouteNpcStep()
-  RT.ResetSelectedQuestCheck()
-  RT.CheckSelectedQuestProgress("QUEST_FINISHED")
-  CheckEternalQuest("QUEST_FINISHED")
-end
-
-EVENTS.UNIT_SPELLCAST_SUCCEEDED = function(arg1, arg2, arg3, arg4, arg5)
-  if arg1 ~= "player" then
-    return
-  end
-
-  local spellID = tonumber(arg5) or tonumber(arg4) or tonumber(arg3)
-  local summonName = RT.GetSummonSpellName()
-
-  if (summonName ~= "" and arg2 == summonName)
-      or (state.summonSpellID and spellID == state.summonSpellID) then
-    MarkCallboardSummoned("spellcast event")
-    QueueCallboardFollowup("spellcast event")
-  end
-end
-
-EVENTS.SPELL_UPDATE_COOLDOWN = function()
-  if RT.StartCallboardTimersFromCooldown("SPELL_UPDATE_COOLDOWN") then
-    UpdateSummonStatus()
-  end
+  RT.CheckEternalQuestStillActive("QUEST_FINISHED")
 end
 
 EVENTS.ZONE_CHANGED_NEW_AREA = function()
   RT.InvalidateInstanceTarget()
-  RT.NoteInstanceVisit()
   RT.InvalidatePlayerMap()
-  WakeIndoorCheck()
-  RT.HookRouteCheckpointService()
   RT.LayoutRouteArrow()
+  RT.RefreshQuestArrow("ZONE_CHANGED_NEW_AREA")
 end
 
 EVENTS.PLAYER_ENTERING_WORLD = EVENTS.ZONE_CHANGED_NEW_AREA
 
 EVENTS.ZONE_CHANGED = function()
   RT.InvalidatePlayerMap()
-  WakeIndoorCheck()
 end
 
 EVENTS.ZONE_CHANGED_INDOORS = EVENTS.ZONE_CHANGED
@@ -529,26 +368,9 @@ events:Listen("QUEST_ACCEPTED")
 events:Listen("QUEST_LOG_UPDATE")
 events:Listen("QUEST_FINISHED")
 events:Listen("GOSSIP_SHOW")
+pcall(events.Listen, events, "QUEST_GREETING")
 events:Listen("GOSSIP_CLOSED")
 events:Listen("ZONE_CHANGED_NEW_AREA")
 events:Listen("PLAYER_ENTERING_WORLD")
 events:Listen("ZONE_CHANGED")
-
-local OPTIONAL_EVENTS = {
-  "QUEST_GREETING",
-  "ZONE_CHANGED_INDOORS",
-  "QUEST_TURNED_IN",
-  "QUEST_REMOVED",
-  "UNIT_SPELLCAST_SUCCEEDED",
-  "SPELL_UPDATE_COOLDOWN",
-}
-
-function RT.ListenOptionalEvents()
-  for i = 1, #OPTIONAL_EVENTS do
-    local event = OPTIONAL_EVENTS[i]
-
-    if not events:Listen(event) then
-      RT.api:Degrade(RT.api:Problem("EVENTS.LISTEN_FAILED", { event = event }))
-    end
-  end
-end
+pcall(events.Listen, events, "ZONE_CHANGED_INDOORS")

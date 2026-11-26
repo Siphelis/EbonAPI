@@ -3,6 +3,8 @@ local L = AutoCallboardLocale
 local RT = AutoCallboardRuntime
 local state = RT.state
 
+local Log = RT.Log
+
 local function CharacterName(key)
   local name = tostring(key or ""):match("([^/]+)$")
 
@@ -90,7 +92,7 @@ function RT.SetActiveSelectionId(id)
   if entry and entry.activeSelectionId ~= id then
     entry.activeSelectionId = id
     RT.TouchState()
-    RT.RefreshQuestWindow()
+    RT.RefreshBoardGraft()
   end
 end
 
@@ -119,8 +121,7 @@ local function FinishMigration(key, characterProfile, idMap, groupId)
   state.characterState[key] = Core.buildMigratedCharacterState(characterProfile, idMap, groupId)
   MarkMigrated(key)
   RT.ApplyCharacterState()
-  RT.RefreshListsWindow()
-  RT.RefreshQuestWindow()
+  RT.RefreshBoardGraft()
 end
 
 local function ImportIntoList(key, characterProfile)
@@ -130,14 +131,14 @@ local function ImportIntoList(key, characterProfile)
   RT.SaveAccountProfile(nextProfile)
   state.accountListSeeded = true
   FinishMigration(key, characterProfile, idMap, nil)
-  RT.api:Trace("migrationImportedList", key, Core.characterSelectionCount(characterProfile))
+  Log("migration", "imported ", Core.characterSelectionCount(characterProfile), " collection(s) from ", key, " into the list")
 end
 
 local function ImportIntoNewGroup(key, characterProfile)
   local nextProfile, group, _, cause = Core.createGroup(RT.GetAccountProfile(), CharacterName(key))
 
   if not group then
-    RT.api:Report(RT.api:Problem("MIGRATION.GROUP_CREATE_FAILED", { character = CharacterName(key) }, cause))
+    Core.report(Core.problem("MIGRATION.GROUP_CREATE_FAILED", { character = CharacterName(key) }, cause))
     return false
   end
 
@@ -146,7 +147,7 @@ local function ImportIntoNewGroup(key, characterProfile)
 
   RT.SaveAccountProfile(withSelections)
   FinishMigration(key, characterProfile, idMap, group.id)
-  RT.api:Trace("migrationImportedGroup", key, group.name)
+  Log("migration", "imported ", Core.characterSelectionCount(characterProfile), " collection(s) from ", key, " into group ", group.name)
 
   return true
 end
@@ -155,9 +156,8 @@ local function DiscardCharacterSelections(key, characterProfile)
   state.characterState[key] = { desiredQuests = {}, activeSelectionId = nil, openGroupId = nil }
   MarkMigrated(key)
   RT.ApplyCharacterState()
-  RT.RefreshListsWindow()
-  RT.RefreshQuestWindow()
-  RT.api:Trace("migrationDiscarded", key, Core.characterSelectionCount(characterProfile))
+  RT.RefreshBoardGraft()
+  Log("migration", "discarded ", Core.characterSelectionCount(characterProfile), " collection(s) from ", key)
 end
 
 local function DescribeGroupContents(profile, groupId)
@@ -198,7 +198,7 @@ local function PromptReplaceGroup(key, characterProfile, groupId)
       local nextProfile, removed, _, cause = Core.deleteGroup(RT.GetAccountProfile(), groupId)
 
       if not removed then
-        RT.api:Report(RT.api:Problem("MIGRATION.GROUP_DELETE_FAILED", { group = groupId }, cause))
+        Core.report(Core.problem("MIGRATION.GROUP_DELETE_FAILED", { group = groupId }, cause))
         return
       end
 
@@ -289,7 +289,7 @@ function RT.RunAccountMigration(key)
   for migratedKey in pairs(alreadyMigrated) do
     if state.characterProfiles[migratedKey] ~= nil then
       state.characterProfiles[migratedKey] = nil
-      RT.api:Trace("migrationPurged", migratedKey)
+      Log("migration", "purged legacy profile ", migratedKey)
     end
   end
 
@@ -301,7 +301,7 @@ function RT.RunAccountMigration(key)
 
   if type(characterProfile) ~= "table" then
     if characterProfile ~= nil then
-      RT.api:Report(RT.api:Problem("MIGRATION.PROFILE_INVALID",
+      Core.report(Core.problem("MIGRATION.PROFILE_INVALID",
           { character = CharacterName(key), value = type(characterProfile) }))
     end
 

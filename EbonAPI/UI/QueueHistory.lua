@@ -15,7 +15,6 @@ local floor, ceil, max, min, format = math.floor, math.ceil, math.max, math.min,
 local pcall, tonumber, tostring, type = pcall, tonumber, tostring, type
 
 local THEME = Palette.THEME
-local NBSP = "\194\160"
 local CELLS, SECONDS, TILES, STEP, BARS = 150, 300, 10, 30, 6
 -- top of the flow text in a thumbnail: it takes two lines (in, then out), the thumbnail is raised to hold them
 local FLOW_Y = 58
@@ -26,29 +25,10 @@ local SERIES = {
   { id = "peak", title = "QUEUEVIEW_HIST_WAIT", scale = 60, color = "caution", kind = "seconds" },
 }
 
-local function word(key)
-  local L = EbonAPI.L
+local word = EbonAPI.QueueParts.word
 
-  return (L and L[key]) or key
-end
-
-local function S(key, fallback)
-  local ok, found = pcall(Skins.value, key)
-  if ok and found ~= nil then
-    return found
-  end
-
-  return fallback
-end
-
-local function num(n)
-  n = tonumber(n)
-  if not n or n ~= n or n == math.huge or n == -math.huge then
-    return 0
-  end
-
-  return n
-end
+local S = EbonAPI.QueueParts.value
+local num = EbonAPI.QueueParts.num
 
 local function sig(key)
   local color = THEME[key] or THEME.text
@@ -56,10 +36,7 @@ local function sig(key)
   return color[1] + color[2] * 1000 + color[3] * 1000000
 end
 
-local function tint(target, method, key, alpha)
-  local color = THEME[key] or THEME.text
-  target[method](target, color[1], color[2], color[3], alpha or 1)
-end
+local tint = EbonAPI.QueueParts.tint
 
 local function relative(t)
   if t == 0 then
@@ -366,6 +343,7 @@ function QueueStrips.history(parent, opts)
         local cell = line.cells[g]
         if recolor then
           tint(cell, "SetVertexColor", spec.color, 1)
+          line.alphas[g] = nil -- the tint resets the region alpha: force the SetAlpha below
         end
 
         if line.alphas[g] ~= alpha then

@@ -19,9 +19,12 @@ local Bricks = EbonAPI.Bricks
 local Window = EbonAPI.Window
 local Modules = EbonAPI.ModuleLoader
 local AddonList = EbonAPI.AddonList
+local MicroBar = EbonAPI.MicroBar
 local QuestLogChecks = EbonAPI.QuestLogChecks
+local QuestLogSelect = EbonAPI.QuestLogSelect
 
 local ADDON_NAME = "EbonAPI"
+local SETTLE_DELAY = 0.01
 local safeCall = Lib.safeCall
 
 local onAddonLoaded, onPlayerLogin
@@ -36,7 +39,6 @@ onAddonLoaded = function(name)
   DB.attach(EbonAPIDB)
   Problems.attach()
 
-  Locale.applyPersisted()
   Skins.resolve()
   Bricks.apply()
 
@@ -51,6 +53,7 @@ onPlayerLogin = function()
   safeCall(EbonAPI.Catch.login)
   safeCall(DB.bindCharacter)
   safeCall(Session.begin)
+  safeCall(Skins.checkInstalled)
   safeCall(Modules.load)
   safeCall(EbonAPI.Perf.resume)
   safeCall(Ebonhold.Detect)
@@ -63,7 +66,9 @@ onPlayerLogin = function()
   safeCall(Share.enable)
   safeCall(Window.install)
   safeCall(AddonList.install)
+  safeCall(MicroBar.install)
   safeCall(QuestLogChecks.install)
+  safeCall(QuestLogSelect.install)
 
   EbonAPI._ready = true
   EbonAPI:Emit("READY", EbonAPI.version)
@@ -73,6 +78,7 @@ end
 
 local function onEnteringWorld()
   Ebonhold.Detect()
+  Bus.after("EbonAPI:ebonhold", SETTLE_DELAY, Ebonhold.Settle)
 
   if not DB.CharacterKey() then
     DB.bindCharacter()

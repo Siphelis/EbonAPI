@@ -14,12 +14,14 @@ OnAddonLoaded = function(addonName)
         globalSettings = {
             evalDelay     = 2,
             toastDuration = 3,
+            huntBudget    = 10,
         },
     }
     EbonAPIEbonBuildsDB.minimapAngle = EbonAPIEbonBuildsDB.minimapAngle or 220
     EbonAPIEbonBuildsDB.globalSettings = EbonAPIEbonBuildsDB.globalSettings or {}
     EbonAPIEbonBuildsDB.globalSettings.evalDelay     = EbonAPIEbonBuildsDB.globalSettings.evalDelay     or 2
     EbonAPIEbonBuildsDB.globalSettings.toastDuration = EbonAPIEbonBuildsDB.globalSettings.toastDuration or 3
+    EbonAPIEbonBuildsDB.globalSettings.huntBudget    = EbonAPIEbonBuildsDB.globalSettings.huntBudget    or 10
 
     EbonAPIEbonBuildsCharDB = EbonAPIEbonBuildsCharDB or {
         activeBuildId = nil,
@@ -27,9 +29,8 @@ OnAddonLoaded = function(addonName)
 
     local steps = {
         { "Build.Migrate",        function() EbonBuilds.Build.Migrate()        end },
-        { "Options",              function() EbonBuilds.MainWindow.RegisterOptions() end },
+        { "Options",              function() EbonBuilds.Options.Register()      end },
         { "Session",              function() EbonBuilds.Session.Init()         end },
-        { "SessionHistory",       function() EbonBuilds.SessionHistory.Init()  end },
         { "Protocol",             function() EbonBuilds.Protocol.Init()        end },
         { "Matrix",               function() EbonBuilds.Matrix.Init()          end },
         { "Profiles",             function() EbonBuilds.Profiles.Init()        end },
@@ -38,6 +39,8 @@ OnAddonLoaded = function(addonName)
         { "Automation",           function() EbonBuilds.Automation.Init()      end },
         { "EchoStars",            function() EbonBuilds.EchoStars.Init()       end },
         { "Sync",                 function() EbonBuilds.Sync.Init()            end },
+        { "CombatMeter",          function() EbonBuilds.CombatMeter.Init()     end },
+        { "AffixTooltip",         function() EbonBuilds.AffixTooltip.Init()    end },
     }
 
     for i = 1, #steps do

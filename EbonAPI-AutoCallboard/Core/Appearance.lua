@@ -1,7 +1,6 @@
 local Core = AutoCallboardCore
 
-local DEFAULT = { goldTotal = true, goldLast = true, goldCurrent = true, goldSession = false, goldMain = false,
-  arrowScale = 1, arrowFont = 10, arrowSkin = "sheet" }
+local DEFAULT = { arrowScale = 1, arrowFont = 10, arrowSkin = "sheet" }
 local LIMIT = { arrowScale = {0.25, 2} }
 local ARROW_FONT_SIZES = { 8, 9, 10, 11, 12, 14, 16, 18, 20 }
 
@@ -34,23 +33,20 @@ function Core.copyAppearance(source)
   return result
 end
 
+Core.TOOLBAR_ACTIONS = {"builds", "callboard", "start", "share", "eternals", "settings", "instance", "routes"}
+local TOOLBAR_KNOWN = {}
+for _, key in ipairs(Core.TOOLBAR_ACTIONS) do TOOLBAR_KNOWN[key] = true end
+
 function Core.copyToolbar(source)
-  if type(source) ~= "table" then
-    if source ~= nil then
-      Core.repaired("STATE.REPAIRED", { field = "toolbar", setting = "toolbar", value = type(source) }, source)
-    end
-    return {1, 2, 3, 4, 5, 6}
+  if source ~= nil and type(source) ~= "table" then
+    Core.repaired("STATE.REPAIRED", { field = "toolbar", setting = "toolbar", value = type(source) }, source)
   end
-  local result, seen, given = {}, {}, {}
-  for i = 1, 13 do
-    local id = source[i]
-    if id ~= nil then given[#given + 1] = tostring(id) end
-    if type(id) == "number" and id == math.floor(id) and id >= 1 and id <= 13 and not seen[id] then
-      result[#result + 1], seen[id] = id, true
+  local result, seen = {}, {}
+  for _, key in ipairs(type(source) == "table" and source or {}) do
+    if TOOLBAR_KNOWN[key] and not seen[key] then
+      result[#result + 1], seen[key] = key, true
     end
   end
-  if #result < #given then
-    Core.repaired("STATE.REPAIRED", { field = "toolbar", setting = "toolbar", value = table.concat(given, ",") }, source)
-  end
+  if #result == 0 then return {"builds", "callboard", "start", "share"} end
   return result
 end

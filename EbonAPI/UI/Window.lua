@@ -26,7 +26,7 @@ local BLOCK_ORDER = { "header", "nav", "page" }
 local INLINE = { toggle = true, range = true, select = true, color = true, execute = true, input = true }
 local POOLS = {
   toggle = "toggle", range = "range", select = "select", color = "color", execute = "execute",
-  input = "input", header = "heading", description = "text", group = "group", output = "output",
+  input = "input", header = "heading", description = "text", group = "group",
 }
 local TIPS = { back = "UI_BACK", forward = "UI_FORWARD", minimize = "UI_MINIMIZE", sidebar = "UI_SIDEBAR" }
 local HISTORY = 50
@@ -288,7 +288,7 @@ function builders.description(node, parent, available, pools)
       view.hostsUsed[path] = true
 
       if not host then
-        host = node.option.build(parent, available)
+        host = node.option.build(parent, available, view.visibleHeight)
         view.hosts[path] = host
       end
 
@@ -303,15 +303,6 @@ function builders.description(node, parent, available, pools)
     end
   end
 
-  if node.option.view == "result" and pools.output then
-    local frame = pools.output:acquire(parent)
-
-    frame:SetWidth(available)
-    frame:SetModel(EbonAPI.Settings and EbonAPI.Settings.resultModel and EbonAPI.Settings.resultModel()
-      or { kind = "text", text = name })
-
-    return frame, available, frame:GetHeight(), true
-  end
 
   local widget = pools.description:acquire(parent)
   local height = widget:SetContent(name, available, node.option.fontSize)
@@ -452,8 +443,25 @@ local function pageId(owner, key)
   return key and (owner .. "/" .. key) or owner
 end
 
+function Window.detached(part)
+  if part == "page" then
+    return (S("windows.detach.page") or S("windows.detach.pages")) and true or false
+  end
+
+  return S("windows.detach." .. part) and true or false
+end
+
+function Window.detachedAll()
+  return {
+    header = Window.detached("header"),
+    nav = Window.detached("nav"),
+    page = Window.detached("page"),
+    footer = Window.detached("footer"),
+  }
+end
+
 local function pageDetached(owner, key)
-  if S("windows.detach.pages") then
+  if Window.detached("pages") then
     return true
   end
 
@@ -833,7 +841,10 @@ local function newView(id, parent, closable, card)
   view.childWidth = width - S("page.gutter") - left * 2
   scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", left, -pageTop)
   scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, insetY + edge)
-  scroll:SetView(view.childWidth, height - pageTop - insetY - edge)
+  local visibleHeight = height - pageTop - insetY - edge
+
+  view.visibleHeight = visibleHeight
+  scroll:SetView(view.childWidth, visibleHeight)
 
   for kind, slot in pairs(POOLS) do
     view.pools[kind] = Bricks.slotPool(slot)
@@ -1169,11 +1180,11 @@ local function railIcon(owner)
 end
 
 local function isNavHere()
-  return not S("windows.detach.nav")
+  return not Window.detached("nav")
 end
 
 local function isPageHere()
-  return page ~= nil and not S("windows.detach.page")
+  return page ~= nil and not Window.detached("page")
 end
 
 local function navOnRight()
@@ -1325,7 +1336,7 @@ function Window.buildNav()
 end
 
 local function blockHost(id)
-  return Windows.create(id, NAME .. BLOCKS[id])
+  return Windows.create(id, NAME .. BLOCKS[id], nil, NAME)
 end
 
 local function hold(block, id, here, point, x, y, width, height)
@@ -1402,7 +1413,7 @@ local function arrange()
   local pad, spacing = S("window.padding"), S("window.spacing")
   local navWidth, pageWidth, pageHeight = navSpan(), S("page.width"), S("page.height")
   local headerHeight = S("header.height")
-  local headerHere = header ~= nil and not S("windows.detach.header")
+  local headerHere = header ~= nil and not Window.detached("header")
   local navHere, pageHere = isNavHere(), isPageHere()
   local navShown = navHere and navWidth > 0
   local columns = navShown or pageHere
@@ -1488,7 +1499,7 @@ local function placeAll()
 
   if navHost then
     Windows.place(navHost, function(frame)
-      if main.used and page and not S("windows.detach.page") then
+      if main.used and page and not Window.detached("page") then
         if right then
           frame:SetPoint("TOPLEFT", main, "TOPRIGHT", gap, 0)
         else
@@ -1560,7 +1571,7 @@ end
 
 local function detachedHost(id, name)
   local pad = S("window.padding")
-  local host = Windows.create(id, name)
+  local host = Windows.create(id, name, nil, NAME)
 
   host:Resize(S("page.width") + pad * 2, S("page.height") + pad * 2)
   placeDetached(host)
@@ -1593,7 +1604,7 @@ local function openPageWindow(owner, key)
   end
 
   host:Show()
-  host:Raise()
+  Windows.front(host)
 
   return host
 end
@@ -1613,7 +1624,7 @@ local function openSearchWindow()
   end
 
   searchWindow:Show()
-  searchWindow:Raise()
+  Windows.front(searchWindow)
 
   return searchWindow
 end
@@ -1930,11 +1941,9 @@ local function refreshFooter()
 
   items.errors:SetValue(tostring(Problems.summary(nil, "center").count))
   items.warnings:SetValue(tostring(loggedCount(journal, "refusals") + loggedCount(journal, "rejects")))
-  items.language:SetValue(upper(sub(EbonAPI:GetLanguage() or "", 1, 2)))
   items.addons:SetValue(format(L.UI_STATUS_ADDONS, #names))
   items.updates:SetValue(format(L.UI_STATUS_UPDATES, updates))
   items.errors.tipTitle, items.warnings.tipTitle = L.UI_STATUS_ERRORS, L.UI_STATUS_WARNINGS
-  items.language.tipTitle = L.UI_LANGUAGE
   items.addons.tipTitle, items.updates.tipTitle = L.UI_ADDONS, L.UI_ADDONS
 
   local x = 0
@@ -1955,7 +1964,7 @@ local function refreshFooter()
 
   Lib.setShown(items.updates, updates > 0)
 
-  for _, item in ipairs({ items.updates, items.addons, items.language }) do
+  for _, item in ipairs({ items.updates, items.addons }) do
     if item:IsShown() then
       item:ClearAllPoints()
       item:SetPoint("RIGHT", footer, "RIGHT", -right, 0)
@@ -2059,7 +2068,6 @@ local function buildFooter()
     local items = {
       errors = statusItem(frame, Bricks.media("error")),
       warnings = statusItem(frame, Bricks.media("warning")),
-      language = statusItem(frame),
       addons = statusItem(frame),
       updates = statusItem(frame),
     }
@@ -2069,9 +2077,6 @@ local function buildFooter()
       Problems.open(nil)
     end
     items.warnings.onClick = items.errors.onClick
-    items.language.onClick = function()
-      Window.select("EbonAPI", "general")
-    end
     items.addons.onClick = function()
       Window.select("EbonAPI", "addons")
     end
@@ -2138,7 +2143,7 @@ local function create()
     return main
   end
 
-  main = Windows.create("main", NAME)
+  main = Windows.create("main", NAME, nil, NAME)
 
   if S("header.show") then
     header = buildHeader()
@@ -2150,7 +2155,7 @@ local function create()
 
   nav = buildNav()
 
-  if not S("windows.detach.pages") then
+  if not Window.detached("pages") then
     mainView = newView("main", UIParent, false, true)
     page = mainView.frame
   end
@@ -2515,30 +2520,74 @@ local function installGameMenu()
 
   local padding = nil
 
-  local function isChained()
-    local at = logout
-
-    while at do
-      local _, relative = at:GetPoint(1)
-
-      if relative == button then
-        return true
-      end
-
-      at = relative
-    end
-
-    return false
+  -- Buttons that are not "the button above EbonAPI": EbonAPI itself and the closing group.
+  local function skipped(child)
+    return child == button or child == logout or child == GameMenuButtonQuit
+      or child == GameMenuButtonContinue
   end
 
+  -- Lowest visible regular button that sits above the EbonAPI button (hidden ones ignored).
+  local function previous()
+    local found, edge = nil, nil
+    local floor = button:GetBottom()
+
+    for _, child in ipairs({ menu:GetChildren() }) do
+      if child:IsShown() and child:GetObjectType() == "Button" and not skipped(child) then
+        local bottom = child:GetBottom()
+
+        if bottom and (not floor or bottom > floor) and (not edge or bottom < edge) then
+          found, edge = child, bottom
+        end
+      end
+    end
+
+    return found, edge
+  end
+
+  -- Standard spacing between two menu buttons, measured on Log Out -> Quit (fallback: token).
+  local function step()
+    local quit = GameMenuButtonQuit
+    local measured = quit and quit:IsShown() and logout:GetBottom() and quit:GetTop()
+      and (logout:GetBottom() - quit:GetTop()) or nil
+
+    if measured and measured >= 0 and measured < 40 then
+      return measured
+    end
+
+    return S("gamemenu.gap")
+  end
+
+  -- The button sits just above Log Out. Log Out keeps its first anchor region (never
+  -- re-pointed, so no cycle with other addons chaining on it) and only its y offset moves.
+  -- The offset is corrected from measured positions (no running total), so it converges and
+  -- leaves no empty band between the previous button and EbonAPI.
   local function place()
     local point, relative, relativePoint, x, y = logout:GetPoint(1)
 
-    if relative and not isChained() then
-      button:ClearAllPoints()
-      button:SetPoint("TOP", relative, "BOTTOM", 0, -S("gamemenu.gap"))
+    if not point or not relative then
+      return
+    end
+
+    button:ClearAllPoints()
+    button:SetPoint("BOTTOM", logout, "TOP", 0, step())
+
+    for _ = 1, 3 do
+      local _, edge = previous()
+      local top = button:GetTop()
+
+      if not edge or not top then
+        return
+      end
+
+      local diff = (edge - step()) - top
+
+      if diff > -0.5 and diff < 0.5 then
+        return
+      end
+
+      point, relative, relativePoint, x, y = logout:GetPoint(1)
       logout:ClearAllPoints()
-      logout:SetPoint(point, button, relativePoint, x, y)
+      logout:SetPoint(point, relative, relativePoint, x, y + diff)
     end
   end
 
@@ -2620,11 +2669,6 @@ function Window.install()
 
       Window.refresh()
     end
-  end)
-
-  EbonAPI:On("LANGUAGE_CHANGED", function()
-    Window.relabel()
-    Window.refresh()
   end)
 
   EbonAPI:On("OPTIONS_CHANGED", function()

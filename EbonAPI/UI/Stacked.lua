@@ -30,6 +30,7 @@ local Bricks = EbonAPI.Bricks
 local Kit = EbonAPI.Kit
 local Palette = EbonAPI.Palette
 local Lib = EbonAPI.Lib
+local Format = EbonAPI.Format
 
 local format, max, min = string.format, math.max, math.min
 local ipairs, pcall, type, tostring, tonumber = ipairs, pcall, type, tostring, tonumber
@@ -68,7 +69,7 @@ end
 
 local function shown(value)
   if value >= 10 or value == 0 then
-    return format("%.0f", value)
+    return Format.number(value)
   end
 
   return format("%.1f", value)

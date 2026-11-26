@@ -192,9 +192,8 @@ function QuestLog.read()
     return categories
   end)
 
-  QuestLog.reading = false
-
   if not ok then
+    QuestLog.reading = false
     Problems.bug("EbonAPI", "questlog.read", tostring(result))
 
     return QuestLog.last or {}
@@ -215,10 +214,19 @@ function QuestLog.read()
   end
 
   QuestLog.last = result
+  QuestLog.reading = false
   QuestLog.count = select(2, total())
 
   return result
 end
+
+local function onQuestLogUpdate()
+  if not QuestLog.reading then
+    QuestLog.last = nil
+  end
+end
+
+Bus.on("QUEST_LOG_UPDATE", onQuestLogUpdate)
 
 local function known()
   return QuestLog.last or QuestLog.read()

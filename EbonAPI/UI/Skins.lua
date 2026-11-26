@@ -9,11 +9,10 @@ local DB = EbonAPI.DB
 local Problems = EbonAPI.Problems
 
 local type, pairs, ipairs, tostring, error = type, pairs, ipairs, tostring, error
-local format, concat, find = string.format, table.concat, string.find
+local format, concat = string.format, table.concat
 local sort = table.sort
 
 local DEFAULT = "Azeroth"
-local FOLDER = "Interface\\AddOns\\EbonAPI\\Skins\\"
 local MEDIA = { font = true, texture = true, sound = true }
 local RESERVED = { parent = true, bricks = true }
 local CHAT = {
@@ -28,7 +27,6 @@ Problems.declare("EbonAPI", "EBONAPI", {
 })
 
 Skins.DEFAULT = DEFAULT
-Skins.FOLDER = FOLDER
 
 local registered = {}
 local names = {}
@@ -57,12 +55,7 @@ local function account()
 end
 
 local function media(skin, kind, value)
-  if value == "" or find(value, "[\\/]") or (kind == "font" and value == "game")
-      or (kind == "sound" and not find(value, ".", 1, true)) then
-    return value
-  end
-
-  return FOLDER .. skin .. "\\" .. value
+  return value
 end
 
 local function read(skin, source, prefix, problems)
@@ -199,6 +192,10 @@ function EbonAPI:RegisterSkin(name, spec)
   return true
 end
 
+local function rejectParent(name, reason)
+  Problems.reject("EbonAPI", "SKIN.KEY_REJECTED", { skin = name, key = "parent", reason = reason })
+end
+
 local function chainOf(name, loud)
   local chain, seen = {}, {}
   local at = registered[name] and name or DEFAULT
@@ -206,8 +203,7 @@ local function chainOf(name, loud)
   while at do
     if seen[at] then
       if loud then
-        Problems.reject("EbonAPI", "SKIN.KEY_REJECTED",
-          { skin = name, key = "parent", reason = format('parent loop at "%s"', at) })
+        rejectParent(name, format('parent loop at "%s"', at))
       end
 
       break
@@ -217,8 +213,7 @@ local function chainOf(name, loud)
 
     if not skin then
       if loud then
-        Problems.reject("EbonAPI", "SKIN.KEY_REJECTED",
-          { skin = name, key = "parent", reason = format('unknown parent "%s"', at) })
+        rejectParent(name, format('unknown parent "%s"', at))
       end
 
       break
@@ -248,19 +243,24 @@ local function valueIn(chain, key)
   return nil
 end
 
-function Skins.resolve()
+-- Once, at PLAYER_LOGIN and before the modules load: a chosen skin that is not installed is reported here.
+-- Azeroth applies meanwhile; the skin is applied as soon as it registers (RegisterSkin calls resolve).
+function Skins.checkInstalled()
   local saved = account() and account().skin
-  local name = DEFAULT
 
-  if type(saved) == "string" and registered[saved] then
-    name = saved
-  end
-
-  if saved ~= nil and name ~= saved then
+  if saved ~= nil and not (type(saved) == "string" and registered[saved]) then
     fallen = true
     Log.trace("skin", "EbonAPI", "skin " .. tostring(saved) .. " is not installed, " .. DEFAULT .. " applies")
     Problems.degrade(Problems.new("EbonAPI", "SKIN.FALLBACK", { skin = tostring(saved) }))
-  elseif fallen then
+  end
+end
+
+function Skins.resolve()
+  local saved = account() and account().skin
+  local name = Skins.chosen()
+
+  -- A chosen skin not yet installed (ADDON_LOADED) applies Azeroth silently: no degrade, no trace.
+  if fallen and (saved == nil or name == saved) then
     fallen = nil
     Problems.restore("EbonAPI", "SKIN.FALLBACK")
   end

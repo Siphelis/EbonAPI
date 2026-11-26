@@ -7,7 +7,7 @@ local floor, max, min = math.floor, math.max, math.min
 local format = string.format
 local ipairs, pairs, pcall, setmetatable, type = ipairs, pairs, pcall, setmetatable, type
 
-local OWNER = "EbonAPI"
+local OWNER = EbonAPI.name
 
 PerfPage.LIMITS = {
   progressEvery = 1,
@@ -47,6 +47,7 @@ local function viewItems()
   return {
     { id = "dashboard", text = L.PERFPAGE_VIEW_DASHBOARD },
     { id = "map", text = L.PERFPAGE_VIEW_MAP },
+    { id = "freezes", text = L.PERFPAGE_VIEW_FREEZES },
   }
 end
 
@@ -71,10 +72,6 @@ function PerfPage.relayout(root)
   local gap = S("kit.gap")
   local tileWidth = floor((width - gap * (#state.tiles - 1)) / #state.tiles)
   local y = 0
-
-  state.title:ClearAllPoints()
-  state.title:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -y)
-  y = y + S("fonts." .. S("page.title.font") .. ".size") + gap
 
   local row = max(state.selector:GetHeight(), state.pill:GetHeight())
 
@@ -148,6 +145,10 @@ function PerfPage.setView(root, view)
     state.drawBoard()
   end
 
+  if state.drawFreezes then
+    state.drawFreezes()
+  end
+
   PerfPage.relayout(root)
 
   return true
@@ -186,7 +187,19 @@ function PerfPage.view(last)
     rows = EbonAPI.PerfData.entryRows(last),
     unattributed = EbonAPI.PerfData.entryUnattributed(last),
     stats = last.stats,
+    freezes = EbonAPI.PerfData.entryFreezes(last),
+    freezeInfo = last.fz,
+    pieceStats = EbonAPI.PerfData.entryPieceStats(last),
   }
+end
+
+-- Show the "turn the profiler on" button only while the profiler is off (3.3.5 has no SetShown).
+function PerfPage.showEnable(state, status)
+  if status.profiling then
+    state.enableButton:Hide()
+  else
+    state.enableButton:Show()
+  end
 end
 
 function PerfPage.update(root, snapshot)
@@ -198,9 +211,11 @@ function PerfPage.update(root, snapshot)
     tile:SetItem(items[index])
   end
 
-  local pill = model.pill(EbonAPI.Perf.status())
+  local status = EbonAPI.Perf.status()
+  local pill = model.pill(status)
 
   state.pill:SetState(pill.level, pill.text)
+  PerfPage.showEnable(state, status)
   state.snapshot = snapshot
   state.stale.board = true
 
@@ -286,11 +301,13 @@ function PerfPage.status(root)
 end
 
 local function askRestore(run)
-  if not run.restore or not run.profilerByAddon or PerfPage.asked then
+  if active(run) or not EbonAPI.Perf.restorePending() then
+    PerfPage.asked = nil
+
     return
   end
 
-  if not EbonAPI.Perf.status().profiling then
+  if PerfPage.asked then
     return
   end
 
@@ -308,9 +325,11 @@ local function askRestore(run)
 end
 
 function PerfPage.pill(root)
-  local pill = EbonAPI.PerfModel.pill(EbonAPI.Perf.status())
+  local status = EbonAPI.Perf.status()
+  local pill = EbonAPI.PerfModel.pill(status)
 
   root.perf.pill:SetState(pill.level, pill.text)
+  PerfPage.showEnable(root.perf, status)
 end
 
 -- One second: progress line, pill clock, and the final redraw when a session ends.
@@ -384,6 +403,7 @@ end
 function PerfPage.shown(root)
   PerfPage.sync()
   PerfPage.refresh(root, true)
+  PerfPage.asked = nil
   askRestore(runInfo())
 end
 
@@ -397,7 +417,7 @@ function PerfPage.build(parent, width)
     return existing
   end
 
-  local Kit, Bricks, L = EbonAPI.Kit, EbonAPI.Bricks, EbonAPI.L
+  local Kit = EbonAPI.Kit
   local model = EbonAPI.PerfModel
   local root = CreateFrame("Frame", nil, parent)
   local pillState = model.pill(EbonAPI.Perf.status())
@@ -416,9 +436,6 @@ function PerfPage.build(parent, width)
 
   root.perf = state
   PerfPage.instances[parent] = root
-
-  state.title = Bricks.text(root, S("page.title.font"), S("page.title.color"))
-  state.title:SetText(L.UI_PERF)
 
   state.selector = Kit.create(OWNER, "choice", root, {
     shape = "segment",
@@ -453,6 +470,7 @@ function PerfPage.build(parent, width)
 
   state.zones.dashboard = makeZone(root, state)
   state.zones.map = makeZone(root, state)
+  state.zones.freezes = makeZone(root, state)
   state.zones.detail = makeZone(root, state)
   state.zones.footer = makeZone(root, state)
 
@@ -1090,6 +1108,17 @@ local function startRun(root, seconds)
   })
 end
 
+-- Shared click of the "measure for" button and of the "turn the profiler on" button.
+function PerfPage.runClick(root)
+  if active(runInfo()) then
+    PerfPage.status(root)
+
+    return
+  end
+
+  startRun(root, root.perf.duration)
+end
+
 function PerfPage.arm(seconds, opts)
   local Perf = EbonAPI.Perf
 
@@ -1154,13 +1183,7 @@ local function buildFooter(root, state)
     id = "run",
     text = L.PERFPAGE_RUN_BUTTON,
     run = function()
-      if active(runInfo()) then
-        PerfPage.status(root)
-
-        return
-      end
-
-      startRun(root, state.duration)
+      PerfPage.runClick(root)
     end,
   }, zone, "TOPLEFT", "TOPLEFT", 0, 0)
 
@@ -1228,6 +1251,15 @@ local function buildFooter(root, state)
   state.scanToggle:ClearAllPoints()
   state.scanToggle:SetPoint("LEFT", reset, "RIGHT", gap, 0)
 
+  button({
+    id = "enable",
+    text = L.PERFPAGE_PROFILER_ENABLE,
+    run = function()
+      PerfPage.runClick(root)
+    end,
+  }, state.scanToggle, "LEFT", "RIGHT", gap, 0)
+  PerfPage.showEnable(state, EbonAPI.Perf.status())
+
   state.permanent = Kit.create(OWNER, "pill", zone, { level = "warn", text = L.PERFPAGE_PROFILER_PERMANENT })
   state.permanent:ClearAllPoints()
   state.permanent:SetPoint("TOPLEFT", gc, "BOTTOMLEFT", 0, -gap)
@@ -1260,5 +1292,437 @@ local function buildFooter(root, state)
     + max(state.permanent:GetHeight(), state.profilerOff:GetHeight()) + gap + S("fonts.small.size"))
 end
 
+local FREEZE_KINDS = {
+  handler = "PERFPAGE_PIECE_KIND_HANDLER",
+  frame = "PERFPAGE_PIECE_KIND_FRAME",
+  bus_event = "PERFPAGE_PIECE_KIND_EVENT",
+  bus_tick = "PERFPAGE_PIECE_KIND_TIMER",
+  hook = "PERFPAGE_PIECE_KIND_HOOK",
+}
+
+local FREEZE_PIECE_LINES = 5
+local NO_ROWS = {}
+local FREEZE_TOP_LINES = 3
+local FREEZE_ADDON_NAMES = 3
+
+local function freezeVerdict(L, gel)
+  if gel.loading then
+    return L.PERFPAGE_FREEZE_LOADING
+  end
+
+  local d = gel.d or 0
+
+  if (gel.lua or 0) >= d / 2 then
+    return L.PERFPAGE_FREEZE_VERDICT_OWN
+  end
+
+  if (gel.sc or 0) >= d / 2 then
+    return L.PERFPAGE_FREEZE_VERDICT_LUA
+  end
+
+  return L.PERFPAGE_FREEZE_VERDICT_CLIENT
+end
+
+local PE_PIECE_LINES = 12
+local PE_ADDON = "ProjectEbonhold"
+
+local function findRow(rows, id)
+  for _, row in ipairs(rows or NO_ROWS) do
+    if row.id == id then
+      return row
+    end
+
+    local found = findRow(row.children, id)
+
+    if found then
+      return found
+    end
+  end
+
+  return nil
+end
+
+local function freezePiece(L, piece)
+  local kind = FREEZE_KINDS[piece.kind]
+  local label = piece.label
+  local text
+
+  if label == nil or label == "" then
+    label = L.PERFPAGE_PIECE_UNKNOWN
+  end
+
+  text = format("%s  %s", label, format(L.PERFPAGE_FREEZE_MS, format("%.1f", piece.ms or 0)))
+
+  if kind then
+    text = L[kind] .. "  " .. text
+  end
+
+  if (piece.calls or 0) > 0 then
+    text = text .. "  " .. format(L.PERFPAGE_PIECE_CALLS, piece.calls)
+  end
+
+  return text
+end
+
+local function buildFreezes(root, state)
+  local Bricks, L = EbonAPI.Bricks, EbonAPI.L
+  local zone = state.zones.freezes
+  local gap = S("kit.gap")
+  local ui = nil
+  local drawn = nil
+  local drawnStats = nil
+
+  local function lineHeight()
+    return S("fonts.small.size") + gap
+  end
+
+  local function makeBlock()
+    local block = CreateFrame("Frame", nil, zone)
+
+    block.head = Bricks.text(block, "small", "text")
+    block.flags = Bricks.text(block, "small", "muted")
+    block.flags:SetJustifyH("RIGHT")
+    block.pieces = {}
+    block.peLines = {}
+    block.others = Bricks.text(block, "small", "muted")
+    block.heap = Bricks.text(block, "small", "muted")
+    block.events = Bricks.text(block, "small", "muted")
+    block.scene = Bricks.text(block, "small", "muted")
+
+    return block
+  end
+
+  local function pieceLine(block, index)
+    local line = block.pieces[index]
+
+    if not line then
+      line = Bricks.text(block, "small", "text")
+      block.pieces[index] = line
+    end
+
+    return line
+  end
+
+  local function peLine(index)
+    ui.pe[index] = ui.pe[index] or Bricks.text(zone, "small", index == 1 and "muted" or "text")
+    ui.pe[index]:ClearAllPoints()
+    ui.pe[index]:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, -(index * lineHeight()))
+    ui.pe[index]:SetWidth(max(1, state.width))
+    ui.pe[index]:SetJustifyH("LEFT")
+
+    return ui.pe[index]
+  end
+
+  local function pieceBlock(stats, rows, first)
+    local count = 0
+
+    if type(stats) == "table" and #stats > 0 then
+      local sum = 0
+
+      for index = 1, #stats do
+        sum = sum + (stats[index].net or 0)
+      end
+
+      local row = findRow(rows, PE_ADDON)
+      local cpu = row and row.ms or 0
+      local head = peLine(1)
+
+      head:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, -(first * lineHeight()))
+      head:SetText(cpu > 0 and format(L.PERFPAGE_PE_HEAD, sum, cpu, sum / cpu * 100) or format(L.PERFPAGE_PE_HEAD_NOCPU, sum))
+      head:Show()
+      count = 1
+
+      for index = 1, min(#stats, PE_PIECE_LINES) do
+        local p = stats[index]
+        local line = peLine(index + 1)
+
+        line:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, -((first + index) * lineHeight()))
+        line:SetText(format("%s  %s  %s", p.label or L.PERFPAGE_PIECE_UNKNOWN, format(L.PERFPAGE_PIECE_CALLS, p.calls or 0),
+          format(L.PERFPAGE_PE_LINE, p.total or 0, p.net or 0)))
+        line:Show()
+        count = count + 1
+      end
+    end
+
+    for index = count + 1, #ui.pe do
+      ui.pe[index]:Hide()
+    end
+
+    return count
+  end
+
+  local function place(text, block, row)
+    text:ClearAllPoints()
+    text:SetPoint("TOPLEFT", block, "TOPLEFT", 0, -(row * lineHeight()))
+    text:SetWidth(max(1, state.width))
+    text:SetJustifyH("LEFT")
+  end
+
+  local function fillBlock(block, gel, y)
+    local pieces = 0
+    local row = 0
+
+    block:ClearAllPoints()
+    block:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, -y)
+    block:SetWidth(state.width)
+
+    local d = gel.d or 0
+    local t = floor(gel.t or 0)
+
+    place(block.head, block, row)
+    block.head:SetText(format("%02d:%02d  %s  %s %s (%.0f %%)", floor(t / 60), t % 60,
+      format(L.PERFPAGE_FREEZE_MS, format("%.0f", d)), L.PERFPAGE_FREEZE_LUA,
+      format(L.PERFPAGE_FREEZE_MS, format("%.0f", gel.lua or 0)), d > 0 and (gel.lua or 0) / d * 100 or 0))
+
+    local flags = ""
+
+    if gel.combat then
+      flags = L.PERFPAGE_FREEZE_COMBAT
+    end
+
+    if gel.loading then
+      flags = flags == "" and L.PERFPAGE_FREEZE_LOADING or (flags .. "  " .. L.PERFPAGE_FREEZE_LOADING)
+    else
+      local verdict = freezeVerdict(L, gel)
+
+      flags = flags == "" and verdict or (flags .. "  " .. verdict)
+    end
+
+    block.flags:ClearAllPoints()
+    block.flags:SetPoint("TOPRIGHT", block, "TOPRIGHT", 0, 0)
+    block.flags:SetText(flags)
+    row = row + 1
+
+    local top = gel.top or NO_ROWS
+    local inside = gel.inside or NO_ROWS
+
+    for index = 1, min(#top, FREEZE_TOP_LINES) do
+      pieces = pieces + 1
+      local line = pieceLine(block, pieces)
+
+      place(line, block, row)
+      line:SetText(freezePiece(L, top[index]))
+      line:Show()
+      row = row + 1
+    end
+
+    for index = 1, #inside do
+      if pieces >= FREEZE_PIECE_LINES then
+        break
+      end
+
+      pieces = pieces + 1
+      local line = pieceLine(block, pieces)
+
+      place(line, block, row)
+      line:SetText(freezePiece(L, inside[index]))
+      line:Show()
+      row = row + 1
+    end
+
+    for index = pieces + 1, #block.pieces do
+      block.pieces[index]:Hide()
+    end
+
+    local kept = gel.pcs or NO_ROWS
+
+    for index = 1, min(#kept, FREEZE_PIECE_LINES) do
+      local line = block.peLines[index]
+
+      if not line then
+        line = Bricks.text(block, "small", "muted")
+        block.peLines[index] = line
+      end
+
+      place(line, block, row)
+      line:SetText(format("%s  %s  %s  %s", L.PERFPAGE_PE_FREEZE, kept[index].label,
+        format(L.PERFPAGE_FREEZE_MS, format("%.1f", kept[index].net or 0)), format(L.PERFPAGE_PIECE_CALLS, kept[index].calls or 0)))
+      line:Show()
+      row = row + 1
+    end
+
+    for index = min(#kept, FREEZE_PIECE_LINES) + 1, #block.peLines do
+      block.peLines[index]:Hide()
+    end
+
+    local names = ""
+
+    for index = 1, min(#(gel.addons or NO_ROWS), FREEZE_ADDON_NAMES) do
+      local addon = gel.addons[index]
+
+      names = names .. "  " .. format("%s %s", addon.id, format(L.PERFPAGE_FREEZE_MS, format("%.0f", addon.ms or 0)))
+    end
+
+    place(block.others, block, row)
+    block.others:SetText(format("%s  %s / %s%s", L.PERFPAGE_FREEZE_OTHERS,
+      format(L.PERFPAGE_FREEZE_MS, format("%.0f", gel.addonsMs or 0)),
+      format(L.PERFPAGE_FREEZE_MS, format("%.0f", gel.addonsWindow or 0)), names))
+    row = row + 1
+
+    place(block.heap, block, row)
+    block.heap:SetText(format("%s  %.1f %s  %s  %s %s %s", L.PERFPAGE_FREEZE_HEAP, gel.hd or 0, L.PERFPAGE_UNIT_KB,
+      L.PERFPAGE_FREEZE_CONTEXT, gel.zone or "", gel.wins or "", gel.page or ""))
+    row = row + 1
+
+    if gel.ev ~= nil then
+      place(block.events, block, row)
+      block.events:SetText(format("%s  %d  %s", L.PERFPAGE_FREEZE_EVENTS, gel.ev, gel.evTop or ""))
+      block.events:Show()
+      row = row + 1
+    else
+      block.events:Hide()
+    end
+
+    local scene = ""
+
+    if gel.plates ~= nil then
+      scene = format("%s  %d", L.PERFPAGE_FREEZE_PLATES, gel.plates)
+    end
+
+    if gel.raid ~= nil then
+      scene = (scene == "" and "" or (scene .. "   ")) .. format("%s  %d", L.PERFPAGE_FREEZE_RAID, gel.raid)
+    end
+
+    if gel.fps ~= nil then
+      scene = (scene == "" and "" or (scene .. "   ")) .. format("%s  %.1f", L.PERFPAGE_FREEZE_FPS, gel.fps)
+    end
+
+    if scene ~= "" then
+      place(block.scene, block, row)
+      block.scene:SetText(scene)
+      block.scene:Show()
+      row = row + 1
+    else
+      block.scene:Hide()
+    end
+
+    block:SetHeight(row * lineHeight())
+
+    return row * lineHeight() + gap
+  end
+
+  local function summaryRows(csv, secs, title, row)
+    if csv == nil then
+      return row
+    end
+
+    row = row + 1
+    ui.sum[row] = ui.sum[row] or Bricks.text(zone, "small", "muted")
+    ui.sum[row]:ClearAllPoints()
+    ui.sum[row]:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, -(row * lineHeight()))
+    ui.sum[row]:SetText(format(title, secs or 0))
+    ui.sum[row]:Show()
+
+    local items = {}
+
+    for name, n in string.gmatch(csv, "([^,:]+):(%d+)") do
+      items[#items + 1] = format(L.PERFPAGE_FREEZE_RATE, name, (secs or 0) > 0 and n / secs or n)
+    end
+
+    for first = 1, #items, 5 do
+      row = row + 1
+      ui.sum[row] = ui.sum[row] or Bricks.text(zone, "small", "text")
+      ui.sum[row]:ClearAllPoints()
+      ui.sum[row]:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, -(row * lineHeight()))
+      ui.sum[row]:SetWidth(max(1, state.width))
+      ui.sum[row]:SetJustifyH("LEFT")
+      ui.sum[row]:SetText(table.concat(items, "   ", first, min(first + 4, #items)))
+      ui.sum[row]:Show()
+    end
+
+    return row
+  end
+
+  local function draw()
+    if state.view ~= "freezes" then
+      return
+    end
+
+    if not ui then
+      ui = { blocks = {}, sum = {}, pe = {} }
+      ui.head = Bricks.text(zone, "small", "muted")
+      ui.head:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, 0)
+      ui.head:SetText(L.PERFPAGE_FREEZE_HEAD)
+      ui.empty = Bricks.text(zone, "small", "muted")
+      ui.empty:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, 0)
+      ui.empty:SetWidth(max(1, state.width))
+      ui.more = Bricks.text(zone, "small", "muted")
+      ui.more:SetWidth(max(1, state.width))
+    end
+
+    local snapshot = state.snapshot
+
+    if type(snapshot) ~= "table" or (drawn == (snapshot.freezes or NO_ROWS) and drawnStats == snapshot.pieceStats) then
+      return
+    end
+
+    local list = snapshot.freezes or NO_ROWS
+    local info = snapshot.freezeInfo or NO_ROWS
+
+    drawn = list
+    drawnStats = snapshot.pieceStats
+
+    local top = lineHeight()
+    local y = top
+    local last = summaryRows(info.evc, info.evcs, L.PERFPAGE_FREEZE_SUM_COMBAT, 0)
+
+    last = summaryRows(info.evo, info.evos, L.PERFPAGE_FREEZE_SUM_OUT, last)
+
+    for index = last + 1, #ui.sum do
+      ui.sum[index]:Hide()
+    end
+
+    local pieceLines = pieceBlock(snapshot.pieceStats, snapshot.rows, last + 1)
+
+    last = last + pieceLines
+    y = y + last * lineHeight()
+
+    if #list == 0 then
+      ui.head:Hide()
+      ui.empty:SetText(format(L.PERFPAGE_FREEZE_NONE, floor(info.th or 0)))
+      ui.empty:Show()
+    else
+      ui.empty:Hide()
+      ui.head:Show()
+    end
+
+    for index, gel in ipairs(list) do
+      local block = ui.blocks[index]
+
+      if not block then
+        block = makeBlock()
+        ui.blocks[index] = block
+      end
+
+      y = y + fillBlock(block, gel, y)
+      block:Show()
+    end
+
+    for index = #list + 1, #ui.blocks do
+      ui.blocks[index]:Hide()
+    end
+
+    local missing = (info.n or 0) - (info.kept or #list)
+
+    if missing > 0 then
+      ui.more:ClearAllPoints()
+      ui.more:SetPoint("TOPLEFT", zone, "TOPLEFT", 0, -y)
+      ui.more:SetText(format(L.PERFPAGE_FREEZE_MORE, missing))
+      ui.more:Show()
+      y = y + lineHeight()
+    else
+      ui.more:Hide()
+    end
+
+    if zone.contentHeight ~= y then
+      zone:SetContentHeight(y)
+    end
+  end
+
+  state.drawFreezes = draw
+  state.onTick[#state.onTick + 1] = draw
+end
+
+PerfPage.builders[#PerfPage.builders + 1] = buildFreezes
 PerfPage.builders[#PerfPage.builders + 1] = buildMap
 PerfPage.builders[#PerfPage.builders + 1] = buildFooter

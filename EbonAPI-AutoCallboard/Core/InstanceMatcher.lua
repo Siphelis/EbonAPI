@@ -1,6 +1,5 @@
 local Core = AutoCallboardCore or {}
 AutoCallboardCore = Core
-local L = AutoCallboardLocale
 
 local type, tonumber, pairs = type, tonumber, pairs
 local string = string
@@ -25,6 +24,8 @@ local CURRENT_INSTANCE_ALIASES = {
   ["violet hold"] = { "the violet hold", "violet hold", "cyanigosa" },
   ["nexus"] = { "the nexus", "keristrasza" },
   ["trial of the champion"] = { "trial of the champion", "the black knight", "black knight" },
+  ["trial of the crusader"] = { "trial of the crusader" },
+  ["ruby sanctum"] = { "the ruby sanctum", "ruby sanctum", "halion" },
   ["forge of souls"] = { "the forge of souls", "forge of souls", "devourer of souls" },
   ["pit of saron"] = { "pit of saron", "overlord tyrannus", "tyrannus" },
   ["halls of reflection"] = { "halls of reflection", "escaped from arthas", "marwyn", "falric" },
@@ -33,6 +34,27 @@ local CURRENT_INSTANCE_ALIASES = {
   ["obsidian sanctum"] = { "the obsidian sanctum", "obsidian sanctum", "sartharion" },
   ["vault of archavon"] = { "vault of archavon", "toravon", "archavon", "emalon", "koralon" },
 }
+
+local MAP_FILE_INSTANCES = {
+  ["nexus80"] = { "oculus" },
+  ["ulduar77"] = { "halls of stone" },
+  ["cotstratholme"] = { "culling of stratholme" },
+  ["theargentcoliseum"] = { "trial of the champion", "trial of the crusader" },
+}
+
+for mapFile, keys in pairs(MAP_FILE_INSTANCES) do
+  local merged = {}
+
+  for i = 1, #(keys) do
+    local mapped = CURRENT_INSTANCE_ALIASES[keys[i]]
+
+    for j = 1, #(mapped) do
+      merged[#(merged) + 1] = mapped[j]
+    end
+  end
+
+  CURRENT_INSTANCE_ALIASES[mapFile] = merged
+end
 
 local CURRENT_INSTANCE_COMPACT_ALIASES = {}
 for key, mapped in pairs(CURRENT_INSTANCE_ALIASES) do
@@ -79,18 +101,22 @@ local function findInstanceAliases(alias)
       or findCompactAliasByPrefix(compact)
 end
 
-function Core.currentInstanceQuestType(instanceType)
+function Core.instanceCategory(instanceType)
   instanceType = normalizeMatchText(instanceType)
 
   if instanceType == "party" then
-    return 2
+    return Core.CATEGORY.DUNGEON
   end
 
   if instanceType == "raid" then
-    return 3
+    return Core.CATEGORY.RAID
   end
 
   return 0
+end
+
+local function isInstanceCategory(category)
+  return category == Core.CATEGORY.DUNGEON or category == Core.CATEGORY.RAID
 end
 
 function Core.buildCurrentInstanceTarget(info)
@@ -102,12 +128,12 @@ function Core.buildCurrentInstanceTarget(info)
     return info
   end
 
-  local questType = Core.sanitizeQuestType(info.questType)
-  if questType == 0 then
-    questType = Core.currentInstanceQuestType(info.instanceType)
+  local category = Core.sanitizeCategory(info.category)
+  if category == 0 then
+    category = Core.instanceCategory(info.instanceType)
   end
 
-  if questType ~= 2 and questType ~= 3 then
+  if not isInstanceCategory(category) then
     return nil
   end
 
@@ -155,7 +181,8 @@ function Core.buildCurrentInstanceTarget(info)
     builtTarget = true,
     instanceType = trim(info.instanceType),
     name = trim(info.name) ~= "" and trim(info.name) or aliases[1],
-    questType = questType,
+    category = category,
+    areaId = tonumber(info.areaId),
     aliases = aliases,
   }
 end
@@ -179,16 +206,7 @@ local function questMatchesBuiltTarget(quest, target)
     return false
   end
 
-  local zoneOrSort, questType = Core.objectiveMetadata(quest)
-  if questType ~= target.questType then
-    return false
-  end
-
-  if target.areaId then
-    if zoneOrSort == target.areaId then
-      return true, target.name
-    end
-
+  if Core.questCategory(quest) ~= target.category then
     return false
   end
 
@@ -196,9 +214,8 @@ local function questMatchesBuiltTarget(quest, target)
   local compactCombined = compactMatchText(combined)
 
   for i = 1, #(target.aliases) do
-    local alias = target.aliases[i]
-    if aliasMatchesQuestText(alias, combined, compactCombined) then
-      return true, alias
+    if aliasMatchesQuestText(target.aliases[i], combined, compactCombined) then
+      return true
     end
   end
 
@@ -209,38 +226,6 @@ function Core.isQuestExcluded(excluded, key)
   return type(excluded) == "table" and key ~= nil and excluded[key] == true
 end
 
-local function findObjectiveForBuiltTarget(objectives, target, excluded)
-  if not Core.isObjectiveChoiceList(objectives) or not target then
-    return nil
-  end
-
-  local blockedKey
-
-  for i = 1, #(objectives) do
-    local key = Core.questKey(objectives[i])
-    local matched, alias = questMatchesBuiltTarget(objectives[i], target)
-
-    if matched then
-      if Core.isQuestExcluded(excluded, key) then
-        blockedKey = blockedKey or key
-      else
-        return {
-          index = i,
-          key = key,
-          quest = objectives[i],
-          source = "currentInstance",
-          label = target.areaId and L.MATCH_LABEL_REQUESTED_INSTANCE or L.MATCH_LABEL_CURRENT_INSTANCE,
-          matchedAlias = alias,
-          questType = target.questType,
-          target = target,
-        }
-      end
-    end
-  end
-
-  return nil, blockedKey
-end
-
 function Core.questMatchesInstanceTarget(quest, currentInstanceTarget)
   local target = Core.buildCurrentInstanceTarget(currentInstanceTarget)
 
@@ -248,81 +233,46 @@ function Core.questMatchesInstanceTarget(quest, currentInstanceTarget)
     return false
   end
 
-  return (questMatchesBuiltTarget(quest, target)) == true
+  return questMatchesBuiltTarget(quest, target)
 end
 
-function Core.findDesiredObjective(objectives, desired, excluded)
-  if not Core.isObjectiveChoiceList(objectives) or type(desired) ~= "table" then
-    return nil
+function Core.wantedContracts(quests, desired, currentInstanceTarget, excluded)
+  local wanted, unpaid = {}, {}
+
+  if type(quests) ~= "table" then
+    return wanted, unpaid
   end
 
-  for i = 1, #(objectives) do
-    local key = Core.questKey(objectives[i])
-    if key and desired[key] and not Core.isQuestExcluded(excluded, key) then
-      return {
-        index = i,
-        key = key,
-        quest = objectives[i],
-      }
+  local target = Core.buildCurrentInstanceTarget(currentInstanceTarget)
+  local taken = {}
+
+  local function consider(quest, isWanted)
+    local key = Core.questKey(quest)
+
+    if key and isWanted and not taken[key]
+        and tonumber(quest.state) == Core.STATE.AVAILABLE
+        and not Core.isQuestExcluded(excluded, key) then
+      taken[key] = true
+
+      if Core.paysNothing(quest) then
+        unpaid[#(unpaid) + 1] = quest
+      else
+        wanted[#(wanted) + 1] = quest
+      end
     end
   end
-
-  return nil
-end
-
-function Core.findRollObjective(objectives, desired, currentInstanceTarget, excluded)
-  local target, problem = Core.buildCurrentInstanceTarget(currentInstanceTarget)
-
-  Core.report(problem)
 
   if target then
-    local match, blockedKey = findObjectiveForBuiltTarget(objectives, target, excluded)
-
-    if match then
-      return match
-    end
-
-    if not blockedKey then
-      return nil
-    end
-
-    return Core.findDesiredObjective(objectives, desired, excluded), blockedKey
-  end
-
-  return Core.findDesiredObjective(objectives, desired, excluded)
-end
-
-function Core.shouldHoldObjectiveChoices(isRolling, pauseReason, hasSelectedQuest)
-  return isRolling == true and pauseReason == "quest_selected" and hasSelectedQuest == true
-end
-
-local function listHasQuestKey(list, key)
-  if type(list) ~= "table" then
-    return false
-  end
-
-  for i = 1, #(list) do
-    if Core.questKey(list[i]) == key then
-      return true
+    for i = 1, #(quests) do
+      consider(quests[i], questMatchesBuiltTarget(quests[i], target))
     end
   end
 
-  return false
-end
-
-function Core.isBoardQuest(questID, objectives, active, known)
-  questID = math.floor(tonumber(questID) or 0)
-  if questID <= 0 then
-    return false
+  if type(desired) == "table" then
+    for i = 1, #(quests) do
+      consider(quests[i], desired[Core.questKey(quests[i]) or ""] == true)
+    end
   end
 
-  local key = "id:" .. tostring(questID)
-
-  return Core.questKey(active) == key
-      or listHasQuestKey(objectives, key)
-      or listHasQuestKey(known, key)
-end
-
-function Core.shouldPauseForAcceptedQuest(isRolling, questID, objectives, active, known)
-  return isRolling == true and Core.isBoardQuest(questID, objectives, active, known)
+  return wanted, unpaid
 end

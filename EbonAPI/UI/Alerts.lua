@@ -36,19 +36,20 @@ end
 
 local holder = nil
 
-local function home(frame)
-  frame:ClearAllPoints()
-  frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -S("kit.padding"), -S("kit.toast.top"))
-end
-
 local function carrier()
   if not holder then
     holder = CreateFrame("Frame", nil, UIParent)
-    holder.id = "alerts"
-    holder:SetMovable(true)
-    holder:SetClampedToScreen(true)
     holder:SetWidth(S("kit.problem.alert.width"))
     holder:SetHeight(1)
+
+    local errors = rawget(_G, "UIErrorsFrame")
+
+    if errors then
+      holder:SetPoint("TOP", errors, "TOP", 0, 0)
+    else
+      report("UIErrorsFrame is missing: alerts have no anchor")
+    end
+
     holder:Show()
   end
 
@@ -62,10 +63,6 @@ local function stack()
 
   local y = 0
 
-  if not holder.moving then
-    EbonAPI.Windows.place(holder, home)
-  end
-
   for _, alert in ipairs(Alerts.shown()) do
     alert:ClearAllPoints()
     alert:SetPoint("TOPRIGHT", holder, "TOPRIGHT", 0, -y)
@@ -73,14 +70,6 @@ local function stack()
   end
 
   holder:SetHeight(max(y - S("kit.spacing"), 1))
-end
-
-local function stopMoving()
-  if holder and holder.moving then
-    holder.moving = false
-    holder:StopMovingOrSizing()
-    EbonAPI.Windows.save(holder)
-  end
 end
 
 local function dismiss(alert)
@@ -133,17 +122,6 @@ local function build()
 
   alert:SetFrameStrata("FULLSCREEN_DIALOG")
   alert:EnableMouse(true)
-  alert:RegisterForDrag("LeftButton")
-  alert:SetScript("OnDragStart", function()
-    if EbonAPI.Parameters.value(nil, "locked") then
-      return
-    end
-
-    holder.moving = true
-    holder:StartMoving()
-  end)
-  alert:SetScript("OnDragStop", stopMoving)
-  alert:SetScript("OnHide", stopMoving)
   Bricks.frame(alert, "small", S("kit.problem.alert.color"), "danger")
   alert.icon = alert:CreateTexture(nil, "ARTWORK")
   Kit.trim(alert.icon)
@@ -381,6 +359,10 @@ local function soft(problem)
 end
 
 local function deliver(problem, kind)
+  if not Lib.errorsShown() then
+    return
+  end
+
   if kind == "block" then
     block(problem)
   else

@@ -4,9 +4,14 @@ local Core = {}
 NS.Core = Core
 
 local byte = string.byte
-local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end end
+NS.wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end end
+local wipe = NS.wipe
 
-local nodeDefsById, spellCountById
+local NODE_PREFIX = "skillTreeNode"
+NS.EMPTY = {}
+local EMPTY = NS.EMPTY
+
+local nodeDefsById, spellCountById, classIds, classParents
 local nodeButtons = {}
 local warnedMultiChoice = false
 local buttonsReady = false
@@ -14,9 +19,8 @@ local snapshotCache, snapshotTime, snapshotCount
 local snapshotDirty = true
 local snapshotStamp = 0
 local scratch = {}
-local ashesBad, inconsistent = false, false
+local ashesBad = false
 local LISTED_NODES = 8
-local MAX_RANK = 255
 
 local function Raise(call, code, facts, cause)
     local api = NS.api
@@ -39,10 +43,28 @@ local function GetNodeDefs()
     if not db then
         return nil
     end
-    nodeDefsById, spellCountById = {}, {}
+    local seenClass = {}
+    nodeDefsById, spellCountById, classIds, classParents = {}, {}, {}, {}
     for _, node in ipairs(db[0].nodes) do
         nodeDefsById[node.id] = node
         spellCountById[node.id] = node.spells and #node.spells or 0
+        local classId = node.classId
+        if classId and not seenClass[classId] then
+            seenClass[classId] = true
+            classIds[#classIds + 1] = classId
+        end
+    end
+    table.sort(classIds)
+    for _, link in ipairs(db[0].links or EMPTY) do
+        local child = nodeDefsById[link[2]]
+        if child and child.classId then
+            local parents = classParents[link[2]]
+            if not parents then
+                parents = {}
+                classParents[link[2]] = parents
+            end
+            parents[#parents + 1] = link[1]
+        end
     end
     return nodeDefsById
 end
@@ -51,10 +73,27 @@ function Core.GetNodeDefs()
     return GetNodeDefs()
 end
 
+function Core.GetClassIds()
+    if not GetNodeDefs() then return EMPTY end
+    return classIds
+end
+
+function Core.TreeScroll()
+    return EbonAPI.Ebonhold.Frame("skillTreeScroll")
+end
+
+function Core.TreeCanvas()
+    return EbonAPI.Ebonhold.Frame("skillTreeCanvas")
+end
+
+function Core.NodeButton(nodeId)
+    return EbonAPI.Ebonhold.Frame(NODE_PREFIX .. nodeId)
+end
+
 local function GetNodeButton(nodeId)
     local btn = nodeButtons[nodeId]
     if btn then return btn end
-    btn = _G["skillTreeNode" .. nodeId]
+    btn = Core.NodeButton(nodeId)
     if btn then nodeButtons[nodeId] = btn end
     return btn
 end
@@ -76,18 +115,29 @@ local function WarnMultiChoice(node)
     Lapse("TREE.MULTICHOICE_IGNORED", { node = node.name or node.id })
 end
 
+-- Bouton lisible d'un noeud (non locked ; infini : badge visible), sinon nil.
+-- Renvoie aussi le badge pour un noeud infini.
+local function LiveButton(node)
+    local btn = GetNodeButton(node.id)
+    if not btn or btn.state == "locked" then return nil end
+    if node.infinite then
+        local badge = btn.stackBadge
+        if not (badge and badge:IsShown()) then return nil end
+        return btn, badge
+    end
+    return btn
+end
+
 local function ReadNodeRank(node)
     if node.isMultipleChoice then
         WarnMultiChoice(node)
         return 0
     end
 
-    local btn = GetNodeButton(node.id)
-    if not btn or btn.state == "locked" then return 0 end
+    local btn, badge = LiveButton(node)
+    if not btn then return 0 end
 
     if node.infinite then
-        local badge = btn.stackBadge
-        if not (badge and badge:IsShown()) then return 0 end
         return tonumber(badge.count:GetText()) or 0
     end
 
@@ -181,56 +231,32 @@ function Core.CaptureTreeState()
     return copy
 end
 
-local function ParseSoulAshes(text)
-    text = EbonAPI.Lib.stripColor(text)
-
-    local sign, numberPart = text:match("(%-?)([%d][%d%s,%.]*)%s*$")
-    if not numberPart then return nil end
-
-    local digits = numberPart:gsub("%D", "")
-    if digits == "" then return nil end
-
-    local value = tonumber(digits)
-    if not value then return nil end
-
-    return (sign == "-") and -value or value
+function Core.GetBudgets()
+    local budgets = NS.Cost.Budgets()
+    local ash = budgets and budgets.ash
+    if ash == nil then
+        if not ashesBad then
+            ashesBad = true
+            Lapse("ASHES.UNREADABLE", { text = "nil" })
+        end
+    elseif ashesBad then
+        ashesBad = false
+        NS.api:Restore("ASHES.UNREADABLE")
+    end
+    return budgets
 end
-
-local ashesText, ashesValue
 
 function Core.GetAvailableSoulAshes()
-    local frame = EbonAPI.Ebonhold.SkillTreeFrame()
-    local fs = frame and frame.pointsText
-    if not fs then return nil end
-
-    local text = fs:GetText()
-    if type(text) ~= "string" or text == "" then return nil end
-
-    if text ~= ashesText then
-        ashesText, ashesValue = text, ParseSoulAshes(text)
-        if ashesValue then
-            if ashesBad then
-                ashesBad = false
-                NS.api:Restore("ASHES.UNREADABLE")
-            end
-        else
-            ashesBad = true
-            Lapse("ASHES.UNREADABLE", { text = EbonAPI.Lib.stripColor(text) })
-        end
-    end
-    return ashesValue
+    local budgets = Core.GetBudgets()
+    return budgets and budgets.ash
 end
 
-local INFINITE_RANK_COST_CAP = 100000000
-
-local function RankCost(node, rank)
-    local costs = node.soulPointsCosts or {}
-    if not node.infinite then return costs[rank] or 0 end
-
-    local base = math.max(costs[1] or 1, 1)
-    local cost = math.ceil(base * (node.infiniteGrowth or 1.15) ^ (rank - 1) - 0.000001)
-    if cost >= INFINITE_RANK_COST_CAP then return INFINITE_RANK_COST_CAP end
-    return math.max(cost, 1)
+local function UnreadableBudget(sum, budgets)
+    if not budgets then return true end
+    for currency, amount in pairs(sum or {}) do
+        if amount > 0 and budgets[currency] == nil then return true end
+    end
+    return false
 end
 
 function Core.ComputeActivationPlan(saveNodeRanks, snapshot)
@@ -240,56 +266,178 @@ function Core.ComputeActivationPlan(saveNodeRanks, snapshot)
     snapshot = snapshot or Core.GetTreeSnapshot()
     if not snapshot then return nil end
 
-    local totalCost, pendingNodes = 0, 0
+    local totalCost, pendingNodes, needs, classCost = {}, 0, {}, {}
 
     for nodeId, targetRank in pairs(saveNodeRanks or {}) do
         local node = defs[nodeId]
         if node then
             local currentRank = snapshot[nodeId] or 0
             if currentRank < targetRank then
-                for rankIdx = currentRank + 1, targetRank do
-                    totalCost = totalCost + RankCost(node, rankIdx)
-                end
+                NS.Cost.AddRanks(totalCost, node, currentRank, targetRank)
                 pendingNodes = pendingNodes + 1
+                local classId = node.classId
+                if classId then
+                    needs[classId] = (needs[classId] or 0) + 1
+                    NS.Cost.AddRanks(classCost, node, currentRank, targetRank)
+                end
             end
         end
     end
 
-    return totalCost, pendingNodes
+    return totalCost, pendingNodes, needs, classCost
 end
 
-function Core.GetEffectiveSpendable()
-    local spendable = NS.Bridge.GetServerBalance()
-    if not spendable then return Lapse("BALANCE.NOT_RECEIVED", { seconds = NS.Bridge.Waited() }) end
-
-    local committedNodes = NS.Bridge.GetServerNodes()
-    if not committedNodes then
-        return Fail("TREE.NOT_READY", { detail = "the server has not announced the active loadout yet" })
+local function ClassTreeService()
+    local tree = EbonAPI.Ebonhold.Service("ClassTree")
+    if tree and type(tree.pending) == "table" and type(tree.Level) == "function"
+        and type(tree.OwnedCount) == "function" then
+        return tree
     end
+    return nil
+end
 
-    local snapshot, why = Core.GetTreeSnapshot()
-    if not snapshot then return Fail("TREE.NOT_READY", { detail = why }) end
+local slots = {}
+local slotsStamp = 0
 
-    local pendingCost = Core.ComputeActivationPlan(snapshot, committedNodes)
-    if not pendingCost then return Fail("TREE.NOT_READY", { detail = "the tree could not be read" }) end
+local function FreeSlots(tree, classId)
+    if not tree then return 0 end
+    local okLevel, level = pcall(tree.Level, classId)
+    local okOwned, owned = pcall(tree.OwnedCount, classId)
+    if not (okLevel and okOwned) then return 0 end
+    local free = (tonumber(level) or 0) - (tonumber(owned) or 0)
+    return (free > 0) and free or 0
+end
 
-    local gap = 0
-    for nodeId, committedRank in pairs(committedNodes) do
-        if (snapshot[nodeId] or 0) < committedRank then gap = gap + 1 end
+function Core.ClassSlots()
+    local tree = ClassTreeService()
+    local ids = Core.GetClassIds()
+    for i = 1, #ids do
+        local classId = ids[i]
+        local free = FreeSlots(tree, classId)
+        if slots[classId] ~= free then
+            slots[classId] = free
+            slotsStamp = slotsStamp + 1
+        end
     end
+    return slots, slotsStamp
+end
 
-    local effective = spendable - pendingCost
-    if gap > 0 or effective < 0 then
-        inconsistent = true
-        Lapse("BALANCE.INCONSISTENT", { balance = EbonAPI.Format.number(spendable),
-            cost = EbonAPI.Format.number(pendingCost), nodes = gap })
-        if effective < 0 then effective = 0 end
-    elseif inconsistent then
-        inconsistent = false
-        NS.api:Restore("BALANCE.INCONSISTENT")
+function Core.SpecTab()
+    if not (GetNumTalentTabs and GetTalentTabInfo) then return nil end
+    local okTabs, tabs = pcall(GetNumTalentTabs)
+    if not okTabs or type(tabs) ~= "number" or tabs < 1 then return nil end
+    local group = GetActiveTalentGroup and GetActiveTalentGroup() or 1
+    local best, bestPoints = 1, 0
+    for tab = 1, tabs do
+        local okInfo, _, _, points = pcall(GetTalentTabInfo, tab, false, false, group)
+        if okInfo then
+            points = points or 0
+            if points > bestPoints then best, bestPoints = tab, points end
+        end
     end
+    return best
+end
 
-    return effective
+function Core.PlayerClassId()
+    local db = EbonAPI.Ebonhold.TalentDatabase()
+    local hubs = type(db) == "table" and type(db[0]) == "table" and db[0].classHubs
+    if type(hubs) ~= "table" then return nil end
+    local token = select(2, UnitClass("player"))
+    for classId, hub in pairs(hubs) do
+        if type(hub) == "table" and hub.token == token then return classId end
+    end
+    return nil
+end
+
+function Core.ClassName(classId)
+    local db = EbonAPI.Ebonhold.TalentDatabase()
+    local hubs = db and db[0].classHubs
+    local hub = hubs and hubs[classId]
+    if not hub then return tostring(classId) end
+    return (hub.token and NS.L["CLASS_" .. hub.token]) or hub.name or tostring(classId)
+end
+
+function Core.ClassNeeds(nodeRanks, snapshot)
+    local defs = GetNodeDefs()
+    local needs = {}
+    if not defs then return needs end
+    snapshot = snapshot or Core.GetTreeSnapshot() or EMPTY
+    for nodeId, rank in pairs(nodeRanks or EMPTY) do
+        local node = defs[nodeId]
+        local classId = node and node.classId
+        if classId and (snapshot[nodeId] or 0) < rank then needs[classId] = (needs[classId] or 0) + 1 end
+    end
+    return needs
+end
+
+function Core.ClassFits(needs, freeSlots)
+    freeSlots = freeSlots or Core.ClassSlots()
+    for classId, need in pairs(needs or EMPTY) do
+        if need > (freeSlots[classId] or 0) then return false end
+    end
+    return true
+end
+
+function Core.ClassShortage(needs, freeSlots)
+    local names
+    local ids = Core.GetClassIds()
+    for i = 1, #ids do
+        local classId = ids[i]
+        local need = needs and needs[classId]
+        if need and need > ((freeSlots and freeSlots[classId]) or 0) then
+            local name = Core.ClassName(classId)
+            names = names and (names .. ", " .. name) or name
+        end
+    end
+    return names
+end
+
+local function ChainDepth(nodeId)
+    local depth, current = 0, nodeId
+    while depth < 200 do
+        local parents = classParents and classParents[current]
+        local parentId = parents and parents[1]
+        if not parentId then break end
+        depth, current = depth + 1, parentId
+    end
+    return depth
+end
+
+local function OrderClassAdds(adds, before, defs)
+    local depthOf = {}
+    for i = 1, #adds do depthOf[adds[i]] = ChainDepth(adds[i]) end
+    table.sort(adds, function(a, b)
+        if depthOf[a] == depthOf[b] then return a < b end
+        return depthOf[a] < depthOf[b]
+    end)
+
+    local placed, order = {}, {}
+    for i = 1, #adds do
+        local nodeId = adds[i]
+        local ok = defs[nodeId].isStart and true or false
+        local parents = classParents and classParents[nodeId]
+        for p = 1, (parents and #parents or 0) do
+            if ok then break end
+            local parentId = parents[p]
+            ok = placed[parentId] or (before[parentId] or 0) > 0
+        end
+        if ok then
+            placed[nodeId] = true
+            order[#order + 1] = nodeId
+        end
+    end
+    return order
+end
+
+local function QueueClassNodes(classTree, skillTree, order, defs)
+    for i = 1, #order do
+        local nodeId = order[i]
+        local amount, currency = NS.Cost.RankCost(defs[nodeId], 1)
+        classTree.pending[nodeId] = true
+        if amount > 0 then skillTree.PoolAdd(currency, -amount) end
+    end
+    skillTree.MarkUnsavedChanges()
+    skillTree.RefreshTree()
 end
 
 local function EncodeBuildCode(nodeRanks)
@@ -317,14 +465,6 @@ local function EncodeBuildCode(nodeRanks)
     end
 
     return utils.Base64Encode(buffer)
-end
-
-local function CountKnownRanks(defs, nodeRanks)
-    local total = 0
-    for nodeId, rank in pairs(nodeRanks or {}) do
-        if defs[nodeId] then total = total + rank end
-    end
-    return total
 end
 
 function Core.CanActivate()
@@ -377,9 +517,10 @@ local function RunNativeImport(code)
     return true
 end
 
-local function MergeInto(target, source)
+local function MergeInto(target, source, defs)
     for nodeId, rank in pairs(source or {}) do
-        if rank > 0 and (not target[nodeId] or rank > target[nodeId]) then
+        local node = defs and defs[nodeId]
+        if not (node and node.classId) and rank > 0 and (not target[nodeId] or rank > target[nodeId]) then
             target[nodeId] = rank
         end
     end
@@ -451,10 +592,12 @@ function Core.ApplyInfiniteNodes(wanted)
 end
 
 function Core.ApplyBuild(saveNodeRanks)
-    NS.View.ClearFaults()
     local skillTree = EbonAPI.Ebonhold.SkillTree()
     local setSoulAshes = skillTree and skillTree.UpdateTotalSoulPoints
     if not setSoulAshes then return Lapse("IMPORT.UNAVAILABLE", { missing = "UpdateTotalSoulPoints of ProjectEbonhold" }) end
+    if type(skillTree.MarkUnsavedChanges) ~= "function" then
+        return Lapse("IMPORT.UNAVAILABLE", { missing = "MarkUnsavedChanges of ProjectEbonhold" })
+    end
 
     local defs = GetNodeDefs()
     if not defs then return Fail("TREE.NOT_READY", { detail = "the talent database is not loaded" }) end
@@ -464,21 +607,50 @@ function Core.ApplyBuild(saveNodeRanks)
     local before, why = Core.GetTreeSnapshot()
     if not before then return Fail("TREE.NOT_READY", { detail = why }) end
 
-    local cost = Core.ComputeActivationPlan(saveNodeRanks, before)
+    local cost, _, needs = Core.ComputeActivationPlan(saveNodeRanks, before)
     if not cost then return Fail("TREE.NOT_READY", { detail = "the tree could not be read" }) end
 
-    local _, serverCommitted = NS.Bridge.GetServerBalance()
-    if not serverCommitted then return Lapse("BALANCE.NOT_RECEIVED", { seconds = NS.Bridge.Waited() }) end
+    local serverSpendable, serverCommitted = NS.Bridge.GetServerBalance()
+    if not (serverSpendable and serverCommitted) then return Lapse("BALANCE.NOT_RECEIVED", { seconds = NS.Bridge.Waited() }) end
+
+    local budgets = Core.GetBudgets()
+    if UnreadableBudget(cost, budgets) then return Lapse("BALANCE.NOT_RECEIVED", { seconds = NS.Bridge.Waited() }) end
+    local refusal = NS.Cost.Refusal(cost, budgets)
+    if refusal then return nil, refusal end
 
     local committedNodes = NS.Bridge.GetServerNodes()
     if not committedNodes then
         return Fail("TREE.NOT_READY", { detail = "the server has not announced the active loadout yet" })
     end
 
+    local classAdds = {}
+    for nodeId, rank in pairs(saveNodeRanks or {}) do
+        local node = defs[nodeId]
+        if node and node.classId and rank > (before[nodeId] or 0) then classAdds[#classAdds + 1] = nodeId end
+    end
+
+    local classTree, classOrder
+    if #classAdds > 0 then
+        classTree = ClassTreeService()
+        local pools = EbonAPI.Ebonhold.SkillTree()
+        if not (classTree and pools and type(pools.PoolAdd) == "function"
+            and type(pools.MarkUnsavedChanges) == "function" and type(pools.RefreshTree) == "function") then
+            return Lapse("IMPORT.UNAVAILABLE", { missing = "the class constellations of ProjectEbonhold" })
+        end
+
+        local shortage = Core.ClassShortage(needs, Core.ClassSlots())
+        if shortage then return nil, string.format(NS.L.ERR_CLASS_LEVEL or "class level too low: %s", shortage) end
+
+        classOrder = OrderClassAdds(classAdds, before, defs)
+        if #classOrder < #classAdds then
+            return nil, NS.L.ERR_CLASS_CHAIN or "a class node of the save is missing its predecessor in the series"
+        end
+    end
+
     local target = {}
-    MergeInto(target, committedNodes)
-    MergeInto(target, before)
-    MergeInto(target, saveNodeRanks)
+    MergeInto(target, committedNodes, defs)
+    MergeInto(target, before, defs)
+    MergeInto(target, saveNodeRanks, defs)
 
     -- Les nœuds infinis dépassent 255 : le code d'import (un octet par rang) ne peut pas les porter.
     -- Ils sont posés par les clics du bouton natif, après l'import des nœuds normaux.
@@ -489,7 +661,7 @@ function Core.ApplyBuild(saveNodeRanks)
             infinite[nodeId] = rank
             infiniteCount = infiniteCount + 1
         else
-            if rank > MAX_RANK then
+            if rank > NS.MAX_RANK then
                 return Fail("IMPORT.RANK_TOO_HIGH", { node = node and node.name or nodeId, rank = rank })
             end
             normal[nodeId] = rank
@@ -497,14 +669,24 @@ function Core.ApplyBuild(saveNodeRanks)
         end
     end
 
-    -- Le total des rangs ne compte que les nœuds normaux : un rang infini élevé n'est pas un prix d'import.
-    local available = Core.GetAvailableSoulAshes()
-    local rankTotal = CountKnownRanks(defs, normal)
-    if available and rankTotal > available then
-        return Fail("IMPORT.TOO_EXPENSIVE", { ranks = rankTotal, balance = EbonAPI.Format.number(available) })
+    local added = {}
+    for nodeId in pairs(saveNodeRanks or {}) do
+        local rank, node = normal[nodeId], defs[nodeId]
+        local owned = math.max(before[nodeId] or 0, committedNodes[nodeId] or 0)
+        if rank and node and rank > owned then NS.Cost.AddRanks(added, node, owned, rank) end
     end
+    if UnreadableBudget(added, budgets) then
+        return Lapse("BALANCE.NOT_RECEIVED", { seconds = NS.Bridge.Waited() })
+    end
+    local available = budgets.ash
+    local ashAdded = added.ash or 0
+    if available and ashAdded > available then
+        return Fail("IMPORT.TOO_EXPENSIVE", { cost = NS.Cost.Format({ ash = ashAdded }), balance = EbonAPI.Format.number(available) })
+    end
+    local importRefusal = NS.Cost.Refusal(added, budgets)
+    if importRefusal then return nil, importRefusal end
 
-    if normalCount > 0 or infiniteCount == 0 then
+    if normalCount > 0 or (infiniteCount == 0 and not classOrder) then
         if not EbonAPI.Ebonhold.Utils() then
             return Lapse("IMPORT.UNAVAILABLE", { missing = "the encoder of ProjectEbonhold" })
         end
@@ -529,18 +711,33 @@ function Core.ApplyBuild(saveNodeRanks)
 
     -- Complétude : les nœuds normaux seulement. Un infini resté sous son rang visé (ressource épuisée)
     -- n'est pas une faute : il garde le rang que la ressource a permis, comme un achat partiel.
-    local _, remaining = Core.ComputeActivationPlan(normal, after)
-    if not remaining or remaining > 0 then
+    local remainingCost, remaining = Core.ComputeActivationPlan(normal, after)
+    if not remainingCost or remaining > 0 then
         local list = UnplacedNodes(defs, normal, after, saveNodeRanks or {}, before)
         return Fail("IMPORT.NODES_NOT_APPLIED", { wanted = Describe(list, "wanted"),
             read = Describe(list, "read"), state = Describe(list, "state") })
     end
 
-    local effective, _, balanceProblem = Core.GetEffectiveSpendable()
-    if effective then
-        setSoulAshes(effective, serverCommitted)
-    else
-        Fail("BALANCE.NOT_REFRESHED", {}, balanceProblem)
+    setSoulAshes(serverSpendable, serverCommitted, EbonAPI.State.GetPools())
+    skillTree.MarkUnsavedChanges()
+
+    if classOrder then
+        QueueClassNodes(classTree, EbonAPI.Ebonhold.SkillTree(), classOrder, defs)
+
+        Core.InvalidateSnapshot()
+        local placed, placedWhy = Core.GetTreeSnapshot()
+        if not placed then return Fail("TREE.NOT_READY", { detail = placedWhy }) end
+
+        local missing = {}
+        for i = 1, #classOrder do
+            local nodeId = classOrder[i]
+            if (placed[nodeId] or 0) < 1 then missing[#missing + 1] = { id = nodeId, wanted = nodeId .. ":1", read = nodeId .. ":0",
+                state = nodeId .. " class node" } end
+        end
+        if #missing > 0 then
+            return Fail("IMPORT.NODES_NOT_APPLIED", { wanted = Describe(missing, "wanted"),
+                read = Describe(missing, "read"), state = Describe(missing, "state") })
+        end
     end
 
     return cost

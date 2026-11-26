@@ -17,13 +17,16 @@ local LINKS = {
     return RT.updateUrl
   end,
   license = function()
-    return RT.licenseUrl
+    return "https://github.com/Siphelis/EbonAPI/blob/main/AutoCallboard/LICENSE"
   end,
 }
 
 local DYNAMIC = {
   targetName = function()
     return RT.state and RT.state.targetName
+  end,
+  version = function()
+    return RT.GetAddonVersion()
   end,
   latest = function()
     return (RT.GetAvailableUpdate())
@@ -66,13 +69,13 @@ local function Resolve(text, plain)
 end
 
 local function ParseLine(line)
-  local target, rest = string.match(line, "^@(%a+) (.+)$")
+  local link, text = string.match(line, "^@(%a+) (.+)$")
 
-  if target then
-    return "link", rest, target
+  if link then
+    return "link", text, link
   end
 
-  target, rest = string.match(line, "^%[(%a+)%] (.+)$")
+  local target, rest = string.match(line, "^%[(%a+)%] (.+)$")
 
   if target then
     return "button", rest, target
@@ -158,8 +161,4 @@ end
 
 function RT.ShowAddonHelp()
   RT.ShowSettings("help")
-end
-
-function RT.HelpSections()
-  return SECTIONS
 end

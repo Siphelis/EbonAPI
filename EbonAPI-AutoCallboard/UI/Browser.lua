@@ -13,7 +13,7 @@ local PANEL_BOTTOM = 6
 local PANEL_INSET = 6
 local SCROLL_INSET = 5
 local SCROLL_ROOM = 10
-local ROW_GAP = 2
+local ROW_GAP = RT.ROW_GAP
 local VISIBLE_ROWS = 10
 local ANIMATION_SECONDS = 0.3
 

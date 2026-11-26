@@ -1,7 +1,6 @@
 local _, ns = ...
 
 ns.api:Problems("EB", {
-  ["REROLL.NO_ORB_SERVICE"] = { class = "refus" },
   ["REROLL.NONE_FORGETTABLE"] = { class = "refus" },
   ["REROLL.CHARGES_UNKNOWN"] = { class = "refus" },
   ["REROLL.NOT_ENOUGH_ORBS"] = { class = "refus" },
@@ -13,7 +12,6 @@ ns.api:Problems("EB", {
   ["REROLL.WENT_PERMANENT"] = { class = "partiel" },
   ["REROLL.SPEND_SHORT_ORBS"] = { class = "partiel" },
   ["HUNT.NO_ORBS_LEFT"] = { class = "partiel" },
-  ["HUNT.NO_ORB_HOOK"] = { class = "panne" },
   ["HUNT.NO_PERK_SYSTEM"] = { class = "panne" },
   ["WISHLIST.NO_DATABASE"] = { class = "panne" },
   ["WISHLIST.NO_JOURNAL"] = { class = "panne" },
@@ -21,7 +19,6 @@ ns.api:Problems("EB", {
 
 EbonAPI.Locale.register(ns.NAME, {
   enUS = {
-    PROBLEM_REROLL_NO_ORB_SERVICE = "the reroll is unavailable: Project Ebonhold's orb service was not found, so no orb can be spent",
     PROBLEM_REROLL_NONE_FORGETTABLE = "no card of this draw can be forgotten: each one is wanted, permanent or already at its maximum stacks; nothing was taken and no orb was spent",
     PROBLEM_REROLL_CHARGES_UNKNOWN = "your Orb count has not reached the game yet, so the cost of a draw cannot be checked; wait a moment and try again",
     PROBLEM_REROLL_NOT_ENOUGH_ORBS = "a draw costs {cost} orbs and you hold {charges}; nothing was taken and no orb was spent",
@@ -33,13 +30,11 @@ EbonAPI.Locale.register(ns.NAME, {
     PROBLEM_REROLL_WENT_PERMANENT = "{echo} came back permanent, so it cannot be forgotten: no orb was spent and the Echo stays with you",
     PROBLEM_REROLL_SPEND_SHORT_ORBS = "you now hold {charges} orbs but the second step of the reroll needs {cost}: no orb was spent and {echo} stays with you",
     PROBLEM_HUNT_NO_ORBS_LEFT = "the hunt stopped after {spent} orbs spent: you hold {charges} orbs and a draw costs {cost}",
-    PROBLEM_HUNT_NO_ORB_HOOK = "the orb service of Project Ebonhold has no ClearOffer function, so EbonBuilds cannot see when a pick is consumed: every reroll ends in a timeout and the hunt cannot work",
     PROBLEM_HUNT_NO_PERK_SYSTEM = "the perk system of Project Ebonhold was not found, so the reroll and hunt panel stays hidden",
     PROBLEM_WISHLIST_NO_DATABASE = "the Echo database of Project Ebonhold is unavailable, so every Echo counts as common quality: a wanted Echo with a rarity floor never matches and a hunt would spend orbs without finding it",
     PROBLEM_WISHLIST_NO_JOURNAL = "the Echo journal of Project Ebonhold was not found, so Echoes cannot be marked for a hunt",
   },
   frFR = {
-    PROBLEM_REROLL_NO_ORB_SERVICE = "la relance est indisponible : le service d'orbes de Project Ebonhold est introuvable, aucune orbe ne peut être dépensée",
     PROBLEM_REROLL_NONE_FORGETTABLE = "aucune carte de ce tirage ne peut être oubliée : chacune est voulue, permanente ou déjà à son maximum de cumuls ; rien n'a été pris et aucune orbe n'a été dépensée",
     PROBLEM_REROLL_CHARGES_UNKNOWN = "votre nombre d'Orbes n'est pas encore arrivé dans le jeu, le coût d'un tirage ne peut donc pas être vérifié ; patientez un instant et réessayez",
     PROBLEM_REROLL_NOT_ENOUGH_ORBS = "un tirage coûte {cost} orbes et vous en avez {charges} ; rien n'a été pris et aucune orbe n'a été dépensée",
@@ -51,13 +46,11 @@ EbonAPI.Locale.register(ns.NAME, {
     PROBLEM_REROLL_WENT_PERMANENT = "{echo} est revenu permanent, il ne peut donc pas être oublié : aucune orbe n'a été dépensée et l'Écho reste à vous",
     PROBLEM_REROLL_SPEND_SHORT_ORBS = "vous avez maintenant {charges} orbes mais la seconde étape de la relance en demande {cost} : aucune orbe n'a été dépensée et {echo} reste à vous",
     PROBLEM_HUNT_NO_ORBS_LEFT = "la chasse s'est arrêtée après {spent} orbes dépensées : vous avez {charges} orbes et un tirage coûte {cost}",
-    PROBLEM_HUNT_NO_ORB_HOOK = "le service d'orbes de Project Ebonhold n'a pas de fonction ClearOffer, EbonBuilds ne voit donc pas quand un choix est consommé : chaque relance finit par un délai dépassé et la chasse ne peut pas fonctionner",
     PROBLEM_HUNT_NO_PERK_SYSTEM = "le système de perks de Project Ebonhold est introuvable, le panneau de relance et de chasse reste caché",
     PROBLEM_WISHLIST_NO_DATABASE = "la base des Échos de Project Ebonhold est indisponible, tous les Échos comptent donc comme de qualité commune : un Écho voulu avec une rareté minimale ne correspond jamais et une chasse dépenserait des orbes sans le trouver",
     PROBLEM_WISHLIST_NO_JOURNAL = "le journal des Échos de Project Ebonhold est introuvable, il est donc impossible de marquer des Échos pour une chasse",
   },
   deDE = {
-    PROBLEM_REROLL_NO_ORB_SERVICE = "der Reroll ist nicht verfügbar: der Kugeldienst von Project Ebonhold wurde nicht gefunden, es kann keine Kugel ausgegeben werden",
     PROBLEM_REROLL_NONE_FORGETTABLE = "keine Karte dieser Ziehung kann vergessen werden: jede ist gewünscht, permanent oder schon auf ihrer maximalen Stapelzahl; nichts wurde genommen und keine Kugel ausgegeben",
     PROBLEM_REROLL_CHARGES_UNKNOWN = "die Zahl Ihrer Kugeln ist noch nicht im Spiel angekommen, die Kosten einer Ziehung lassen sich daher nicht prüfen; warten Sie kurz und versuchen Sie es erneut",
     PROBLEM_REROLL_NOT_ENOUGH_ORBS = "eine Ziehung kostet {cost} Kugeln und Sie haben {charges}; nichts wurde genommen und keine Kugel ausgegeben",
@@ -69,13 +62,11 @@ EbonAPI.Locale.register(ns.NAME, {
     PROBLEM_REROLL_WENT_PERMANENT = "{echo} kam permanent zurück und kann daher nicht vergessen werden: keine Kugel wurde ausgegeben und das Echo gehört Ihnen",
     PROBLEM_REROLL_SPEND_SHORT_ORBS = "jetzt haben Sie {charges} Kugeln, der zweite Schritt des Rerolls braucht aber {cost}: keine Kugel wurde ausgegeben und {echo} gehört Ihnen",
     PROBLEM_HUNT_NO_ORBS_LEFT = "die Jagd endete nach {spent} ausgegebenen Kugeln: Sie haben {charges} Kugeln und eine Ziehung kostet {cost}",
-    PROBLEM_HUNT_NO_ORB_HOOK = "der Kugeldienst von Project Ebonhold hat keine Funktion ClearOffer, EbonBuilds sieht daher nicht, wann eine Wahl verbraucht wird: jeder Reroll endet in einer Zeitüberschreitung und die Jagd kann nicht funktionieren",
     PROBLEM_HUNT_NO_PERK_SYSTEM = "das Perk-System von Project Ebonhold wurde nicht gefunden, das Reroll- und Jagd-Panel bleibt verborgen",
     PROBLEM_WISHLIST_NO_DATABASE = "die Echo-Datenbank von Project Ebonhold ist nicht verfügbar, daher zählt jedes Echo als gewöhnliche Qualität: ein gewünschtes Echo mit Mindestseltenheit passt nie und eine Jagd würde Kugeln ausgeben, ohne es zu finden",
     PROBLEM_WISHLIST_NO_JOURNAL = "das Echo-Journal von Project Ebonhold wurde nicht gefunden, daher lassen sich keine Echos für eine Jagd markieren",
   },
   esES = {
-    PROBLEM_REROLL_NO_ORB_SERVICE = "la repetición no está disponible: no se encontró el servicio de orbes de Project Ebonhold, así que no se puede gastar ningún orbe",
     PROBLEM_REROLL_NONE_FORGETTABLE = "ninguna carta de esta tirada se puede olvidar: todas están deseadas, son permanentes o ya están en su máximo de acumulaciones; no se tomó nada y no se gastó ningún orbe",
     PROBLEM_REROLL_CHARGES_UNKNOWN = "su cantidad de Orbes aún no ha llegado al juego, así que no se puede comprobar el coste de una tirada; espere un momento e inténtelo de nuevo",
     PROBLEM_REROLL_NOT_ENOUGH_ORBS = "una tirada cuesta {cost} orbes y usted tiene {charges}; no se tomó nada y no se gastó ningún orbe",
@@ -87,7 +78,6 @@ EbonAPI.Locale.register(ns.NAME, {
     PROBLEM_REROLL_WENT_PERMANENT = "{echo} volvió permanente, así que no se puede olvidar: no se gastó ningún orbe y el Eco se queda con usted",
     PROBLEM_REROLL_SPEND_SHORT_ORBS = "ahora tiene {charges} orbes pero el segundo paso de la repetición necesita {cost}: no se gastó ningún orbe y {echo} se queda con usted",
     PROBLEM_HUNT_NO_ORBS_LEFT = "la caza se detuvo tras gastar {spent} orbes: usted tiene {charges} orbes y una tirada cuesta {cost}",
-    PROBLEM_HUNT_NO_ORB_HOOK = "el servicio de orbes de Project Ebonhold no tiene la función ClearOffer, así que EbonBuilds no ve cuándo se consume una elección: cada repetición acaba en un tiempo agotado y la caza no puede funcionar",
     PROBLEM_HUNT_NO_PERK_SYSTEM = "no se encontró el sistema de perks de Project Ebonhold, así que el panel de repetición y caza permanece oculto",
     PROBLEM_WISHLIST_NO_DATABASE = "la base de datos de Ecos de Project Ebonhold no está disponible, así que todos los Ecos cuentan como de calidad común: un Eco deseado con rareza mínima nunca coincide y una caza gastaría orbes sin encontrarlo",
     PROBLEM_WISHLIST_NO_JOURNAL = "no se encontró el diario de Ecos de Project Ebonhold, así que no se pueden marcar Ecos para una caza",

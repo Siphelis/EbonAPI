@@ -42,8 +42,6 @@ local function Repaired(field, reason)
   api:Repaired("SELECTION.REPAIRED", { field = field, reason = reason, lost = 1 })
 end
 
-local difficultyReported = false
-
 function Core.copyCharacterProfile(profile)
   local source = type(profile) == "table" and profile or {}
   local nextNumber = tonumber(source.nextSelectionNumber) or 1
@@ -80,16 +78,20 @@ Core.MIN_DIFFICULTY = 1
 Core.MAX_DIFFICULTY = 6
 
 function Core.maxDifficulty()
-  local service = EbonAPI.Ebonhold.Hardmode()
-  local tiers = service and service.HARDMODE_REWARDS
-  local highest = 0
+  local ladder = EbonAPI.Ebonhold.Service("TormentTierData")
+  local highest = ladder and #(ladder) or 0
 
-  if type(tiers) == "table" then
-    for tier in pairs(tiers) do
-      tier = tonumber(tier)
+  if highest == 0 then
+    local service = EbonAPI.Ebonhold.Service("HardmodeService")
+    local tiers = service and service.HARDMODE_REWARDS
 
-      if tier and tier > highest then
-        highest = math.floor(tier)
+    if type(tiers) == "table" then
+      for tier in pairs(tiers) do
+        tier = tonumber(tier)
+
+        if tier and tier > highest then
+          highest = math.floor(tier)
+        end
       end
     end
   end
@@ -101,9 +103,10 @@ function Core.maxDifficulty()
   return highest
 end
 
+local difficultyReported = false
+
 function Core.sanitizeDifficulty(value)
   local given = value
-
   value = tonumber(value)
 
   if value then
@@ -124,6 +127,32 @@ function Core.sanitizeDifficulty(value)
   return nil
 end
 
+local ROMAN_STEPS = {
+  { 1000, "M" }, { 900, "CM" }, { 500, "D" }, { 400, "CD" }, { 100, "C" }, { 90, "XC" },
+  { 50, "L" }, { 40, "XL" }, { 10, "X" }, { 9, "IX" }, { 5, "V" }, { 4, "IV" }, { 1, "I" },
+}
+
+function Core.romanNumeral(value)
+  value = math.floor(tonumber(value) or 0)
+
+  if value <= 0 then
+    return tostring(value)
+  end
+
+  local parts = {}
+
+  for i = 1, #(ROMAN_STEPS) do
+    local step = ROMAN_STEPS[i]
+
+    while value >= step[1] do
+      parts[#(parts) + 1] = step[2]
+      value = value - step[1]
+    end
+  end
+
+  return table.concat(parts)
+end
+
 function Core.difficultyLabel(tier)
   tier = Core.sanitizeDifficulty(tier)
 
@@ -131,7 +160,11 @@ function Core.difficultyLabel(tier)
     return L.DIFFICULTY_NONE
   end
 
-  return L.DIFFICULTY_LABELS[tier] or string.format(L.DIFFICULTY_NUMBERED, tostring(tier))
+  if tier == Core.MIN_DIFFICULTY then
+    return L.DIFFICULTY_NORMAL
+  end
+
+  return string.format(L.DIFFICULTY_TORMENT, Core.romanNumeral(tier - Core.MIN_DIFFICULTY))
 end
 
 Core.MAX_SAVED_SELECTIONS = 50
@@ -156,12 +189,12 @@ function Core.copySelection(selection)
   }
 end
 
-local function copyEach(list, copier)
+function Core.copySelectionList(list)
   local copy = {}
 
   if type(list) == "table" then
     for i = 1, #(list) do
-      local entry = copier(list[i])
+      local entry = Core.copySelection(list[i])
 
       if entry then
         table.insert(copy, entry)
@@ -170,10 +203,6 @@ local function copyEach(list, copier)
   end
 
   return copy
-end
-
-function Core.copySelectionList(list)
-  return copyEach(list, Core.copySelection)
 end
 
 function Core.sanitizeSelectionName(name, fallback)
@@ -297,7 +326,19 @@ function Core.copyRouteQuestRef(entry)
 end
 
 local function copyRouteQuestRefs(list)
-  return copyEach(list, Core.copyRouteQuestRef)
+  local copy = {}
+
+  if type(list) == "table" then
+    for i = 1, #(list) do
+      local entry = Core.copyRouteQuestRef(list[i])
+
+      if entry then
+        table.insert(copy, entry)
+      end
+    end
+  end
+
+  return copy
 end
 
 function Core.copyRouteStep(step)
@@ -413,7 +454,19 @@ function Core.copyRoute(route)
 end
 
 function Core.copyRouteList(list)
-  return copyEach(list, Core.copyRoute)
+  local copy = {}
+
+  if type(list) == "table" then
+    for i = 1, #(list) do
+      local entry = Core.copyRoute(list[i])
+
+      if entry then
+        table.insert(copy, entry)
+      end
+    end
+  end
+
+  return copy
 end
 
 function Core.copyAccountProfile(profile)
@@ -494,7 +547,7 @@ function Core.copyCharacterState(entry)
     openRouteCategory = tonumber(source.openRouteCategory),
     openLibraryCategory = tonumber(source.openLibraryCategory),
     echoBar = Core.copyEchoBar(source.echoBar),
-    toolbar = Core.copyToolbar(source.toolbar),
+    mainBar = Core.copyToolbar(source.mainBar),
     routeDraft = Core.copyRouteSteps(source.routeDraft),
     activeRouteId = tonumber(source.activeRouteId),
     routeWindowOpen = source.routeWindowOpen and true or false,
@@ -573,15 +626,35 @@ function Core.selectionHasQuest(selection, key)
   return type(selection.desiredQuests) == "table" and selection.desiredQuests[key] == true
 end
 
+function Core.sameDesiredMap(a, b)
+  a, b = type(a) == "table" and a or {}, type(b) == "table" and b or {}
+
+  for key, value in pairs(a) do
+    if value == true and b[key] ~= true then
+      return false
+    end
+  end
+
+  for key, value in pairs(b) do
+    if value == true and a[key] ~= true then
+      return false
+    end
+  end
+
+  return true
+end
+
 function Core.setQuestInSelection(profile, id, key, wanted)
   if type(key) ~= "string" or key == "" then
-    return profile, nil, Core.makeProblem("SELECTION.QUEST_KEY_INVALID", { key = tostring(key) })
+    Core.reportProblem("SELECTION.QUEST_KEY_INVALID", { key = tostring(key) })
+
+    return profile, false
   end
 
   local selection = Core.findSelection(profile, id)
 
   if not selection then
-    return profile, nil, Core.makeProblem("SELECTION.NOT_FOUND", { selection = tostring(id) })
+    return profile, false
   end
 
   local desired = Core.copyDesiredMap(selection.desiredQuests)

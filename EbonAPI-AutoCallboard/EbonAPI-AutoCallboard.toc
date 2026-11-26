@@ -1,9 +1,10 @@
 ## Interface: 30300
 ## Title: EbonAPI - |cffb048f8AutoCallboard|r
+## X-Part-Of: EbonAPI
 ## Notes: Automates Callboard rolling and selection for wanted quests. Save and switch between multiple quest selections.
 ## Author: Disarray (fork maintained by Siphelis)
 ## Dependencies: EbonAPI
-## OptionalDeps: AutoCallboardPresets
+## OptionalDeps: ProjectEbonhold, AutoCallboardPresets
 ## LoadOnDemand: 1
 ## X-EbonAPI-Module: 1
 ## X-EbonAPI-Name: AutoCallboard
@@ -28,22 +29,24 @@ Core\RouteLibrary.lua
 Core\ArrowSkins.lua
 Core\QuestImportExport.lua
 Core\InstanceMatcher.lua
+Core\Board.lua
 UI\Skin.lua
 Core\Util.lua
 Core\State.lua
 Core\Migration.lua
 Automation\Instance.lua
 Automation\Callboard.lua
+Automation\Board.lua
 Features\Share.lua
-Automation\Roll.lua
+Automation\Accept.lua
 UI\Help.lua
 Automation\Difficulty.lua
+Automation\Facade.lua
 Features\Builds.lua
 UI\Browser.lua
 UI\Lists.lua
-UI\QuestData.lua
-Language\Switcher.lua
-UI\QuestWindow.lua
+UI\BoardWindow.lua
+UI\CollectionsTab.lua
 UI\ControlFrame.lua
 UI\Settings.lua
 AutoCallboard.lua
@@ -61,6 +64,7 @@ Problems\Windows.lua
 Features\Eternals.lua
 Features\TravelData.lua
 Features\Travel.lua
+Features\Portals.lua
 Features\RouteRecorder.lua
 Features\RoutePlayer.lua
 Features\RouteShare.lua

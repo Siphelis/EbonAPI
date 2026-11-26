@@ -9,7 +9,6 @@ EbonAPI.QueueCells = EbonAPI.QueueCells or {}
 -- widgets.queue.counter.size, widgets.synthesis.fill / border (the card form of the frame).
 
 local QueueCells = EbonAPI.QueueCells
-local Skins = EbonAPI.Skins
 local Palette = EbonAPI.Palette
 local Parameters = EbonAPI.Parameters
 local Bricks = EbonAPI.Bricks
@@ -37,40 +36,17 @@ local LEGEND_SPACE = 14
 
 QueueCells.WIDTH = 158
 
-local function word(key)
-  local L = EbonAPI.L
+local word = EbonAPI.QueueParts.word
 
-  return (L and L[key]) or key
-end
-
-local function value(key, fallback)
-  local ok, found = pcall(Skins.value, key)
-  if ok and found ~= nil then
-    return found
-  end
-
-  return fallback
-end
-
-local function num(n)
-  n = tonumber(n)
-  if not n or n ~= n or n == math.huge or n == -math.huge then
-    return 0
-  end
-
-  return n
-end
+local value = EbonAPI.QueueParts.value
+local num = EbonAPI.QueueParts.num
 
 local function tint(target, key, alpha)
   local color = THEME[key] or THEME.text
   target:SetVertexColor(color[1], color[2], color[3], alpha or 1)
 end
 
-local function hue(key)
-  local color = THEME[key] or THEME.text
-
-  return color[1] + color[2] * 1000 + color[3] * 1000000
-end
+local hue = EbonAPI.QueueParts.hue
 
 local function look()
   local shape = value("widgets.cells.shape")

@@ -4,19 +4,17 @@ local L = NS.L
 local Data = {}
 NS.Data = Data
 
-local SCHEMA_VERSION = 1
+local SCHEMA_VERSION = 2
 
 local function IsTable(value)
     return type(value) == "table"
 end
 
 local function Migrate(db)
-    for _, save in pairs(db.saves) do
-        if IsTable(save) then
-            save.nodeChoices = nil
-            save.updatedAt = nil
-        end
-    end
+    db.saves = {}
+    db.groups = {}
+    db.imported = {}
+    db.nextId = 1
     db.version = SCHEMA_VERSION
 end
 
@@ -133,24 +131,6 @@ local function CreateGroupIn(db, name)
     return id
 end
 
-local function CopyRanks(source)
-    local copy = {}
-    for nodeId, rank in pairs(source) do
-        if type(rank) == "number" and rank > 0 then copy[nodeId] = rank end
-    end
-    return copy
-end
-
-local function SameRanks(a, b)
-    for nodeId, rank in pairs(a) do
-        if b[nodeId] ~= rank then return false end
-    end
-    for nodeId in pairs(b) do
-        if a[nodeId] == nil then return false end
-    end
-    return true
-end
-
 local function FindGroupByName(db, name)
     for id, group in pairs(db.groups) do
         if group.name == name then return id end
@@ -173,95 +153,12 @@ local function UniqueSaveName(db, groupId, baseName, charName)
     return candidate
 end
 
-local function LegacyGroupIds(legacy)
-    local groups = IsTable(legacy.groups) and legacy.groups or {}
-    local ids = {}
-    for id, group in pairs(groups) do
-        if IsTable(group) and type(group.name) == "string" then ids[#ids + 1] = id end
-    end
-    table.sort(ids, function(a, b)
-        local orderA = tonumber(groups[a].order) or 0
-        local orderB = tonumber(groups[b].order) or 0
-        if orderA == orderB then return a < b end
-        return orderA < orderB
-    end)
-    return ids
-end
-
-local function LegacySaveIds(legacy)
-    local saves = IsTable(legacy.saves) and legacy.saves or {}
-    local ids = {}
-    for id, save in pairs(saves) do
-        if IsTable(save) and type(save.name) == "string" then ids[#ids + 1] = id end
-    end
-    table.sort(ids, function(a, b)
-        local nameA, nameB = saves[a].name, saves[b].name
-        if nameA == nameB then return a < b end
-        return nameA < nameB
-    end)
-    return ids
-end
-
-local function CharacterKey()
-    local name = UnitName("player")
-    if not name or name == "" or name == UNKNOWNOBJECT then return nil end
-    return name .. "-" .. (GetRealmName() or ""), name
-end
-
-local function MigrateCharacterDB(db)
-    local legacy = EbonAPISkillTreeAutoLoadDB
-    if not IsTable(legacy) then return end
-
-    local key, charName = CharacterKey()
-    if not key or db.imported[key] then return end
-
-    local groupIds = {}
-    for _, oldId in ipairs(LegacyGroupIds(legacy)) do
-        local name = legacy.groups[oldId].name
-        groupIds[oldId] = FindGroupByName(db, name) or CreateGroupIn(db, name)
-    end
-
-    local imported, merged = 0, 0
-    for _, oldId in ipairs(LegacySaveIds(legacy)) do
-        local save = legacy.saves[oldId]
-        local ranks = CopyRanks(IsTable(save.nodeRanks) and save.nodeRanks or {})
-        local groupId = save.groupId and groupIds[save.groupId] or nil
-        local twinId = FindSaveInGroup(db, groupId, save.name)
-
-        if twinId and SameRanks(db.saves[twinId].nodeRanks, ranks) then
-            merged = merged + 1
-        else
-            local name = save.name
-            if twinId then name = UniqueSaveName(db, groupId, save.name, charName) end
-            db.saves[NewId(db)] = {
-                name = name,
-                groupId = groupId,
-                nodeRanks = ranks,
-            }
-            imported = imported + 1
-        end
-    end
-
-    if not db.settings.adoptedFromCharacter then
-        if IsTable(legacy.settings) and legacy.settings.panelSide == "LEFT" then
-            db.settings.panelSide = "LEFT"
-        end
-        db.settings.adoptedFromCharacter = true
-    end
-
-    db.imported[key] = true
-
-    if imported > 0 or merged > 0 then
-        NS.api:Notify(string.format(L.MSG_MIGRATED, charName, imported, merged))
-    end
-end
-
 function Data.Init()
     if not IsTable(EbonAPISkillTreeAutoLoadAccountDB) then EbonAPISkillTreeAutoLoadAccountDB = {} end
     local db = EnsureShape(EbonAPISkillTreeAutoLoadAccountDB)
 
+    EbonAPISkillTreeAutoLoadDB = nil
     Sanitize(db)
-    MigrateCharacterDB(db)
 
     if db.settings.panelSide ~= "LEFT" then db.settings.panelSide = "RIGHT" end
 
@@ -351,6 +248,18 @@ function Data.SetSaveProgressive(saveId, enabled)
     return true
 end
 
+-- Mode d'activation mémorisé par preset (réglage du joueur) ; défaut = sauvegarde neuve (non progressif).
+function Data.GetPresetMode(presetId)
+    local modes = DB().settings.presetModes
+    return IsTable(modes) and modes[presetId] == true
+end
+
+function Data.SetPresetMode(presetId, enabled)
+    local settings = DB().settings
+    if not IsTable(settings.presetModes) then settings.presetModes = {} end
+    settings.presetModes[presetId] = enabled and true or nil
+end
+
 function Data.MoveSaveToGroup(saveId, groupId)
     local save = DB().saves[saveId]
     if not save then return false end
@@ -393,14 +302,6 @@ function Data.IsCompact()
     return DB().settings.compact == true
 end
 
-function Data.SetPanelCollapsed(collapsed)
-    DB().settings.collapsed = collapsed and true or nil
-end
-
-function Data.IsPanelCollapsed()
-    return DB().settings.collapsed == true
-end
-
 function Data.SetPreviewCamera(enabled)
     DB().settings.noPreviewCamera = (not enabled) and true or nil
 end
@@ -409,10 +310,18 @@ function Data.IsPreviewCamera()
     return DB().settings.noPreviewCamera ~= true
 end
 
+function Data.SetAutoAdd(enabled)
+    DB().settings.autoAdd = enabled and true or nil
+end
 
-local VIEWS = { list = true, grid = true, gauge = true }
-local DETAILS = { inline = true, dock = true }
-local SORTS = { name = true, pct = true, cost = true }
+function Data.IsAutoAdd()
+    return DB().settings.autoAdd == true
+end
+
+
+local VIEWS = EbonAPI.SavesData.VIEWS
+local DETAILS = EbonAPI.SavesData.DETAILS
+local SORTS = EbonAPI.SavesData.SORTS
 local MIN_WIDTH, MAX_WIDTH = 200, 280
 
 function Data.SetView(view)

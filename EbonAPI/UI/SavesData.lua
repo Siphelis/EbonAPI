@@ -1,8 +1,8 @@
 EbonAPI = EbonAPI or {}
 EbonAPI.SavesData = {}
 
--- Pure logic of the "saves" widget, without any frame: model check, text folding, search, natural order,
--- filter / sort / groups / budget cursor (arrange), neighbour for the keyboard, short texts.
+-- Pure logic of the "saves" widget, without any frame: model check, text folding, natural order,
+-- sort / groups / budget cursor (arrange), neighbour for the keyboard, short texts.
 
 local SavesData = EbonAPI.SavesData
 
@@ -14,6 +14,11 @@ local sort = table.sort
 
 local STATES = { active = true, ready = true, step = true, short = true, blocked = true, error = true }
 local SORTS = { name = true, pct = true, cost = true }
+local VIEWS = { list = true, grid = true, gauge = true }
+local DETAILS = { inline = true, dock = true }
+SavesData.SORTS = SORTS
+SavesData.VIEWS = VIEWS
+SavesData.DETAILS = DETAILS
 
 -- Latin accents (two-byte UTF-8 sequences starting with 0xC3) folded to plain letters.
 local FOLD = {}
@@ -49,25 +54,6 @@ function SavesData.fold(text)
 end
 
 local fold = SavesData.fold
-
--- Every word of the query must be a substring of "name group", accents and case ignored.
-function SavesData.matches(item, groupName, query)
-  query = fold(query or "")
-
-  if not find(query, "%S") then
-    return true
-  end
-
-  local hay = fold((item.name or "") .. " " .. (groupName or ""))
-
-  for word in query:gmatch("%S+") do
-    if not find(hay, word, 1, true) then
-      return false
-    end
-  end
-
-  return true
-end
 
 -- Splits a text into chunks of digits and of non digits.
 local function chunks(text)
@@ -153,10 +139,6 @@ function SavesData.shortName(name)
   end))
 end
 
-function SavesData.counter(shown, total)
-  return format("%d/%d", shown or 0, total or 0)
-end
-
 -- Returns true, or false and a message.
 function SavesData.check(model)
   if type(model) ~= "table" or type(model.groups) ~= "table" then
@@ -168,6 +150,10 @@ function SavesData.check(model)
   for g, group in ipairs(model.groups) do
     if type(group) ~= "table" or type(group.items) ~= "table" then
       return false, format("group %d: items must be a table", g)
+    end
+
+    if group.readonly ~= nil and type(group.readonly) ~= "boolean" then
+      return false, format("group %d: readonly must be a boolean", g)
     end
 
     for _, item in ipairs(group.items) do
@@ -191,18 +177,30 @@ function SavesData.check(model)
           return false, format("item %s: %s must be a number from 0 to 1, got %s", tostring(id), field, tostring(value))
         end
       end
+
+      if item.readonly ~= nil and type(item.readonly) ~= "boolean" then
+        return false, format("item %s: readonly must be a boolean", tostring(id))
+      elseif item.currency ~= nil and type(item.currency) ~= "string" then
+        return false, format("item %s: currency must be a string", tostring(id))
+      end
+
+      for _, field in ipairs({ "dot", "currencyDot" }) do
+        local value = item[field]
+
+        if value ~= nil and (type(value) ~= "string" or not value:match("^%x%x%x%x%x%x$")) then
+          return false, format("item %s: %s must be a RRGGBB string, got %s", tostring(id), field, tostring(value))
+        end
+      end
     end
   end
 
   return true
 end
 
--- Filter, sort, groups, fold and budget cursor. See the contract, section 7.
+-- Sort, groups, fold and budget cursor. See the contract, section 7.
 function SavesData.arrange(model, state)
   state = state or {}
 
-  local query = state.query or ""
-  local searching = find(fold(query), "%S") ~= nil
   local mode = SORTS[state.sort] and state.sort or "name"
   local list, total = {}, 0
 
@@ -210,9 +208,7 @@ function SavesData.arrange(model, state)
     for _, item in ipairs(group.items or {}) do
       total = total + 1
 
-      if SavesData.matches(item, group.name, query) then
-        list[#list + 1] = { item = item, group = group, rank = total }
-      end
+      list[#list + 1] = { item = item, group = group, rank = total }
     end
   end
 
@@ -250,7 +246,7 @@ function SavesData.arrange(model, state)
     local byGroup = {}
 
     for _, group in ipairs(model.groups or {}) do
-      local block = { group = { id = group.id, name = group.name }, items = {}, shut = false }
+      local block = { group = { id = group.id, name = group.name, readonly = group.readonly }, items = {}, shut = false }
 
       byGroup[group] = block
       blocks[#blocks + 1] = block
@@ -263,10 +259,22 @@ function SavesData.arrange(model, state)
     end
 
     local kept = {}
+    local openFound = false
 
     for _, block in ipairs(blocks) do
-      if #block.items > 0 or (not searching and block.group.id ~= "") then
-        block.shut = (not searching and state.fold and state.fold[block.group.id]) and true or false
+      if #block.items > 0 or block.group.id ~= "" then
+        block.shut = (state.fold and state.fold[block.group.id]) and true or false
+
+        if not block.shut then
+          if openFound then
+            state.fold = state.fold or {}
+            state.fold[block.group.id] = true
+            block.shut = true
+          else
+            openFound = true
+          end
+        end
+
         kept[#kept + 1] = block
       end
     end

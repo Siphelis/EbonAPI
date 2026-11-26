@@ -5,8 +5,6 @@ NS.api:Problems("STAL", {
   ["ACTIVATION.FAILED"] = { class = "echec", key = "save" },
   ["ASHES.UNREADABLE"] = { class = "panne" },
   ["BALANCE.NOT_RECEIVED"] = { class = "panne" },
-  ["BALANCE.NOT_REFRESHED"] = { class = "partiel" },
-  ["BALANCE.INCONSISTENT"] = { class = "panne" },
   ["LOADOUT.NO_ANSWER"] = { class = "panne" },
   ["LOADOUT.REQUEST_FAILED"] = { class = "echec" },
   ["LOADOUT.NOT_FOUND"] = { class = "panne" },

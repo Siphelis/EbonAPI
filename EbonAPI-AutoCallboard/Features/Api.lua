@@ -6,50 +6,40 @@ AutoCallboardAPI = API
 
 API.version = 1
 
-local function InstanceQuestType(questType)
-  questType = Core.sanitizeQuestType(questType)
-
-  if questType == 2 or questType == 3 then
-    return questType
-  end
-
-  return nil
-end
-
 function API.GetInstanceQuest(areaId, questType)
-  local givenArea, givenType = areaId, questType
+  local target = RT.BuildRequestedInstanceTarget(areaId, questType)
+  local known = RT.state and RT.state.knownQuests
 
-  areaId = math.floor(tonumber(areaId) or 0)
-  questType = InstanceQuestType(questType)
-
-  if areaId <= 0 or not questType then
-    RT.api:Reject("API.BAD_ARGUMENT", { areaId = tostring(givenArea), questType = tostring(givenType) })
+  if not target then
+    RT.api:Reject("API.BAD_ARGUMENT", { areaId = tostring(areaId), questType = tostring(questType) })
 
     return nil
   end
 
-  local known = RT.state and RT.state.knownQuests
   if type(known) ~= "table" then
     return nil
   end
 
-  local best, bestSeen
+  local found
 
   for i = 1, #(known) do
     local quest = known[i]
-    local zoneOrSort, knownType = Core.objectiveMetadata(quest)
-    local seen = tonumber(quest.seen) or 0
 
-    if zoneOrSort == areaId and knownType == questType and (not best or seen > bestSeen) then
-      best, bestSeen = quest, seen
+    if Core.questMatchesInstanceTarget(quest, target) then
+      if RT.GetBoardQuest(quest.questId) then
+        found = quest
+        break
+      end
+
+      found = found or quest
     end
   end
 
-  if not best then
+  if not found then
     return nil
   end
 
-  return tonumber(best.questId) or 0, Core.questTitle(best)
+  return tonumber(found.questId) or 0, Core.questTitle(found)
 end
 
 function API.SetRequestedInstance(areaId, questType, name)
@@ -61,11 +51,11 @@ function API.ClearRequestedInstance()
 end
 
 function API.GetRequestedInstance()
-  local target = RT.requestedInstanceTarget
+  local request = RT.requestedInstance
 
-  if not target then
+  if not request then
     return nil
   end
 
-  return target.areaId, target.questType, target.name
+  return request.areaId, request.questType, request.name
 end

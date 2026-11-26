@@ -13,14 +13,8 @@ function EbonBuilds.BuildForm.OnClassChanged(fn)
     classChangeCallbacks[#classChangeCallbacks + 1] = fn
 end
 
-local CLASS_ORDER = {
-    "WARRIOR","PALADIN","HUNTER","ROGUE","PRIEST",
-    "DEATHKNIGHT","SHAMAN","MAGE","WARLOCK","DRUID",
-}
-local CLASS_TEXTURE = EbonBuilds.Const.CLASS_TEXTURE
-local QUALITY_COLOR = EbonBuilds.Const.QUALITY_HEX
-local UNKNOWN_ICON  = "Interface\\Icons\\INV_Misc_QuestionMark"
-local EMPTY_SLOT    = "Interface\\Buttons\\UI-EmptySlot"
+local UNKNOWN_ICON  = EbonBuilds.Const.UNKNOWN_ICON
+local EMPTY_SLOT    = EbonBuilds.Const.EMPTY_SLOT
 local BUILD_SLOTS   = EbonBuilds.Const.BUILD_LOCKED_SLOTS
 
 local LABEL_WIDTH  = 56
@@ -99,8 +93,7 @@ local function InstallLinkHook()
 end
 
 local function SpecEntry(i)
-    local specs = state.class and EbonBuilds.SpecData and EbonBuilds.SpecData[state.class]
-    return specs and specs[i]
+    return state.class and EbonAPI.ClientData.Spec(state.class, i)
 end
 
 local function RefreshClassSelection()
@@ -119,11 +112,11 @@ end
 
 local function BuildClassGrid(parent)
     local row = Row(parent, "FORM_CLASS", LABEL_WIDTH, CLASS_STEP - CLASS_SIZE)
-    for _, token in ipairs(CLASS_ORDER) do
-        local classToken = token
+    for _, card in ipairs(EbonAPI.ClientData.Classes()) do
+        local classToken = card.token
         local btn = W.Kit("icon", row, {
             size = CLASS_SIZE,
-            icon = function() return CLASS_ICON_TCOORDS[classToken] and CLASS_TEXTURE or UNKNOWN_ICON end,
+            icon = function() local class = EbonAPI.ClientData.Class(classToken) return class and class.texture or UNKNOWN_ICON end,
             checked = function() return state.class == classToken end,
             text = function() return EbonBuilds.ClassName(classToken) end,
             tip = function() end,
@@ -175,7 +168,7 @@ local function RefreshSlot(i)
     local id = state.locked[i]
     btn:Refresh()
     if id then
-        local data = EbonBuilds.Catalog.Entry(id)
+        local data = EbonAPI.EchoCatalog.Entry(id)
         W.SetRing(btn._ring, data and data.quality or 0)
     else
         W.SetRing(btn._ring, nil)
@@ -193,6 +186,7 @@ local function BuildLockedSlots(parent)
                 local spellId = Spell()
                 return spellId and select(3, GetSpellInfo(spellId)) or EMPTY_SLOT
             end,
+            badge = function() return EbonBuilds.Weights.SpecBadgeOfSpell(Spell()) end,
             onClick = function(_, button)
                 if button == "RightButton" then
                     state.locked[index] = nil
@@ -201,7 +195,7 @@ local function BuildLockedSlots(parent)
                 end
                 local settings = EbonBuilds.BuildForm.GetEditingSettings()
                 local banList = settings and settings.echoBanList or {}
-                local allList = EbonBuilds.Catalog.AllQualities()
+                local allList = EbonAPI.EchoCatalog.QualityList() or {}
                 local filtered = {}
                 for _, entry in ipairs(allList) do
                     if not banList[entry.spellId] then
@@ -235,7 +229,7 @@ local function BuildDescriptionField(parent, width)
         tip = InsertLinkTooltip,
         onClick = function()
             EbonBuilds.EchoPicker.Show(function(spellId, quality, name)
-                local color = QUALITY_COLOR[quality] or "ffffff"
+                local color = EbonBuilds.Const.QualityHex(quality) or "ffffff"
                 local link  = "|cff" .. color .. "|Hecho:" .. spellId .. "|h[" .. name .. "]|h|r"
                 local edit = commentsBox.edit
                 if edit:HasFocus() then

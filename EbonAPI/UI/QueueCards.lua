@@ -24,7 +24,7 @@ local lower, sort = string.lower, table.sort
 local THEME = Palette.THEME
 
 local CLASSES = 7
-local CLASS_KEY = { "success", "success", "success", "caution", "caution", "danger", "danger" }
+local CLASS_KEY = EbonAPI.QueueParts.CLASS_KEY
 local MIN_SHARE = 0.04
 local HIST_W, HIST_H = 74, 38
 local PAD, GAP = 7, 7
@@ -34,48 +34,17 @@ local SHAPES = { square = true, bevel = true, round = true, pill = true, flat = 
 local SORTS = { "waiting", "az", "max" }
 local SORT_WORD = { waiting = "QUEUEVIEW_LANES_SORT_WAITING", az = "QUEUEVIEW_LANES_SORT_AZ", max = "QUEUEVIEW_LANES_SORT_MAX" }
 
-local function word(key)
-  local L = EbonAPI.L
+local word = EbonAPI.QueueParts.word
 
-  return (L and L[key]) or key
-end
+local value = EbonAPI.QueueParts.value
 
-local function value(key, fallback)
-  local ok, found = pcall(Skins.value, key)
-  if ok and found ~= nil then
-    return found
-  end
+local num = EbonAPI.QueueParts.num
 
-  return fallback
-end
+local hue = EbonAPI.QueueStrips.hue
 
-local function num(n)
-  n = tonumber(n)
-  if not n or n ~= n or n == math.huge or n == -math.huge then
-    return 0
-  end
+local tint = EbonAPI.QueueStrips.tint
 
-  return n
-end
-
-local function hue(key)
-  local color = THEME[key] or THEME.text
-
-  return color[1] + color[2] * 1000 + color[3] * 1000000
-end
-
-local function tint(target, method, key, alpha)
-  local color = THEME[key] or THEME.text
-  target[method](target, color[1], color[2], color[3], alpha or 1)
-end
-
-local function hide_or_show(target, on)
-  if on then
-    target:Show()
-  else
-    target:Hide()
-  end
-end
+local hide_or_show = EbonAPI.QueueParts.hideOrShow
 
 local function shapeOf()
   local shape = value("widgets.cards.shape")

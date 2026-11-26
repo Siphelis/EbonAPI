@@ -1,13 +1,23 @@
-local Lib = EbonAPI.Lib
 local ADDON_NAME = ...
 local Core = AutoCallboardCore
 local L = AutoCallboardLocale
 local RT = AutoCallboardRuntime
 
 local ADDON_TITLE = "AutoCallboard"
+
 RT.ADDON_TITLE = ADDON_TITLE
+RT.REFRESH_INTERVAL = 0.05
+RT.ROW_GAP = 2
 
 local registeredSpecialFrames = {}
+
+local function Print(message)
+  RT.api:Print(message)
+end
+
+local function Error(message)
+  RT.api:Error(message)
+end
 
 local function Localized(widget, key)
   if not widget or not widget.SetText then
@@ -17,9 +27,12 @@ local function Localized(widget, key)
   return RT.api:Localized(widget, key)
 end
 
-local function GetQuestTypeName(questType)
-  questType = tonumber(questType) or 0
-  return L.QUEST_TYPE_NAMES[questType] or L.QUEST_TYPE_OTHER
+local function GetQuestCategoryName(category)
+  return L.CATEGORY_NAMES[tonumber(category) or 0] or L.CATEGORY_NAMES[Core.CATEGORY.OTHER]
+end
+
+local function GetAddonVersion()
+  return EbonAPI.version or "unknown"
 end
 
 local function LinkMethod()
@@ -46,34 +59,30 @@ local function LinkTip()
   return nil
 end
 
-local function NormalizeCopper(value)
-  value = tonumber(value) or 0
-  if value < 0 then
-    value = 0
+local function FormatNumber(value)
+  local text = tostring(math.floor(tonumber(value) or 0))
+  local out = ""
+
+  while string.len(text) > 3 do
+    out = "," .. string.sub(text, -3) .. out
+    text = string.sub(text, 1, -4)
   end
 
-  return math.floor(value)
+  return text .. out
 end
 
-local function FormatMoney(copper)
-  copper = NormalizeCopper(copper)
+local function FormatDuration(seconds)
+  seconds = math.floor(math.max(0, tonumber(seconds) or 0))
 
-  local gold = math.floor(copper / 10000)
-  local silver = math.floor((copper % 10000) / 100)
-  local coin = copper % 100
-  local parts = {}
+  local days = math.floor(seconds / 86400)
+  local clock = string.format("%02d:%02d:%02d",
+    math.floor((seconds % 86400) / 3600), math.floor((seconds % 3600) / 60), seconds % 60)
 
-  if gold > 0 then
-    table.insert(parts, tostring(gold) .. "g")
+  if days > 0 then
+    return string.format("%dd %s", days, clock)
   end
 
-  if silver > 0 or gold > 0 then
-    table.insert(parts, tostring(silver) .. "s")
-  end
-
-  table.insert(parts, tostring(coin) .. "c")
-
-  return table.concat(parts, " ")
+  return clock
 end
 
 local function SecondsRemaining(untilTime)
@@ -134,20 +143,6 @@ local function ResolveFramePath(path)
   end
 
   return current
-end
-
-local function RunFrameScript(target, scriptName)
-  if not target.GetScript then
-    return false
-  end
-
-  local script = target:GetScript(scriptName)
-  if not script then
-    return false
-  end
-
-  script(target, "LeftButton")
-  return true
 end
 
 local function CompactText(value)
@@ -248,90 +243,41 @@ local function FrameSummary(target)
 end
 
 function RT.ShowIf(frame, shown)
-  Lib.setShown(frame, shown)
+  if shown then
+    frame:Show()
+  else
+    frame:Hide()
+  end
 end
 
-local silenceDepth = 0
-local savedPlaySound, savedPlaySoundFile
+function RT.SafeCall(fn, ...)
+  if not fn then
+    return nil
+  end
 
-local function MuteSound() end
+  local ok, value = pcall(fn, ...)
+  if ok then
+    return value
+  end
 
-local function BeginSilence()
-  silenceDepth = silenceDepth + 1
+  return nil
+end
 
-  if silenceDepth > 1 then
+function RT.Log(kind, ...)
+  local api = RT.api
+  if not api:IsDebug() then
     return
   end
 
-  savedPlaySound = PlaySound
-  savedPlaySoundFile = PlaySoundFile
-  PlaySound = MuteSound
-  PlaySoundFile = MuteSound
+  local count = select("#", ...)
+  local message = count > 0 and tostring((select(1, ...))) or ""
+
+  for i = 2, count do
+    message = message .. tostring((select(i, ...)))
+  end
+
+  api:Debug(kind .. ": " .. message)
 end
-
-local function EndSilence()
-  silenceDepth = silenceDepth - 1
-
-  if silenceDepth > 0 then
-    return
-  end
-
-  silenceDepth = 0
-  PlaySound = savedPlaySound
-  PlaySoundFile = savedPlaySoundFile
-  savedPlaySound = nil
-  savedPlaySoundFile = nil
-end
-
-local function ClickNamedFrame(frameName, label)
-  local target = ResolveFramePath(frameName)
-
-  if not target then
-    return false, RT.api:Problem("UTIL.CLICK_FRAME_MISSING", { frame = tostring(frameName) })
-  end
-
-  if target.IsShown and not target:IsShown() then
-    return false, RT.api:Problem("UTIL.CLICK_FRAME_HIDDEN", { frame = tostring(frameName) })
-  end
-
-  RT.api:Trace("click", label, FrameSummary(target))
-
-  BeginSilence()
-  local clicked = RT.api:Guard("click", function()
-        if target.Click then
-          target:Click()
-          return true
-        end
-
-        if RunFrameScript(target, "OnClick") then
-          return true
-        end
-
-        if RunFrameScript(target, "OnMouseDown") then
-          RunFrameScript(target, "OnMouseUp")
-          return true
-        end
-
-        if RunFrameScript(target, "OnMouseUp") then
-          return true
-        end
-
-        return false
-    end)
-  EndSilence()
-
-  if clicked == nil then
-    return false
-  end
-
-  if not clicked then
-    return false, RT.api:Problem("UTIL.CLICK_NO_HANDLER", { frame = tostring(frameName) })
-  end
-
-  return true
-end
-
-RT.ClickNamedFrame = ClickNamedFrame
 
 function RT.SavePoint(frame, store)
   if not frame or type(store) ~= "table" then
@@ -415,13 +361,16 @@ local function NewEventRelay(dispatch)
 end
 
 RT.NewEventRelay = NewEventRelay
+RT.Print = Print
+RT.Error = Error
 RT.Localized = Localized
-RT.GetQuestTypeName = GetQuestTypeName
+RT.GetQuestCategoryName = GetQuestCategoryName
+RT.GetAddonVersion = GetAddonVersion
 RT.LinkMethod = LinkMethod
 RT.OpenLink = OpenLink
 RT.LinkTip = LinkTip
-RT.NormalizeCopper = NormalizeCopper
-RT.FormatMoney = FormatMoney
+RT.FormatNumber = FormatNumber
+RT.FormatDuration = FormatDuration
 RT.SecondsRemaining = SecondsRemaining
 RT.FormatSeconds = FormatSeconds
 RT.RegisterSpecialFrame = RegisterSpecialFrame

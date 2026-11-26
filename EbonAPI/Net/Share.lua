@@ -20,29 +20,15 @@ local random, floor, ceil = math.random, math.floor, math.ceil
 local NAME = "EbonAPI"
 local PREFIX = "EbonAPI"
 local TEXT_MAX = 32768
-local PACK_MIN = 128
-local JOIN_DELAY = 2
-local CHANGE_DELAY = 15
-local DIRECT_DELAY = 5
 local DIRECT_BUDGET = 48
 local DIRECT_WINDOW = 60
 local ANNOUNCE_HOLD = 60
-local MANUAL_COOLDOWN = 30
-local REPLY_MIN, REPLY_MAX = 1, 5
 local ROUND_INTERVAL = 120
-local PEER_TTL = 600
 local FETCH_TIMEOUT = EbonAPI.Pace and EbonAPI.Pace.LIMIT_MIN or 30
 local ACK_MAX = 120
 local FETCH_WINDOW = 8
 local FETCH_PER_PEER = 4
-local SERVE_MAX = 2
-local SERVED_KEEP = 8
-local SERVED_LIST = 3
-local NOTE_DELAY = 10
 local COHORT_MAX = 4
-local COHORT_TTL = 60
-local ASK_TTL = 60
-local RETRY_MIN, RETRY_MAX = 2, 5
 local SERVE_WINDOW = 30
 local REQUEST_COOLDOWN = 10
 local LATE_TTL = 600
@@ -59,25 +45,22 @@ local LEVEL = 3
 local OPS = { beacon = "A", line = "J", reply = "j", packets = "P" }
 local SUFFIX = ";" .. LEVEL
 local PACKETS = Keys.PACKETS
-local PART = Hash.LENGTH
-local HEX = "0123456789abcdef"
-
 Share.PREFIX = PREFIX
 Share.TEXT_MAX = TEXT_MAX
-Share.JOIN_DELAY = JOIN_DELAY
-Share.CHANGE_DELAY = CHANGE_DELAY
-Share.DIRECT_DELAY = DIRECT_DELAY
+Share.JOIN_DELAY = 2
+Share.CHANGE_DELAY = 15
+Share.DIRECT_DELAY = 5
 Share.DIRECT_BUDGET = DIRECT_BUDGET
 Share.DIRECT_WINDOW = DIRECT_WINDOW
 Share.ANNOUNCE_HOLD = ANNOUNCE_HOLD
-Share.MANUAL_COOLDOWN = MANUAL_COOLDOWN
-Share.REPLY_MAX = REPLY_MAX
+Share.MANUAL_COOLDOWN = 30
+Share.REPLY_MAX = 5
 Share.ROUND_INTERVAL = ROUND_INTERVAL
 Share.FETCH_TIMEOUT = FETCH_TIMEOUT
 Share.ACK_MAX = ACK_MAX
 Share.FETCH_WINDOW = FETCH_WINDOW
 Share.FETCH_PER_PEER = FETCH_PER_PEER
-Share.SERVE_MAX = SERVE_MAX
+Share.SERVE_MAX = 2
 Share.REQUEST_COOLDOWN = REQUEST_COOLDOWN
 Share.LATE_TTL = LATE_TTL
 Share.MUTE_BASE = MUTE_BASE
@@ -93,7 +76,6 @@ local ticking = false
 local rounding = false
 local serveUntil = nil
 local announceAt = nil
-local lastManual = nil
 local peers = {}
 local replies = {}
 local fetching = {}
@@ -114,6 +96,7 @@ local differing = {}
 local asked = {}
 local digits = {}
 local rules = {}
+local Hooks = {}
 local outbox, outOrder, outCount = {}, {}, 0
 local outAt = nil
 local lastMine, sentFrom = nil, nil
@@ -234,6 +217,16 @@ local FREE_DELAY = 10
 local FREE_TIMER = "EbonAPI:lzwfree"
 local lastUse, freeArmed
 
+local function freeNow()
+  if freeArmed then
+    freeArmed = false
+    Bus.untick(FREE_TIMER)
+  end
+
+  Lib.lzwFree()
+end
+
+do
 local function freeTick()
   local rest = FREE_DELAY - (now() - lastUse)
 
@@ -243,15 +236,6 @@ local function freeTick()
   end
 
   freeArmed = false
-  Lib.lzwFree()
-end
-
-local function freeNow()
-  if freeArmed then
-    freeArmed = false
-    Bus.untick(FREE_TIMER)
-  end
-
   Lib.lzwFree()
 end
 
@@ -280,6 +264,7 @@ function Share.get(addon, name)
   end
 
   return value, Keys.get(addon, name)
+end
 end
 
 -- The texts packed for an addon that is loaded now are unpacked once (nothing is unpacked otherwise
@@ -326,6 +311,9 @@ function Share.unpack(addon)
 
   return count
 end
+
+do
+local PACK_MIN = 128
 
 -- At PLAYER_LOGOUT, before SavedVariables are written: packs the texts (not yet packed, long enough,
 -- shorter once packed) of the addons that are not loaded. Nothing is packed during the game.
@@ -388,6 +376,7 @@ function Share.pack()
 
   return count
 end
+end
 
 -- The parts line, cut to a body budget when one is given (a channel line of the 2.1.x format).
 local function line(budget)
@@ -412,73 +401,6 @@ local function line(budget)
 end
 
 Share.line = line
-
-local function parseBeacon(body)
-  return match(body, "^([^;]*);([%w%-_]+);(%d+)$")
-end
-
-local function escape(text)
-  return (string.gsub(text, "[%c|`]", function(char)
-    return format("`%02x", string.byte(char))
-  end))
-end
-
-local function unescape(text)
-  local bad = false
-  local plain = string.gsub(text, "`(%x?%x?)", function(code)
-    if len(code) ~= 2 then
-      bad = true
-      return ""
-    end
-
-    return string.char(tonumber(code, 16))
-  end)
-
-  if bad then
-    return nil
-  end
-
-  return plain
-end
-
-local function parseLine(body)
-  local parts = {}
-
-  for addon, part in gmatch(body, "([%w_]+)=([%w%-_]+)") do
-    if len(part) == Hash.LENGTH then
-      parts[addon] = part
-    end
-  end
-
-  return parts
-end
-
-local function compare(theirs)
-  local wanted, any = {}, false
-  local addons = Keys.addons()
-  local mine = {}
-
-  for i = 1, #addons do
-    local addon = addons[i]
-
-    mine[addon] = Keys.part(addon)
-
-    if not theirs[addon] then
-      any = true
-    end
-  end
-
-  for addon, part in pairs(theirs) do
-    if mine[addon] ~= part then
-      wanted[#wanted + 1] = addon
-      any = true
-    end
-  end
-
-  sort(wanted, Hash.before)
-
-  return wanted, any
-end
 
 local function throttled(peer, kind)
   local key = peer .. ":" .. kind
@@ -505,11 +427,6 @@ local function arm()
   end
 end
 
-local function idle()
-  return announceAt == nil and outAt == nil and next(replies) == nil and next(fetching) == nil
-    and next(delayed) == nil and wFirst > wLast
-end
-
 local function busy()
   return live > 0 or wFirst <= wLast or next(delayed) ~= nil
 end
@@ -534,33 +451,6 @@ local function announce()
   return true
 end
 
-local function schedule(delay)
-  if not announceAt then
-    announceAt = now() + delay
-    arm()
-  end
-end
-
-local function windowUsed(current)
-  while winFirst <= winLast and current - winAt[winFirst] >= DIRECT_WINDOW do
-    winAt[winFirst], winLines[winFirst] = nil, nil
-    winFirst = winFirst + 1
-  end
-
-  if winFirst > winLast then
-    winFirst, winLast = 1, 0
-    return 0
-  end
-
-  local used = 0
-
-  for index = winFirst, winLast do
-    used = used + winLines[index]
-  end
-
-  return used
-end
-
 local function advance(old, new)
   if not old or not new or old == new then
     return
@@ -570,67 +460,6 @@ local function advance(old, new)
     if info.digest == old then
       info.digest = new
     end
-  end
-end
-
-local function flushOutbox()
-  local current = now()
-  local used = windowUsed(current)
-  local kept, keptCount = {}, 0
-  local blocked = false
-
-  for index = 1, outCount do
-    local key = outOrder[index]
-    local addon, name = match(key, "^([%w_]+)%.([%w_]+)$")
-    local held, state = Share.get(addon, name)
-
-    if state ~= nil and not blocked then
-      local body = key .. ":" .. state .. ":" .. escape(held or "")
-      local op = "U"
-      local lines = Channel.packets(NAME, op, body)
-
-      if not lines then
-        op, body, lines = "N", key .. ":" .. state, 1
-      end
-
-      if used + lines > DIRECT_BUDGET then
-        blocked = true
-        keptCount = keptCount + 1
-        kept[keptCount] = key
-      elseif Channel.say(NAME, op, body) then
-        outbox[key] = nil
-        used = used + lines
-        winLast = winLast + 1
-        winAt[winLast], winLines[winLast] = current, lines
-        Share.sent.direct = Share.sent.direct + lines
-        Log.trace("share", nil, op, key)
-      else
-        blocked = true
-        keptCount = keptCount + 1
-        kept[keptCount] = key
-      end
-    elseif state == nil then
-      outbox[key] = nil
-    else
-      keptCount = keptCount + 1
-      kept[keptCount] = key
-    end
-  end
-
-  for index = 1, outCount do
-    outOrder[index] = kept[index]
-  end
-
-  outCount = keptCount
-
-  if outCount == 0 then
-    outAt = nil
-    advance(sentFrom, Keys.globalDigest())
-    sentFrom = nil
-  elseif winFirst <= winLast then
-    outAt = winAt[winFirst] + DIRECT_WINDOW
-  else
-    outAt = current + 1
   end
 end
 
@@ -758,12 +587,6 @@ local function heardAnswer(peer)
   mute[peer], muteStep[peer] = nil, nil
 end
 
--- A holder that stayed silent without ever answering is asked for one value at a time until it
--- answers; the others get FETCH_PER_PEER requests in flight.
-local function mayAsk(peer)
-  return muteStep[peer] and 1 or FETCH_PER_PEER
-end
-
 local function addHolder(key, peer, state, far)
   local list = holders[key]
 
@@ -801,31 +624,6 @@ local function understands(peer)
   return (Share.peerLevel(peer) or 0) >= LEVEL
 end
 
-local function waitLine(key, seconds)
-  return "W:" .. key .. ":" .. seconds
-end
-
-local function parseWait(rest)
-  local key, seconds = match(rest, "^([%w_]+%.[%w_]+):(%d+)$")
-
-  return key, tonumber(seconds)
-end
-
--- Upper bound of the delay before the first part of a reply can leave: every
--- message already waiting in the peer queue goes out first. Nil when half of the
--- least silence of FETCH_TIMEOUT a requester gives covers it (the other half is
--- left to the request and the reply to cross), so that no notice is queued, a
--- notice costing a send slot, unless the requester could give up before the reply.
-local function replyDelay()
-  local seconds = Queue.peerLength() * Queue.SEND_INTERVAL
-
-  if seconds <= FETCH_TIMEOUT / 2 then
-    return nil
-  end
-
-  return seconds < ACK_MAX and ceil(seconds) or ACK_MAX
-end
-
 local function whisperLine(peer, op)
   local ok, note = Whisper.stream(PREFIX, peer, op, nil, line(), nil, true)
 
@@ -838,6 +636,99 @@ local function whisperLine(peer, op)
   end
 
   return true
+end
+
+do
+local function escape(text)
+  return (string.gsub(text, "[%c|`]", function(char)
+    return format("`%02x", string.byte(char))
+  end))
+end
+
+local function idle()
+  return announceAt == nil and outAt == nil and next(replies) == nil and next(fetching) == nil
+    and next(delayed) == nil and wFirst > wLast
+end
+
+local function windowUsed(current)
+  while winFirst <= winLast and current - winAt[winFirst] >= DIRECT_WINDOW do
+    winAt[winFirst], winLines[winFirst] = nil, nil
+    winFirst = winFirst + 1
+  end
+
+  if winFirst > winLast then
+    winFirst, winLast = 1, 0
+    return 0
+  end
+
+  local used = 0
+
+  for index = winFirst, winLast do
+    used = used + winLines[index]
+  end
+
+  return used
+end
+
+local function flushOutbox()
+  local current = now()
+  local used = windowUsed(current)
+  local kept, keptCount = {}, 0
+  local blocked = false
+
+  for index = 1, outCount do
+    local key = outOrder[index]
+    local addon, name = match(key, "^([%w_]+)%.([%w_]+)$")
+    local held, state = Share.get(addon, name)
+
+    if state ~= nil and not blocked then
+      local body = key .. ":" .. state .. ":" .. escape(held or "")
+      local op = "U"
+      local lines = Channel.packets(NAME, op, body)
+
+      if not lines then
+        op, body, lines = "N", key .. ":" .. state, 1
+      end
+
+      if used + lines > DIRECT_BUDGET then
+        blocked = true
+        keptCount = keptCount + 1
+        kept[keptCount] = key
+      elseif Channel.say(NAME, op, body) then
+        outbox[key] = nil
+        used = used + lines
+        winLast = winLast + 1
+        winAt[winLast], winLines[winLast] = current, lines
+        Share.sent.direct = Share.sent.direct + lines
+        Log.trace("share", nil, op, key)
+      else
+        blocked = true
+        keptCount = keptCount + 1
+        kept[keptCount] = key
+      end
+    elseif state == nil then
+      outbox[key] = nil
+    else
+      keptCount = keptCount + 1
+      kept[keptCount] = key
+    end
+  end
+
+  for index = 1, outCount do
+    outOrder[index] = kept[index]
+  end
+
+  outCount = keptCount
+
+  if outCount == 0 then
+    outAt = nil
+    advance(sentFrom, Keys.globalDigest())
+    sentFrom = nil
+  elseif winFirst <= winLast then
+    outAt = winAt[winFirst] + DIRECT_WINDOW
+  else
+    outAt = current + 1
+  end
 end
 
 tick = function()
@@ -927,6 +818,7 @@ tick = function()
     Bus.untick("EbonAPI:share")
   end
 end
+end
 
 local round
 
@@ -953,6 +845,137 @@ local function remember(sender, digest, level)
   return info
 end
 
+local function lineLevel(body)
+  return tonumber(match(body, ";(%d+)$")) or 1
+end
+
+do
+local REPLY_MIN = 1
+local REPLY_MAX = Share.REPLY_MAX
+
+-- A peer announced itself on the channel with a beacon of this protocol.
+function Share.hear(sender, digest, level)
+  if not digest then
+    return
+  end
+
+  remember(sender, digest, level)
+
+  if digest ~= Keys.globalDigest() and not busy() then
+    replies[sender] = now() + REPLY_MIN + random() * (REPLY_MAX - REPLY_MIN)
+    arm()
+  end
+end
+end
+
+Share.lineLevel = lineLevel
+
+do
+-- Peers of another protocol (2.2 clients), heard on the old ops: never kept, never compared,
+-- but counted, in total and by name (the names are capped).
+local IGNORED_NAMES = 24
+local ignored = { total = 0, names = {}, named = 0, others = 0 }
+
+Share.ignored = ignored
+
+function Share.ignore(sender)
+  ignored.total = ignored.total + 1
+  peers[sender] = nil
+  replies[sender] = nil
+
+  local held = ignored.names[sender]
+
+  if held then
+    ignored.names[sender] = held + 1
+  elseif ignored.named < IGNORED_NAMES then
+    ignored.names[sender] = 1
+    ignored.named = ignored.named + 1
+  else
+    ignored.others = ignored.others + 1
+  end
+end
+
+-- Lines ignored, players named, then the names with their count.
+function Share.ignoredStats()
+  return ignored.total, ignored.named + ignored.others, ignored.names
+end
+end
+
+do
+local function parseBeacon(body)
+  return match(body, "^([^;]*);([%w%-_]+);(%d+)$")
+end
+
+function Hooks.onChannelLine(sender, body)
+  local versions, digest, level = parseBeacon(body)
+
+  if not digest then
+    return
+  end
+
+  EbonAPI.Version.onBeacon(sender, versions)
+  Share.hear(sender, digest, tonumber(level))
+end
+end
+
+function Hooks.onChannelServed(sender)
+  replies[sender] = nil
+end
+
+local function pending(addon)
+  local prefix = addon .. "."
+
+  for key in pairs(holders) do
+    if sub(key, 1, #prefix) == prefix then
+      return true
+    end
+  end
+
+  return false
+end
+
+do
+local ASK_TTL = 60
+
+local function parseLine(body)
+  local parts = {}
+
+  for addon, part in gmatch(body, "([%w_]+)=([%w%-_]+)") do
+    if len(part) == Hash.LENGTH then
+      parts[addon] = part
+    end
+  end
+
+  return parts
+end
+
+local function compare(theirs)
+  local wanted, any = {}, false
+  local addons = Keys.addons()
+  local mine = {}
+
+  for i = 1, #addons do
+    local addon = addons[i]
+
+    mine[addon] = Keys.part(addon)
+
+    if not theirs[addon] then
+      any = true
+    end
+  end
+
+  for addon, part in pairs(theirs) do
+    if mine[addon] ~= part then
+      wanted[#wanted + 1] = addon
+      any = true
+    end
+  end
+
+  sort(wanted, Hash.before)
+
+  return wanted, any
+end
+
 local function digestOf(parts)
   local addons = {}
 
@@ -967,10 +990,6 @@ local function digestOf(parts)
   end
 
   return Hash.digest(concat(addons))
-end
-
-local function lineLevel(body)
-  return tonumber(match(body, ";(%d+)$")) or 1
 end
 
 local function requestPackets(peer, addons, absent)
@@ -1001,78 +1020,6 @@ local function requestPackets(peer, addons, absent)
   end
 
   return true
-end
-
--- A peer announced itself on the channel with a beacon of this protocol.
-function Share.hear(sender, digest, level)
-  if not digest then
-    return
-  end
-
-  remember(sender, digest, level)
-
-  if digest ~= Keys.globalDigest() and not busy() then
-    replies[sender] = now() + REPLY_MIN + random() * (REPLY_MAX - REPLY_MIN)
-    arm()
-  end
-end
-
-Share.lineLevel = lineLevel
-
--- Peers of another protocol (2.2 clients), heard on the old ops: never kept, never compared,
--- but counted, in total and by name (the names are capped).
-local IGNORED_NAMES = 24
-local ignored = { total = 0, names = {}, named = 0, others = 0 }
-
-Share.ignored = ignored
-
-function Share.ignore(sender)
-  ignored.total = ignored.total + 1
-  peers[sender] = nil
-  replies[sender] = nil
-
-  local held = ignored.names[sender]
-
-  if held then
-    ignored.names[sender] = held + 1
-  elseif ignored.named < IGNORED_NAMES then
-    ignored.names[sender] = 1
-    ignored.named = ignored.named + 1
-  else
-    ignored.others = ignored.others + 1
-  end
-end
-
--- Lines ignored, players named, then the names with their count.
-function Share.ignoredStats()
-  return ignored.total, ignored.named + ignored.others, ignored.names
-end
-
-local function onChannelLine(sender, body)
-  local versions, digest, level = parseBeacon(body)
-
-  if not digest then
-    return
-  end
-
-  EbonAPI.Version.onBeacon(sender, versions)
-  Share.hear(sender, digest, tonumber(level))
-end
-
-local function onChannelServed(sender)
-  replies[sender] = nil
-end
-
-local function pending(addon)
-  local prefix = addon .. "."
-
-  for key in pairs(holders) do
-    if sub(key, 1, #prefix) == prefix then
-      return true
-    end
-  end
-
-  return false
 end
 
 -- One key list per addon digest while catching up: a peer whose digest was already asked for
@@ -1117,7 +1064,7 @@ local function shareList(peer, addon, part)
   return true
 end
 
-local function onLineStream(sender, body, _, op)
+function Hooks.onLineStream(sender, body, _, op)
   local parts = parseLine(body)
 
   remember(sender, digestOf(parts), lineLevel(body))
@@ -1161,6 +1108,7 @@ local function onLineStream(sender, body, _, op)
       end
     end
   end
+end
 end
 
 local function cohortLine(peer, addon)
@@ -1225,9 +1173,13 @@ local function sendKeys(peer, addon, names)
   end
 end
 
+do
+local PART = Hash.LENGTH
+local HEX = "0123456789abcdef"
+
 -- While this client is still catching up an addon, the keys it lacks are already being fetched:
 -- answering a peer's packets for that addon would only bring back a full key list.
-local function onPacketsStream(sender, body, addon)
+function Hooks.onPacketsStream(sender, body, addon)
   if not match(addon, "^[%w_]+$") or len(body) ~= PACKETS * PART or pending(addon)
       or throttled(sender, "B" .. addon) then
     return
@@ -1257,9 +1209,10 @@ local function onPacketsStream(sender, body, addon)
   sendKeys(sender, addon, Keys.namesIn(addon, differing))
   Channel.whisper(PREFIX, sender, "R:" .. addon .. ":" .. list, nil, addon)
 end
+end
 
 -- A 2.1.x client that does not know our level asks for the keys of some addons: it gets the list.
-local function onQueryStream(sender, body)
+function Hooks.onQueryStream(sender, body)
   if throttled(sender, "K") then
     return
   end
@@ -1288,6 +1241,13 @@ local function wanted(addon, name, theirs, mine)
   end
 
   return mine == nil or tonumber(theirs) > tonumber(mine)
+end
+
+do
+-- A holder that stayed silent without ever answering is asked for one value at a time until it
+-- answers; the others get FETCH_PER_PEER requests in flight.
+local function mayAsk(peer)
+  return muteStep[peer] and 1 or FETCH_PER_PEER
 end
 
 local function take()
@@ -1423,6 +1383,7 @@ pump = function()
     wFirst, wLast = 1, 0
   end
 end
+end
 
 enqueue = function(key)
   if fetching[key] or waiting[key] or delayed[key] then
@@ -1434,7 +1395,10 @@ enqueue = function(key)
   waiting[key] = true
 end
 
-local function onAnnounced(sender, body)
+do
+local NOTE_DELAY = 10
+
+function Hooks.onAnnounced(sender, body)
   local addon, name, state = match(body, "^([%w_]+)%.([%w_]+):(%d+)$")
 
   if not addon or sender == selfName() then
@@ -1456,8 +1420,12 @@ local function onAnnounced(sender, body)
     arm()
   end
 end
+end
 
-local function onKeysStream(sender, body, addon)
+do
+local COHORT_TTL = 60
+
+function Hooks.onKeysStream(sender, body, addon)
   if not match(addon, "^[%w_]+$") then
     return refuse(sender, addon, "addon name is not letters, digits or underscores")
   end
@@ -1508,8 +1476,40 @@ local function onKeysStream(sender, body, addon)
 
   pump()
 end
+end
 
-local function onWhisper(sender, text)
+do
+local SERVED_KEEP = 8
+local SERVED_LIST = 3
+local RETRY_MIN, RETRY_MAX = 2, 5
+local SERVE_MAX = Share.SERVE_MAX
+
+local function waitLine(key, seconds)
+  return "W:" .. key .. ":" .. seconds
+end
+
+local function parseWait(rest)
+  local key, seconds = match(rest, "^([%w_]+%.[%w_]+):(%d+)$")
+
+  return key, tonumber(seconds)
+end
+
+-- Upper bound of the delay before the first part of a reply can leave: every
+-- message already waiting in the peer queue goes out first. Nil when half of the
+-- least silence of FETCH_TIMEOUT a requester gives covers it (the other half is
+-- left to the request and the reply to cross), so that no notice is queued, a
+-- notice costing a send slot, unless the requester could give up before the reply.
+local function replyDelay()
+  local seconds = Queue.peerLength() * Queue.SEND_INTERVAL
+
+  if seconds <= FETCH_TIMEOUT / 2 then
+    return nil
+  end
+
+  return seconds < ACK_MAX and ceil(seconds) or ACK_MAX
+end
+
+function Hooks.onWhisper(sender, text)
   local op, rest = match(text, "^(%a):(.*)$")
 
   if op == "G" then
@@ -1692,8 +1692,10 @@ local function onWhisper(sender, text)
     end
   end
 end
+end
 
-local function onDataPart(sender, id)
+do
+function Hooks.onDataPart(sender, id)
   local fetch = fetching[id]
 
   if fetch and fetch.peer == sender and not fetch.queued then
@@ -1733,7 +1735,7 @@ function Share.receiveStats()
   return { keys = received.keys, ms = received.ms }
 end
 
-local function onDataStream(sender, body, id)
+function Hooks.onDataStream(sender, body, id)
   local fetch = fetching[id]
 
   if fetch and fetch.peer == sender then
@@ -1808,7 +1810,25 @@ local function onDataStream(sender, body, id)
   pump()
 end
 
-local function onDirectLine(sender, body)
+local function unescape(text)
+  local bad = false
+  local plain = string.gsub(text, "`(%x?%x?)", function(code)
+    if len(code) ~= 2 then
+      bad = true
+      return ""
+    end
+
+    return string.char(tonumber(code, 16))
+  end)
+
+  if bad then
+    return nil
+  end
+
+  return plain
+end
+
+function Hooks.onDirectLine(sender, body)
   local addon, name, state, text = match(body, "^([%w_]+)%.([%w_]+):(%d+):(.*)$")
 
   if addon then
@@ -1856,8 +1876,12 @@ local function onDirectLine(sender, body)
   Log.trace("share", nil, key, len(text))
   EbonAPI:Emit("SHARE_RECEIVED", addon, name, state, sender)
 end
+end
 
-local function onKeyChanged(_, addon, name, state)
+do
+local DIRECT_DELAY = Share.DIRECT_DELAY
+
+function Hooks.onKeyChanged(_, addon, name, state)
   if not enabled then
     return
   end
@@ -1899,8 +1923,19 @@ local function onKeyChanged(_, addon, name, state)
     arm()
   end
 end
+end
 
-local function onJoined()
+do
+local JOIN_DELAY = Share.JOIN_DELAY
+
+local function schedule(delay)
+  if not announceAt then
+    announceAt = now() + delay
+    arm()
+  end
+end
+
+function Hooks.onJoined()
   schedule(JOIN_DELAY)
 
   if outCount > 0 and not outAt then
@@ -1908,8 +1943,9 @@ local function onJoined()
     arm()
   end
 end
+end
 
-local function onPeerOffline(_, name)
+function Hooks.onPeerOffline(_, name)
   peers[name] = nil
   replies[name] = nil
 
@@ -1925,6 +1961,9 @@ local function onPeerOffline(_, name)
 
   pump()
 end
+
+do
+local PEER_TTL = 600
 
 round = function()
   local current = now()
@@ -1951,6 +1990,11 @@ round = function()
   sort(candidates)
   whisperLine(candidates[random(#candidates)], OPS.line)
 end
+end
+
+do
+local lastManual = nil
+local MANUAL_COOLDOWN = Share.MANUAL_COOLDOWN
 
 function Share.announce()
   local current = now()
@@ -1966,6 +2010,7 @@ function Share.announce()
   lastManual = current
 
   return true
+end
 end
 
 function Share.beacon()
@@ -2107,21 +2152,21 @@ function Share.enable()
     Share.unpack(addon)
   end
 
-  Channel.on(NAME, OPS.beacon, onChannelLine)
-  Channel.on(NAME, "S", onChannelServed)
-  Channel.on(NAME, "U", onDirectLine)
-  Channel.on(NAME, "N", onAnnounced)
-  Whisper.on(PREFIX, onWhisper)
-  Whisper.onStream(PREFIX, OPS.line, onLineStream)
-  Whisper.onStream(PREFIX, OPS.reply, onLineStream)
-  Whisper.onStream(PREFIX, "Q", onQueryStream)
-  Whisper.onStream(PREFIX, OPS.packets, onPacketsStream)
-  Whisper.onStream(PREFIX, "K", onKeysStream)
-  Whisper.onStream(PREFIX, "D", onDataStream, onDataPart)
+  Channel.on(NAME, OPS.beacon, Hooks.onChannelLine)
+  Channel.on(NAME, "S", Hooks.onChannelServed)
+  Channel.on(NAME, "U", Hooks.onDirectLine)
+  Channel.on(NAME, "N", Hooks.onAnnounced)
+  Whisper.on(PREFIX, Hooks.onWhisper)
+  Whisper.onStream(PREFIX, OPS.line, Hooks.onLineStream)
+  Whisper.onStream(PREFIX, OPS.reply, Hooks.onLineStream)
+  Whisper.onStream(PREFIX, "Q", Hooks.onQueryStream)
+  Whisper.onStream(PREFIX, OPS.packets, Hooks.onPacketsStream)
+  Whisper.onStream(PREFIX, "K", Hooks.onKeysStream)
+  Whisper.onStream(PREFIX, "D", Hooks.onDataStream, Hooks.onDataPart)
 
-  EbonAPI:On("SHARE_KEY_CHANGED", onKeyChanged)
-  EbonAPI:On("PEER_OFFLINE", onPeerOffline)
-  EbonAPI:On("CHANNEL_JOINED", onJoined)
+  EbonAPI:On("SHARE_KEY_CHANGED", Hooks.onKeyChanged)
+  EbonAPI:On("PEER_OFFLINE", Hooks.onPeerOffline)
+  EbonAPI:On("CHANNEL_JOINED", Hooks.onJoined)
 
   EbonAPI.Legacy.enable()
 
@@ -2135,21 +2180,21 @@ function Share.disable()
 
   enabled = false
 
-  Channel.off(NAME, OPS.beacon, onChannelLine)
-  Channel.off(NAME, "S", onChannelServed)
-  Channel.off(NAME, "U", onDirectLine)
-  Channel.off(NAME, "N", onAnnounced)
-  Whisper.off(PREFIX, onWhisper)
-  Whisper.offStream(PREFIX, OPS.line, onLineStream)
-  Whisper.offStream(PREFIX, OPS.reply, onLineStream)
-  Whisper.offStream(PREFIX, "Q", onQueryStream)
-  Whisper.offStream(PREFIX, OPS.packets, onPacketsStream)
-  Whisper.offStream(PREFIX, "K", onKeysStream)
-  Whisper.offStream(PREFIX, "D", onDataStream)
+  Channel.off(NAME, OPS.beacon, Hooks.onChannelLine)
+  Channel.off(NAME, "S", Hooks.onChannelServed)
+  Channel.off(NAME, "U", Hooks.onDirectLine)
+  Channel.off(NAME, "N", Hooks.onAnnounced)
+  Whisper.off(PREFIX, Hooks.onWhisper)
+  Whisper.offStream(PREFIX, OPS.line, Hooks.onLineStream)
+  Whisper.offStream(PREFIX, OPS.reply, Hooks.onLineStream)
+  Whisper.offStream(PREFIX, "Q", Hooks.onQueryStream)
+  Whisper.offStream(PREFIX, OPS.packets, Hooks.onPacketsStream)
+  Whisper.offStream(PREFIX, "K", Hooks.onKeysStream)
+  Whisper.offStream(PREFIX, "D", Hooks.onDataStream)
 
-  EbonAPI:Off("SHARE_KEY_CHANGED", onKeyChanged)
-  EbonAPI:Off("PEER_OFFLINE", onPeerOffline)
-  EbonAPI:Off("CHANNEL_JOINED", onJoined)
+  EbonAPI:Off("SHARE_KEY_CHANGED", Hooks.onKeyChanged)
+  EbonAPI:Off("PEER_OFFLINE", Hooks.onPeerOffline)
+  EbonAPI:Off("CHANNEL_JOINED", Hooks.onJoined)
 
   EbonAPI.Legacy.disable()
 

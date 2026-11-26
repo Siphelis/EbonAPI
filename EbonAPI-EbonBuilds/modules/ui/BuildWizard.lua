@@ -3,9 +3,7 @@ EbonBuilds.BuildWizard = {}
 local L = EbonBuilds.L
 local W = EbonBuilds.Widgets
 
-local QUALITY_COLOR = EbonBuilds.Const.QUALITY_HEX
-local QUALITY_LABELS = EbonBuilds.Const.QUALITY_NAME
-local EMPTY_SLOT = "Interface\\Buttons\\UI-EmptySlot"
+local EMPTY_SLOT = EbonBuilds.Const.EMPTY_SLOT
 local BUILD_SLOTS = EbonBuilds.Const.BUILD_LOCKED_SLOTS
 local FAMILY_KEYS = { "Tank", "Survivability", "Healer", "Caster", "Melee", "Ranged" }
 local WEIGHT_OPTIONS = {
@@ -35,6 +33,8 @@ local CONTENT_TOP   = 40
 local FOOTER        = 50
 local FOOTER_BOTTOM = 20
 
+local LAST_STEP     = 5
+
 local viewFrame, contentArea
 local stepLabel, backBtn, nextBtn
 local RenderCurrentStep
@@ -45,7 +45,6 @@ local panes = {}
 local function ResetState()
     state.step = 0
     state.locked = { nil, nil, nil, nil, nil }
-    state.noveltyValue = 30
     state.qualityBonus = { [0] = 0, [1] = 10, [2] = 20, [3] = 30, [4] = 40 }
     state.familyPriorities = {}
     state.echoes = {}
@@ -60,7 +59,7 @@ local function Width()
 end
 
 local function BuildFilteredEchoList()
-    local best = EbonBuilds.Catalog.BestByName()
+    local best = EbonAPI.EchoCatalog.Names()
     local lockedSet = {}
     for i = 1, BUILD_SLOTS do
         if state.locked[i] then
@@ -69,7 +68,7 @@ local function BuildFilteredEchoList()
         end
     end
     local list = {}
-    for name, entry in pairs(best) do
+    for name, entry in pairs(best or {}) do
         if not state.echoes[name] and not lockedSet[name] then
             list[#list + 1] = {
                 spellId = entry.spellId,
@@ -80,30 +79,6 @@ local function BuildFilteredEchoList()
     end
     table.sort(list, function(a, b) return a.name < b.name end)
     return list
-end
-
-local function HasAdaptivePower()
-    for i = 1, BUILD_SLOTS do
-        local id = state.locked[i]
-        if id then
-            local name = GetSpellInfo(id)
-            if name and name:lower():find("adaptive power") then
-                return true
-            end
-        end
-    end
-    return false
-end
-
-local function TotalSteps()
-    return HasAdaptivePower() and 6 or 5
-end
-
-local function DisplayedStep()
-    if not HasAdaptivePower() and state.step >= 2 then
-        return state.step - 1
-    end
-    return state.step
 end
 
 local function Cycle(values, current, step)
@@ -181,7 +156,7 @@ local function RefreshLockedSlot(btn)
     local spellId = state.locked[btn._index]
     btn:Refresh()
     if spellId then
-        local data = EbonBuilds.Catalog.Entry(spellId)
+        local data = EbonAPI.EchoCatalog.Entry(spellId)
         W.SetRing(btn._ring, data and data.quality or 0)
     else
         W.SetRing(btn._ring, nil)
@@ -246,22 +221,6 @@ local function RenderStep1()
     pane._slotRow:Layout()
 end
 
-local function BuildStep2()
-    local pane = Pane(2)
-    W.Gap(pane, 1, 30)
-    Track(pane, Line(pane, { key = "WIZARD_S2_TITLE", size = "medium" }))
-    W.Gap(pane, 1, 6)
-    Track(pane, Line(pane, { key = "WIZARD_S2_DESC" }, "status"))
-    W.Gap(pane, 1, 24)
-    Track(pane, W.Kit("range", W.Centered(pane, Width(), 300), {
-        width = 300, min = 0, max = 100, step = 1,
-        get = function() return state.noveltyValue or 30 end,
-        onChange = function(_, v) state.noveltyValue = math.floor(v) end,
-    }))
-    W.Gap(pane, 1, 8)
-    Track(pane, Line(pane, { key = "WIZARD_S2_HINT" }, "status"))
-end
-
 local function CycleRow(pane, labelText, valueText, onStep)
     local row = W.Centered(pane, Width(), CYCLE_ROW_W):Add("bar", { spacing = 8 })
     local label = Track(pane, row:Add("text", { size = "medium", width = ROW_LABEL_W, text = labelText }))
@@ -282,8 +241,8 @@ local function CycleRow(pane, labelText, valueText, onStep)
     W.Gap(pane, 1, 4)
 end
 
-local function BuildStep3()
-    local pane = Pane(3)
+local function BuildStep2()
+    local pane = Pane(2)
     W.Gap(pane, 1, 20)
     Track(pane, Line(pane, { key = "WIZARD_S3_TITLE", size = "medium" }))
     W.Gap(pane, 1, 6)
@@ -292,7 +251,7 @@ local function BuildStep3()
     for _, fam in ipairs(FAMILY_KEYS) do
         local family = fam
         CycleRow(pane,
-            function() return L.FAMILY_LONG[family] end,
+            function() return EbonBuilds.FamilyName(family) end,
             function() return L[FAMILY_CYCLE_KEYS[state.familyPriorities[family] or 0]] end,
             function(step)
                 state.familyPriorities[family] = Cycle(familyCycleValues, state.familyPriorities[family] or 0, step)
@@ -300,8 +259,8 @@ local function BuildStep3()
     end
 end
 
-local function BuildStep4()
-    local pane = Pane(4)
+local function BuildStep3()
+    local pane = Pane(3)
     W.Gap(pane, 1, 20)
     Track(pane, Line(pane, { key = "WIZARD_S4_TITLE", size = "medium" }))
     W.Gap(pane, 1, 6)
@@ -310,7 +269,7 @@ local function BuildStep4()
     for _, q in ipairs({ 0, 1, 2, 3, 4 }) do
         local quality = q
         CycleRow(pane,
-            function() return "|cff" .. (QUALITY_COLOR[quality] or "ffffff") .. QUALITY_LABELS[quality] .. "|r" end,
+            function() return "|cff" .. (EbonBuilds.Const.QualityHex(quality) or "ffffff") .. EbonAPI.ClientData.Quality(quality).name .. "|r" end,
             function() return "+" .. tostring(state.qualityBonus[quality]) end,
             function(step)
                 state.qualityBonus[quality] = Cycle(qualityValues, state.qualityBonus[quality], step)
@@ -318,13 +277,13 @@ local function BuildStep4()
     end
 end
 
-local function RenderStep4()
+local function RenderStep3()
     for q = 0, 4 do
         if state.qualityBonus[q] == nil then state.qualityBonus[q] = q * 10 end
     end
 end
 
-local RenderStep5
+local RenderStep4
 
 local function EchoRow(pane, index)
     local rows = pane._rows
@@ -340,7 +299,7 @@ local function EchoRow(pane, index)
         text = function()
             local entry = row._entry
             if not entry then return "" end
-            return "|cff" .. (QUALITY_COLOR[entry.quality] or "ffffff") .. entry.name .. "|r"
+            return "|cff" .. (EbonBuilds.Const.QualityHex(entry.quality) or "ffffff") .. entry.name .. "|r"
         end,
     })
     row._weights = {}
@@ -360,15 +319,15 @@ local function EchoRow(pane, index)
         key = "REMOVE",
         onClick = function()
             state.echoes[row._entry.name] = nil
-            RenderStep5()
+            RenderStep4()
         end,
     })
     rows[index] = row
     return row
 end
 
-local function BuildStep5()
-    local pane = Pane(5)
+local function BuildStep4()
+    local pane = Pane(4)
     pane._rows = {}
     W.Gap(pane, 1, 20)
     Track(pane, Line(pane, { key = "WIZARD_S5_TITLE", size = "medium" }))
@@ -380,7 +339,7 @@ local function BuildStep5()
         onClick = function()
             EbonBuilds.EchoPicker.Show(function(spellId, quality, name)
                 state.echoes[name] = { spellId = spellId, quality = quality, name = name, weight = 40 }
-                RenderStep5()
+                RenderStep4()
             end, BuildFilteredEchoList())
         end,
     }))
@@ -395,8 +354,8 @@ local function BuildStep5()
     pane._empty = list:Add("status", { key = "WIZARD_S5_EMPTY", width = Width() - 80 })
 end
 
-RenderStep5 = function()
-    local pane = panes[5]
+RenderStep4 = function()
+    local pane = panes[4]
     local sorted = {}
     for _, entry in pairs(state.echoes) do
         sorted[#sorted + 1] = entry
@@ -424,8 +383,8 @@ local function Indented(pane)
     return row
 end
 
-local function BuildStep6()
-    local pane = Pane(6)
+local function BuildStep5()
+    local pane = Pane(5)
     W.Gap(pane, 1, 20)
     Track(pane, Line(pane, { key = "WIZARD_S6_TITLE", size = "medium" }))
     W.Gap(pane, 1, 6)
@@ -472,12 +431,6 @@ local function CreateBuildFromWizard()
         end
     end
 
-    if HasAdaptivePower() then
-        settings.noveltyValue = state.noveltyValue or 30
-    else
-        settings.noveltyValue = 0
-    end
-
     local locked = EbonBuilds.Build.CopyLocked(state.locked)
 
     local playerClass = EbonBuilds.Build.PlayerClassToken()
@@ -496,16 +449,12 @@ local function CreateBuildFromWizard()
 end
 
 local function GoNext()
-    if state.step >= 6 then
+    if state.step >= LAST_STEP then
         CreateBuildFromWizard()
         return
     end
 
-    if state.step == 1 and not HasAdaptivePower() then
-        state.step = 3
-    else
-        state.step = state.step + 1
-    end
+    state.step = state.step + 1
 
     RenderCurrentStep()
 end
@@ -517,11 +466,7 @@ local function GoBack()
         return
     end
 
-    if state.step == 3 and not HasAdaptivePower() then
-        state.step = 1
-    else
-        state.step = state.step - 1
-    end
+    state.step = state.step - 1
 
     RenderCurrentStep()
 end
@@ -541,12 +486,12 @@ RenderCurrentStep = function()
     backBtn.kitHost:Layout()
     if step == 1 then
         RenderStep1()
-    elseif step == 4 then
-        RenderStep4()
+    elseif step == 3 then
+        RenderStep3()
     end
     ShowPane(step)
-    if step == 5 then
-        RenderStep5()
+    if step == 4 then
+        RenderStep4()
     end
 end
 
@@ -577,7 +522,7 @@ BuildViewFrame = function(container)
         size = "medium", width = STEP_W,
         text = function()
             if (state.step or 0) <= 0 then return "" end
-            return string.format(L.WIZARD_STEP, DisplayedStep(), TotalSteps())
+            return string.format(L.WIZARD_STEP, state.step, LAST_STEP)
         end,
     })
     stepLabel.text:SetJustifyH("CENTER")
@@ -595,7 +540,7 @@ BuildViewFrame = function(container)
     })
     nextBtn = W.Kit("button", bottom, {
         minWidth = NAV_W,
-        text = function() return (state.step or 0) >= 6 and L.CREATE_BUILD or L.NEXT end,
+        text = function() return (state.step or 0) >= LAST_STEP and L.CREATE_BUILD or L.NEXT end,
         onClick = GoNext,
     })
 
@@ -613,7 +558,6 @@ BuildViewFrame = function(container)
     BuildStep3()
     BuildStep4()
     BuildStep5()
-    BuildStep6()
     return f
 end
 

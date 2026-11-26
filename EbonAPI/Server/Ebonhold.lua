@@ -163,6 +163,52 @@ function Ebonhold.Raw()
   return root()
 end
 
+function Ebonhold.Text(english)
+  local pe = root()
+  local texts = pe and pe.L
+
+  if type(texts) ~= "table" then
+    return english
+  end
+
+  local text = texts[english]
+
+  return type(text) == "string" and text or english
+end
+
+-- Any service of ProjectEbonhold by its own name (Callboard, ToolbeltService, PerkService...).
+function Ebonhold.Service(name)
+  return service(name)
+end
+
+function Ebonhold.ServiceFunction(owner, name)
+  local pe = root()
+
+  if not pe or type(pe[owner]) ~= "table" then
+    return nil
+  end
+
+  local fn = pe[owner][name]
+
+  if type(fn) == "function" then
+    return fn
+  end
+
+  return nil
+end
+
+-- Any frame of ProjectEbonhold by its global name (skillTreeScroll, PerkChooseButton...), nil until
+-- ProjectEbonhold creates it. Silent: a frame built late is absent, not a missing piece (rawget, no lack).
+function Ebonhold.Frame(name)
+  local value = rawget(_G, name)
+
+  if type(value) == "table" then
+    return value
+  end
+
+  return nil
+end
+
 local services = {
   Objectives = "ObjectivesService",
   ObjectivesUI = "ObjectivesUI",
@@ -178,6 +224,11 @@ local services = {
   EchoJournal = "EchoJournal",
   PerkDropSources = "PerkDropSources",
   PerkDropSourceByGroup = "PerkDropSourceByGroup",
+  -- The Hero's Call Board: its service (Request, Accept, Claim, ClaimAll, Abandon, the last board) and
+  -- its window (callboard_service.lua, callboard_ui.lua).
+  Callboard = "Callboard",
+  CallboardUI = "CallboardUI",
+  CallboardStartZone = "CallboardStartZone",
 }
 
 for name, serviceName in pairs(services) do
@@ -274,6 +325,28 @@ local function selectCause(spellId)
   return "PE.PERK_REFUSED"
 end
 
+function Ebonhold.HasMemoryCard()
+  local ok, found = pcall(function()
+    local choices = _G.ProjectEbonhold.Perks.currentChoice
+
+    if type(choices) ~= "table" then
+      return false
+    end
+
+    for index = 1, #choices do
+      local choice = choices[index]
+
+      if type(choice) == "table" and choice.isGuaranteed then
+        return true
+      end
+    end
+
+    return false
+  end)
+
+  return ok and found == true
+end
+
 function Ebonhold.SelectPerk(spellId)
   if type(spellId) ~= "number" or spellId <= 0 then
     return refuse("PE.PERK_BAD_ID")
@@ -312,6 +385,14 @@ function Ebonhold.UseCheckpoint(checkpointId)
   return call("UseCheckpoint", fn, checkpointId)
 end
 
+function Ebonhold.OpenPortals()
+  return EbonAPI.Portals.Open()
+end
+
+function Ebonhold.RequestPortals()
+  EbonAPI.Actions.RequestPortals()
+end
+
 function Ebonhold.ConfirmSpend(spellId, orbs)
   if type(spellId) ~= "number" or spellId <= 0 or type(orbs) ~= "number" or orbs < 1 or orbs % 1 ~= 0 then
     return refuse("PE.SPEND_INVALID", { spell = tostring(spellId), orbs = tostring(orbs) })
@@ -326,6 +407,104 @@ function Ebonhold.ConfirmSpend(spellId, orbs)
   return call("ConfirmSpend", fn, spellId, orbs)
 end
 
+local spendBlocker
+local spendHandlers = {}
+local spendWrapped = false
+
+local function refuseNonFunction(fn)
+  if type(fn) ~= "function" then
+    return refuse("PE.SPEND_INVALID", { spell = tostring(fn) })
+  end
+end
+
+function Ebonhold.SetSpendBlocker(fn)
+  local refused, problem = refuseNonFunction(fn)
+
+  if refused ~= nil then
+    return refused, problem
+  end
+
+  spendBlocker = fn
+
+  return true
+end
+
+function Ebonhold.OnSpendRequest(fn)
+  local refused, problem = refuseNonFunction(fn)
+
+  if refused ~= nil then
+    return refused, problem
+  end
+
+  spendHandlers[#spendHandlers + 1] = fn
+
+  if spendWrapped then
+    return true
+  end
+
+  local orbService, problem, original = entry("OrbService", "SpendOn", "SpendOn")
+
+  if not orbService then
+    return false, Problems.report(problem)
+  end
+
+  orbService.SpendOn = function(...)
+    local spellId = ...
+
+    if spendBlocker and spendBlocker(spellId) then
+      return nil
+    end
+
+    for index = 1, #spendHandlers do
+      local ok, result = pcall(spendHandlers[index], spellId)
+
+      if not ok then
+        Problems.report(Problems.new("EbonAPI", "PE.CALL_FAILED", { fn = "OnSpendRequest", text = result }))
+      elseif result then
+        return nil
+      end
+    end
+
+    return original(...)
+  end
+
+  spendWrapped = true
+
+  return true
+end
+
+function Ebonhold.HasNoGrantedPerk()
+  local fn = Ebonhold.ServiceFunction("PerkService", "GetGrantedPerks")
+
+  if not fn then
+    return nil
+  end
+
+  local ok, result = pcall(fn)
+
+  if not ok or type(result) ~= "table" then
+    return nil
+  end
+
+  return next(result) == nil
+end
+
+function Ebonhold.IsOfferPending()
+  local orbService, problem, fn = entry("OrbService", "IsOfferPending", "IsOfferPending")
+
+  if not orbService then
+    return nil, problem
+  end
+
+  local ok, result = pcall(fn)
+
+  if not ok then
+    return nil, Problems.report(Problems.new("EbonAPI", "PE.CALL_FAILED", { fn = "IsOfferPending", text = result }))
+  end
+
+  return result == true
+end
+
 function Ebonhold.CurrentHardmodeTier()
   local pe = root()
 
@@ -334,6 +513,20 @@ function Ebonhold.CurrentHardmodeTier()
   end
 
   return pe.currentHardmodeTier
+end
+
+-- The tier of the content the player stands in: the instance's when it is not their own (a
+-- Dungeon Finder run at its leader's tier), else their own.
+function Ebonhold.EffectiveHardmodeTier()
+  local hardmode = service("HardmodeService")
+  local instance = hardmode and type(hardmode.GetInstanceDifficulty) == "function"
+    and Lib.safeGet(hardmode.GetInstanceDifficulty)
+
+  if type(instance) == "number" then
+    return instance
+  end
+
+  return Ebonhold.CurrentHardmodeTier()
 end
 
 function Ebonhold.SkillTreeFrame()
@@ -364,16 +557,6 @@ function Ebonhold.PublishedRunData()
   local published = _G.EbonholdPlayerRunData
 
   if type(published) == "table" and next(published) ~= nil then
-    return published
-  end
-
-  return nil
-end
-
-function Ebonhold.PublishedIntensity()
-  local published = _G.EbonholdIntensityData
-
-  if type(published) == "table" then
     return published
   end
 
@@ -425,6 +608,65 @@ end
 
 local hooked = {}
 
+local probeNote, probeClock
+
+function Ebonhold.hookProbe(note, clock)
+  if type(note) == "function" then
+    probeNote = note
+    probeClock = type(clock) == "function" and clock or debugprofilestop
+  else
+    probeNote = nil
+  end
+end
+
+local function spend(cell, t0, ...)
+  cell.spent = cell.spent + (probeClock() - t0)
+
+  return ...
+end
+
+local function noted(cell, entry, owner, t0, spent0, ...)
+  local note = probeNote
+
+  if note then
+    note(entry.shown, entry.key, owner, probeClock() - t0 - (cell.spent - spent0))
+  end
+
+  return ...
+end
+
+local function layer(entry, wrapper, inner, owner)
+  local cell = { spent = 0 }
+
+  local timed = function(...)
+    return spend(cell, probeClock(), inner(...))
+  end
+
+  return function(...)
+    if probeNote then
+      local t0 = probeClock()
+
+      return noted(cell, entry, owner, t0, cell.spent, wrapper(timed, ...))
+    end
+
+    return wrapper(inner, ...)
+  end
+end
+
+-- Wrappers run outermost first: the last one added is the innermost, next to the original function.
+local function relink(entry)
+  local call = entry.original
+  local wrappers = entry.wrappers
+
+  for index = #wrappers, 1, -1 do
+    local wrapper, inner = wrappers[index], call
+
+    call = layer(entry, wrapper, inner, entry.owners[index])
+  end
+
+  entry.call = call
+end
+
 local function resolve(path)
   if path == nil then
     return (root())
@@ -454,7 +696,25 @@ local function refuse(marker, path, key, reason)
   return false, stores["PE.HOOK_FAILED"][marker]
 end
 
-function Ebonhold.Hook(path, key, wrapper)
+-- Installs the call chain of a stacked entry (extension: owner / Unhook); the 3-argument first hook below is
+-- the live code, untouched.
+local function install(entry)
+  local target = resolve(entry.path)
+
+  relink(entry)
+
+  entry.fn = function(...)
+    return entry.call(...)
+  end
+
+  if type(target) == "table" then
+    target[entry.name] = entry.fn
+  end
+end
+
+-- `owner` (optional) names who hooks, so Ebonhold.Unhook(owner) takes the wrappers back. Without an owner a
+-- second hook of the same function is refused (live behaviour); with one, wrappers stack.
+function Ebonhold.Hook(path, key, wrapper, owner)
   local shown = path == nil and "ProjectEbonhold" or path
   local marker = tostring(shown) .. "." .. tostring(key)
   local target = resolve(path)
@@ -468,15 +728,26 @@ function Ebonhold.Hook(path, key, wrapper)
   end
 
   if hooked[marker] then
-    return refuse(marker, shown, key, "already_hooked")
+    local stacked = hooked[marker]
+
+    if owner == nil or Lib.indexOf(stacked.wrappers, wrapper) then
+      return refuse(marker, shown, key, "already_hooked")
+    end
+
+    local count = #stacked.wrappers + 1
+
+    stacked.wrappers[count] = wrapper
+    stacked.owners[count] = owner
+    install(stacked)
+
+    return true
   end
 
   local original = target[key]
-  local entry = { path = path, shown = tostring(shown), key = tostring(key), name = key }
+  local entry = { path = path, shown = tostring(shown), key = tostring(key), name = key,
+    original = original, wrappers = { wrapper }, owners = { owner or false } }
 
-  entry.fn = function(...)
-    return wrapper(original, ...)
-  end
+  entry.fn = layer(entry, wrapper, original, owner or false)
 
   target[key] = entry.fn
   hooked[marker] = entry
@@ -487,6 +758,25 @@ function Ebonhold.Hook(path, key, wrapper)
   end
 
   return true
+end
+
+function Ebonhold.Unhook(owner)
+  for _, entry in pairs(hooked) do
+    local wrappers, owners = entry.wrappers, entry.owners
+    local changed = false
+
+    for index = #wrappers, 1, -1 do
+      if owners[index] == owner then
+        table.remove(wrappers, index)
+        table.remove(owners, index)
+        changed = true
+      end
+    end
+
+    if changed then
+      install(entry)
+    end
+  end
 end
 
 function Ebonhold.VerifyHooks()
@@ -678,6 +968,21 @@ end
 
 EbonAPI:On("READY", Ebonhold.Check)
 
+local ready = false
+
+-- Runs once every handler of PLAYER_ENTERING_WORLD is done: ProjectEbonhold builds some of its
+-- frames in its own, so they exist from EBONHOLD_READY on.
+function Ebonhold.Settle()
+  local features = Ebonhold.Detect()
+
+  if not ready then
+    ready = true
+    EbonAPI:Emit("EBONHOLD_READY", features)
+  end
+end
+
+EbonAPI:DeclareSticky("EBONHOLD_READY")
+
 function Ebonhold.Summary()
   local features = EbonAPI:Features()
   local present = {}
@@ -693,6 +998,14 @@ function Ebonhold.Summary()
 
   return present, missing
 end
+
+function Handle:HookEbonhold(path, key, wrapper)
+  return Ebonhold.Hook(path, key, wrapper, self.addonName)
+end
+
+EbonAPI:AddTeardown(function(handle)
+  Ebonhold.Unhook(handle.addonName)
+end)
 
 function Handle:Ebonhold()
   return Ebonhold

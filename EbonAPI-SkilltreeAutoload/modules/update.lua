@@ -1,4 +1,3 @@
-local ADDON_NAME = ...
 local NS = SkillTreeAutoLoad
 
 local Update = {}

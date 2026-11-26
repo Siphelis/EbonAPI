@@ -4,33 +4,6 @@ local L = AutoCallboardLocale
 local RT = AutoCallboardRuntime
 local state = RT.state
 
-local function Report(code, facts)
-  RT.api:Report(RT.api:Problem(code, facts))
-end
-
-local function ReportRefused(code, field, found, action, item, id)
-  Report(code, {
-    action = action,
-    [field] = item and item.name or tostring(id),
-    reason = found and "refused" or "not_found",
-  })
-end
-
-local function ReportSelection(action, entry, id)
-  ReportRefused("LIST.SELECTION_CHANGE_REFUSED", "list", Core.findSelection(RT.GetAccountProfile(), id), action, entry, id)
-end
-
-local function ReportGroup(action, group, id)
-  ReportRefused("LIST.GROUP_CHANGE_REFUSED", "group", Core.findGroup(RT.GetAccountProfile(), id), action, group, id)
-end
-
-local function ReportContainerFull()
-  Report("LIST.CONTAINER_FULL", { limit = Core.MAX_SAVED_SELECTIONS })
-end
-
-local function ReportGroupsFull()
-  Report("LIST.GROUPS_FULL", { limit = Core.MAX_GROUPS })
-end
 
 RT.noneSelectionEntry = { id = nil, name = "", desiredQuests = {} }
 
@@ -40,24 +13,8 @@ local function AccountProfile()
   return RT.GetAccountProfile()
 end
 
-local function RequestRename(title, name, rename, id, onRefused)
-  Skin.Dialog({
-    title = title,
-    body = "",
-    editBox = { default = name, maxLetters = Core.MAX_SELECTION_NAME_LENGTH },
-    acceptText = L.BUTTON_ACCEPT,
-    cancelText = L.BUTTON_CANCEL,
-    onAccept = function(text)
-      local nextProfile, ok = rename(AccountProfile(), id, text)
-      if not ok then
-        onRefused()
-        return
-      end
-
-      RT.SaveAccountProfile(nextProfile)
-      RT.RefreshListsWindow()
-    end,
-  })
+local function Refresh()
+  RT.RefreshBoardGraft()
 end
 
 function RT.LoadSelectionPreset(entry)
@@ -68,13 +25,9 @@ function RT.LoadSelectionPreset(entry)
   RT.SetDesiredQuests(entry.desiredQuests)
   RT.SetActiveSelectionId(entry.id)
 
-  RT.ApplyListDifficulty(entry.difficulty, "chargement liste " .. tostring(entry.name))
-
-  if not RT.IsRolling() then
-    RT.EvaluateCurrentObjectives()
-  end
-
-  RT.RefreshQuestWindow()
+  RT.ApplyListDifficulty(entry.difficulty, "collection loaded " .. tostring(entry.name))
+  RT.EvaluateBoard("list")
+  Refresh()
 end
 
 function RT.IsSelectionActive(entry)
@@ -90,50 +43,113 @@ function RT.IsSelectionDifficultyLocked(entry)
     return false
   end
 
-  if RT.GetCurrentDifficulty() == entry.difficulty then
+  local current = RT.GetCurrentDifficulty()
+
+  if not current or current == entry.difficulty then
     return false
   end
 
-  return not RT.CanApplyDifficulty()
+  return not RT.CanApplyDifficulty(entry.difficulty)
 end
 
-function RT.RequestLoadSelection(entry)
-  if not entry then
+function RT.CollectionState(entry)
+  if not RT.IsSelectionActive(entry) then
+    return nil
+  end
+
+  return Core.sameDesiredMap(state.desiredQuests, entry.desiredQuests) and "loaded" or "modified"
+end
+
+function RT.IsSelectionUnsaved()
+  local profile = AccountProfile()
+  local loaded = Core.findSelection(profile, RT.GetActiveSelectionId())
+
+  if loaded then
+    return not Core.sameDesiredMap(state.desiredQuests, loaded.desiredQuests), loaded
+  end
+
+  if Core.desiredQuestCount(state.desiredQuests) == 0 then
+    return false, nil
+  end
+
+  for _, entry in ipairs(profile.savedSelections or {}) do
+    if Core.sameDesiredMap(state.desiredQuests, entry.desiredQuests) then
+      return false, nil
+    end
+  end
+
+  return true, nil
+end
+
+local function ConfirmReplace(replace)
+  local unsaved, loaded = RT.IsSelectionUnsaved()
+
+  if not unsaved then
+    replace()
     return
   end
 
-  if RT.IsRolling() then
-    Report("LIST.CANNOT_SWITCH_ROLLING")
-    return
+  local body
+
+  if loaded then
+    body = string.format(L.COLLECTIONS_CONFIRM_MODIFIED, loaded.name)
+  else
+    body = string.format(L.COLLECTIONS_CONFIRM_UNSAVED, Core.desiredQuestCount(state.desiredQuests))
   end
 
-  if RT.IsSelectionActive(entry) then
-    RT.LoadSelectionPreset(RT.noneSelectionEntry)
-    RT.RefreshListsWindow()
-    return
+  Skin.Dialog({
+    title = L.COLLECTIONS_CONFIRM_TITLE,
+    body = body,
+    acceptText = L.COLLECTIONS_CONFIRM_REPLACE,
+    cancelText = L.BUTTON_CANCEL,
+    onAccept = replace,
+  })
+end
+
+function RT.RequestLoadCollection(id)
+  if id ~= nil then
+    local entry = Core.findSelection(AccountProfile(), id)
+
+    if not entry or RT.IsSelectionDifficultyLocked(entry) then
+      return false
+    end
   end
 
-  if RT.IsSelectionDifficultyLocked(entry) then
-    Report("LIST.DIFFICULTY_LOCKED", { list = entry.name, difficulty = Core.difficultyLabel(entry.difficulty) })
-    return
-  end
+  ConfirmReplace(function()
+    RT.LoadCollection(id)
+  end)
 
-  RT.LoadSelectionPreset(entry)
-  RT.RefreshListsWindow()
+  return true
 end
 
 function RT.RequestRenameSelection(entry)
   if not entry then
+    Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "rename" }))
     return
   end
 
-  RequestRename(string.format(L.LISTS_RENAME_DIALOG_TITLE, entry.name), entry.name, Core.renameSelection, entry.id, function()
-    ReportSelection("rename", entry, entry.id)
-  end)
+  Skin.Dialog({
+    title = string.format(L.LISTS_RENAME_DIALOG_TITLE, entry.name),
+    body = "",
+    editBox = { default = entry.name, maxLetters = Core.MAX_SELECTION_NAME_LENGTH },
+    acceptText = L.BUTTON_ACCEPT,
+    cancelText = L.BUTTON_CANCEL,
+    onAccept = function(text)
+      local nextProfile, ok = Core.renameSelection(AccountProfile(), entry.id, text)
+      if not ok then
+        Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "rename" }))
+        return
+      end
+
+      RT.SaveAccountProfile(nextProfile)
+      Refresh()
+      end,
+  })
 end
 
 function RT.RequestOverwriteSelection(entry)
   if not entry then
+    Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "overwrite" }))
     return
   end
 
@@ -145,19 +161,20 @@ function RT.RequestOverwriteSelection(entry)
     onAccept = function()
       local nextProfile, ok = Core.updateSelectionContent(AccountProfile(), entry.id, state.desiredQuests)
       if not ok then
-        ReportSelection("overwrite", entry, entry.id)
+        Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "overwrite" }))
         return
       end
 
       RT.SaveAccountProfile(nextProfile)
       RT.SetActiveSelectionId(entry.id)
-      RT.RefreshListsWindow()
+      Refresh()
       end,
   })
 end
 
 function RT.RequestDeleteSelection(entry)
   if not entry then
+    Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "delete" }))
     return
   end
 
@@ -169,7 +186,7 @@ function RT.RequestDeleteSelection(entry)
     onAccept = function()
       local nextProfile, ok = Core.deleteSelection(AccountProfile(), entry.id)
       if not ok then
-        ReportSelection("delete", entry, entry.id)
+        Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "delete" }))
         return
       end
 
@@ -179,7 +196,7 @@ function RT.RequestDeleteSelection(entry)
         RT.SetActiveSelectionId(nil)
       end
 
-      RT.RefreshListsWindow()
+      Refresh()
       end,
   })
 end
@@ -188,7 +205,7 @@ local function AskForNewSelection(groupId, titleKey, getDesired, activate)
   local profile = AccountProfile()
 
   if Core.selectionsFull(profile, groupId) then
-    ReportContainerFull()
+    Core.report(Core.problem("LIST.CONTAINER_FULL", { limit = Core.MAX_SAVED_SELECTIONS }))
     return
   end
 
@@ -202,7 +219,7 @@ local function AskForNewSelection(groupId, titleKey, getDesired, activate)
       local nextProfile, entry, err = Core.createSelection(AccountProfile(), getDesired(), text, groupId)
 
       if err == "full" then
-        ReportContainerFull()
+        Core.report(Core.problem("LIST.CONTAINER_FULL", { limit = Core.MAX_SAVED_SELECTIONS }))
         return
       end
 
@@ -212,8 +229,11 @@ local function AskForNewSelection(groupId, titleKey, getDesired, activate)
         RT.SetActiveSelectionId(entry.id)
       end
 
-      RT.RefreshListsWindow()
-      RT.RefreshQuestWindow()
+      if entry then
+        RT.ShowCollection(entry.id)
+      end
+
+      Refresh()
       end,
   })
 end
@@ -242,7 +262,7 @@ function RT.RequestSetQuestInSelection(entry, key, wanted)
   local nextProfile, ok = Core.setQuestInSelection(AccountProfile(), entry.id, key, wanted)
 
   if not ok then
-    ReportSelection("set_quest", entry, entry.id)
+    Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "setquest" }))
     return false
   end
 
@@ -255,8 +275,36 @@ function RT.RequestSetQuestInSelection(entry, key, wanted)
     RT.ToggleDesiredQuest(key)
   end
 
-  RT.RefreshListsWindow()
-  RT.RefreshQuestWindow()
+  Refresh()
+
+  return true
+end
+
+function RT.RequestSetQuestsInSelection(entry, keys, wanted)
+  if not entry or entry.id == nil or type(keys) ~= "table" then
+    return false
+  end
+
+  local profile, changed = AccountProfile(), false
+
+  for i = 1, #(keys) do
+    local ok
+
+    profile, ok = Core.setQuestInSelection(profile, entry.id, keys[i], wanted)
+    changed = changed or ok
+  end
+
+  if not changed then
+    return false
+  end
+
+  RT.SaveAccountProfile(profile)
+
+  if RT.GetActiveSelectionId() == entry.id then
+    RT.SetWantedKeys(keys, wanted)
+  end
+
+  Refresh()
 
   return true
 end
@@ -265,7 +313,7 @@ function RT.RequestCreateGroup()
   local profile = AccountProfile()
 
   if Core.groupsFull(profile) then
-    ReportGroupsFull()
+    Core.report(Core.problem("LIST.GROUPS_FULL", { limit = Core.MAX_GROUPS }))
     return
   end
 
@@ -279,33 +327,49 @@ function RT.RequestCreateGroup()
       local nextProfile, group, err = Core.createGroup(AccountProfile(), text)
 
       if err == "full" then
-        ReportGroupsFull()
+        Core.report(Core.problem("LIST.GROUPS_FULL", { limit = Core.MAX_GROUPS }))
         return
       end
 
       RT.SaveAccountProfile(nextProfile)
 
       if group then
-        RT.SetOpenGroup(group.id, true)
+        RT.SetOpenGroupId(group.id)
       end
 
-      RT.RefreshListsWindow()
+      Refresh()
       end,
   })
 end
 
 function RT.RequestRenameGroup(group)
   if not group then
+    Core.report(Core.problem("LIST.GROUP_CHANGE_REFUSED", { group = group and group.name or "?", reason = "not_found", action = "rename" }))
     return
   end
 
-  RequestRename(string.format(L.LISTS_RENAME_GROUP_TITLE, group.name), group.name, Core.renameGroup, group.id, function()
-    ReportGroup("rename", group, group.id)
-  end)
+  Skin.Dialog({
+    title = string.format(L.LISTS_RENAME_GROUP_TITLE, group.name),
+    body = "",
+    editBox = { default = group.name, maxLetters = Core.MAX_SELECTION_NAME_LENGTH },
+    acceptText = L.BUTTON_ACCEPT,
+    cancelText = L.BUTTON_CANCEL,
+    onAccept = function(text)
+      local nextProfile, ok = Core.renameGroup(AccountProfile(), group.id, text)
+      if not ok then
+        Core.report(Core.problem("LIST.GROUP_CHANGE_REFUSED", { group = group and group.name or "?", reason = "not_found", action = "rename" }))
+        return
+      end
+
+      RT.SaveAccountProfile(nextProfile)
+      Refresh()
+      end,
+  })
 end
 
 function RT.RequestDeleteGroup(group)
   if not group then
+    Core.report(Core.problem("LIST.GROUP_CHANGE_REFUSED", { group = group and group.name or "?", reason = "not_found", action = "delete" }))
     return
   end
 
@@ -330,7 +394,7 @@ function RT.RequestDeleteGroup(group)
       local nextProfile, ok = Core.deleteGroup(AccountProfile(), group.id)
 
       if not ok then
-        ReportGroup("delete", group, group.id)
+        Core.report(Core.problem("LIST.GROUP_CHANGE_REFUSED", { group = group and group.name or "?", reason = "not_found", action = "delete" }))
         return
       end
 
@@ -341,33 +405,110 @@ function RT.RequestDeleteGroup(group)
       end
 
       if RT.GetOpenGroupId() == group.id then
-        RT.SetOpenGroup(nil, true)
+        RT.SetOpenGroupId(nil)
       end
 
-      RT.RefreshListsWindow()
+      Refresh()
       end,
   })
 end
 
 function RT.RequestMoveSelection(entry, groupId)
   if not entry then
+    Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "move" }))
     return
   end
 
   local nextProfile, ok, err = Core.setSelectionGroup(AccountProfile(), entry.id, groupId)
 
   if err == "full" then
-    ReportContainerFull()
+    Core.report(Core.problem("LIST.CONTAINER_FULL", { limit = Core.MAX_SAVED_SELECTIONS }))
     return
   end
 
   if not ok then
-    ReportSelection("move", entry, entry.id)
+    Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "move" }))
     return
   end
 
   RT.SaveAccountProfile(nextProfile)
-  RT.RefreshListsWindow()
+  Refresh()
+end
+
+local function PlaceOf(entry)
+  local entries = Core.selectionsInContainer(AccountProfile(), entry.groupId)
+
+  for index, each in ipairs(entries) do
+    if each.id == entry.id then
+      return index, entries
+    end
+  end
+
+  return nil, entries
+end
+
+function RT.RequestMoveSelectionBy(entry, step)
+  local index, entries = PlaceOf(entry)
+  local target = index and index + step
+
+  if not target or target < 1 or target > #(entries) then
+    return
+  end
+
+  local before = step < 0 and entries[target] or entries[target + 1]
+  local nextProfile, ok = Core.moveSelectionTo(AccountProfile(), entry.id, entry.groupId, before and before.id or nil)
+
+  if ok then
+    RT.SaveAccountProfile(nextProfile)
+    Refresh()
+  end
+end
+
+function RT.RequestMoveSelectionTo(entry, groupId, beforeId)
+  if not entry then
+    Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "move" }))
+    return false
+  end
+
+  local nextProfile, ok, err = Core.moveSelectionTo(AccountProfile(), entry.id, groupId, beforeId)
+
+  if err == "full" then
+    Core.report(Core.problem("LIST.CONTAINER_FULL", { limit = Core.MAX_SAVED_SELECTIONS }))
+    return false
+  end
+
+  if not ok then
+    Core.report(Core.problem("LIST.SELECTION_CHANGE_REFUSED", { list = entry and entry.name or "?", reason = "not_found", action = "move" }))
+    return false
+  end
+
+  RT.SaveAccountProfile(nextProfile)
+  Refresh()
+
+  return true
+end
+
+function RT.RequestMoveGroupTo(group, index)
+  local nextProfile, moved = Core.moveGroupToIndex(AccountProfile(), group.id, index)
+
+  if moved then
+    RT.SaveAccountProfile(nextProfile)
+    Refresh()
+  end
+
+  return moved
+end
+
+function RT.RequestMoveGroupBy(group, step)
+  local profile = AccountProfile()
+  local index = Core.findGroupIndex(profile, group.id)
+  local target = index and index + step
+
+  if not target or target < 1 or target > Core.groupCount(profile) then
+    return
+  end
+
+  RT.RequestMoveGroupTo(group, target)
 end
 
 local function BuildDifficultySubmenu(menu, entry)
@@ -420,6 +561,8 @@ local function BuildMoveSubmenu(menu, entry)
 end
 
 BuildSelectionContextMenu = function(menu, entry)
+  local index, entries = PlaceOf(entry)
+
   menu:Reset()
   menu:AddItem(entry.name, { header = true })
 
@@ -431,6 +574,14 @@ BuildSelectionContextMenu = function(menu, entry)
     })
   end
 
+  menu:AddItem(L.LISTS_MENU_UP, {
+    disabled = not index or index <= 1,
+    onClick = function() RT.RequestMoveSelectionBy(entry, -1) end,
+  })
+  menu:AddItem(L.LISTS_MENU_DOWN, {
+    disabled = not index or index >= #(entries),
+    onClick = function() RT.RequestMoveSelectionBy(entry, 1) end,
+  })
   menu:AddItem(L.LISTS_MENU_DIFFICULTY, {
     arrow = true,
     keepOpen = true,
@@ -472,9 +623,24 @@ function RT.ShowGroupContextMenu(anchor, group)
     return
   end
 
+  local profile = AccountProfile()
+  local index = Core.findGroupIndex(profile, group.id)
   local menu = EnsureContextMenu()
+
   menu:Reset()
   menu:AddItem(group.name, { header = true })
+  menu:AddItem(L.COLLECTIONS_NEW_HERE, {
+    disabled = Core.selectionsFull(profile, group.id),
+    onClick = function() RT.RequestCreateSelection(group.id) end,
+  })
+  menu:AddItem(L.LISTS_MENU_UP, {
+    disabled = not index or index <= 1,
+    onClick = function() RT.RequestMoveGroupBy(group, -1) end,
+  })
+  menu:AddItem(L.LISTS_MENU_DOWN, {
+    disabled = not index or index >= Core.groupCount(profile),
+    onClick = function() RT.RequestMoveGroupBy(group, 1) end,
+  })
   menu:AddItem(L.LISTS_MENU_RENAME, {
     onClick = function() RT.RequestRenameGroup(group) end,
   })
@@ -484,145 +650,3 @@ function RT.ShowGroupContextMenu(anchor, group)
   menu:Layout()
   menu:OpenAt(anchor, "TOPLEFT", "BOTTOMLEFT", 0, -2)
 end
-
-local function RowTooltip(row, entry)
-  EbonAPI.Bricks.tip(row, entry.name or "")
-
-  if entry.id == nil then
-    GameTooltip:AddLine(L.LISTS_ROW_CLEAR_ENTRY, 1, 1, 1)
-  else
-    GameTooltip:AddLine(string.format(L.LISTS_ROW_QUEST_COUNT, Core.desiredQuestCount(entry.desiredQuests)), 1, 1, 1)
-
-    if entry.difficulty then
-      GameTooltip:AddLine(string.format(L.LISTS_ROW_TARGET_DIFFICULTY, Core.difficultyLabel(entry.difficulty)), 0.85, 0.78, 1)
-    end
-  end
-
-  if RT.IsRolling() then
-    GameTooltip:AddLine(L.LISTS_ROW_STOP_TO_SWITCH, 1, 0.4, 0.4)
-  elseif RT.IsSelectionActive(entry) then
-    GameTooltip:AddLine(L.LISTS_ROW_LEFT_CLICK_UNLOAD, 0.8, 0.8, 0.8)
-  elseif RT.IsSelectionDifficultyLocked(entry) then
-    GameTooltip:AddLine(L.LISTS_ROW_NEED_RESTED, 1, 0.4, 0.4)
-  elseif entry.id == nil then
-    GameTooltip:AddLine(L.LISTS_ROW_LEFT_CLICK_CLEAR, 0.8, 0.8, 0.8)
-  else
-    GameTooltip:AddLine(L.LISTS_ROW_LEFT_CLICK_LOAD, 0.8, 0.8, 0.8)
-  end
-
-  GameTooltip:Show()
-end
-
-local browser = RT.BuildBrowser({
-  names = {
-    listPanel = "AutoCallboardListPanel",
-    groupPanel = "AutoCallboardGroupPanel",
-    band = "AutoCallboardGroupBand",
-    row = "AutoCallboardListRow",
-  },
-  hasList = true,
-  listReservedRows = 1,
-  emptyKey = "LISTS_WINDOW_EMPTY",
-  maxGroups = function() return Core.MAX_GROUPS end,
-  groups = function() return AccountProfile().groups end,
-  getOpen = function() return RT.GetOpenGroupId() end,
-  setOpen = function(value) RT.SetOpenGroupId(value) end,
-  listTitle = function() return L.LISTS_WINDOW_TITLE end,
-  listEntries = function()
-    RT.noneSelectionEntry.name = L.LISTS_NONE_ENTRY
-
-    local stored = Core.selectionsInContainer(AccountProfile(), nil)
-    local entries = { RT.noneSelectionEntry }
-
-    for i = 1, #(stored) do
-      entries[#(entries) + 1] = stored[i]
-    end
-
-    return entries, #(stored)
-  end,
-  groupEntries = function(groupId) return Core.selectionsInContainer(AccountProfile(), groupId) end,
-  count = function(groupId) return Core.selectionCount(AccountProfile(), groupId) end,
-  rowText = function(entry)
-    if entry.difficulty then
-      return entry.name .. " " .. EbonAPI.Palette.code("heading") .. "[" .. Core.difficultyLabel(entry.difficulty) .. "]|r"
-    end
-
-    return entry.name
-  end,
-  rowState = function(entry)
-    return RT.IsSelectionActive(entry), RT.IsRolling() or RT.IsSelectionDifficultyLocked(entry)
-  end,
-  rowTooltip = RowTooltip,
-  onRowClick = function(row, entry, mouseButton)
-    if mouseButton == "RightButton" then
-      if entry.id ~= nil then
-        RT.ShowSelectionContextMenu(row, entry)
-      end
-    else
-      RT.RequestLoadSelection(entry)
-    end
-  end,
-  canDrag = function(entry) return entry.id ~= nil end,
-  entryGroup = function(entry) return entry.groupId end,
-  dropRefused = function(groupId) return Core.selectionsFull(AccountProfile(), groupId) end,
-  moveEntry = function(id, groupId, beforeId)
-    local nextProfile, ok, err = Core.moveSelectionTo(AccountProfile(), id, groupId, beforeId)
-
-    if ok then
-      RT.SaveAccountProfile(nextProfile)
-    elseif err == "full" then
-      ReportContainerFull()
-    else
-      ReportSelection("move", nil, id)
-    end
-
-    return ok
-  end,
-  moveGroup = function(id, index)
-    local nextProfile, moved = Core.moveGroupToIndex(AccountProfile(), id, index)
-
-    if moved then
-      RT.SaveAccountProfile(nextProfile)
-    else
-      ReportGroup("move", nil, id)
-    end
-
-    return moved
-  end,
-  groupMenu = function(anchor, group) RT.ShowGroupContextMenu(anchor, group) end,
-  bandLines = function(groupId)
-    return {
-      { string.format(L.LISTS_ROW_QUEST_COUNT_GROUP, Core.selectionCount(AccountProfile(), groupId)), 1, 1, 1 },
-      { L.LISTS_OPEN_GROUP_TOOLTIP, 0.8, 0.8, 0.8 },
-    }
-  end,
-  onAdd = function(groupId) RT.RequestCreateSelection(groupId) end,
-  addTip = { "LISTS_ADD_SELECTION_TITLE", "LISTS_ADD_SELECTION_TOOLTIP" },
-  newGroup = {
-    onClick = function() RT.RequestCreateGroup() end,
-    tipTitle = "LISTS_NEW_GROUP_TITLE_SHORT",
-    tipBody = "LISTS_NEW_GROUP_TOOLTIP",
-    enabled = function() return not Core.groupsFull(AccountProfile()) end,
-  },
-  onAnimating = function(flag) RT.listsAnimating = flag end,
-  createWindow = function(width, height, buttons)
-    local window = Skin.Window("AutoCallboardListsWindow", {
-      width = width,
-      height = height,
-      titleKey = "BUTTON_LISTS",
-      strata = "HIGH",
-      buttons = buttons,
-      point = { "TOPRIGHT", RT.controlFrame, "TOPLEFT", -8, 0 },
-    })
-    RT.listsWindow = window
-
-    return window
-  end,
-})
-
-RT.CreateListsWindow = browser.Create
-RT.RefreshListsWindow = browser.Refresh
-RT.ToggleListsWindow = browser.Toggle
-RT.SetOpenGroup = browser.SetOpen
-RT.IsListsAnimating = browser.IsAnimating
-RT.IsDraggingSelection = browser.IsDragging

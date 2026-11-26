@@ -227,7 +227,6 @@ local libraryBrowser = RT.BuildBrowser({
       { L.ROUTES_CATEGORY_OPEN_TOOLTIP, 0.8, 0.8, 0.8 },
     }
   end,
-  onOpenGroup = function(category) RT.RequestRouteAvailability(category) end,
   createWindow = BrowserWindow("AutoCallboardLibraryWindow", "LIBRARY_WINDOW_TITLE", "TOPLEFT", "TOPRIGHT", 8),
 })
 

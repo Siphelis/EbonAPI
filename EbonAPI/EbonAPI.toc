@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: |cff8a6fd4EbonAPI|r
 ## Author: Siphelis
-## Version: 2.2.5
+## Version: 3.0.0-0
 ## SavedVariables: EbonAPIDB
 
 Core\Catch.lua
@@ -28,6 +28,7 @@ Core\Format.lua
 Core\PerfData.lua
 Core\Treemap.lua
 Core\Perf.lua
+Core\PerfPieces.lua
 Core\PerfScan.lua
 Core\QuestLog.lua
 
@@ -36,7 +37,67 @@ Net\Pace.lua
 
 Server\Opcodes.lua
 Server\Bridge.lua
+Server\Decoder.lua
+Server\Decoders\Echoes.lua
+Server\Decoders\EchoLoadouts.lua
+Server\Decoders\Loadouts.lua
+Server\Decoders\Shop.lua
+Server\Decoders\Checkpoints.lua
+Server\Decoders\RunDeath.lua
+Server\Decoders\VoidStorage.lua
+Server\Decoders\GmTicket.lua
+Server\Decoders\Instance.lua
+Server\Decoders\Collections.lua
+Server\Decoders\Prestige.lua
+Server\Decoders\ClassTree.lua
+Server\Decoders\ReaperContracts.lua
+Server\Decoders\Callboard.lua
+Server\Decoders\DungeonFinder.lua
+Server\Decoders\Trials.lua
+Server\Decoders\Spec.lua
+Server\Decoders\Hardmode.lua
+Server\Decoders\Portals.lua
+Server\Decoders\Extraction.lua
+Server\Decoders\RaidFinder.lua
+Server\Decoders\Toolbelt.lua
+Server\Decoders\RaidLockout.lua
 Server\Ebonhold.lua
+Server\JournalPilot.lua
+Server\Data\AffixEffects.lua
+Server\Data\AffixSlots.lua
+Server\Character.lua
+Server\Affixes.lua
+Server\BuildSlots.lua
+Server\EchoCatalog.lua
+Server\Actions.lua
+Server\ClientData.lua
+Server\Actions\Boutique.lua
+Server\Actions\Callboard.lua
+Server\Actions\Checkpoints.lua
+Server\Actions\ClassTree.lua
+Server\Actions\Collections.lua
+Server\Actions\Contracts.lua
+Server\Actions\DungeonFinder.lua
+Server\Actions\EchosLoadouts.lua
+Server\Actions\EchosPerks.lua
+Server\Actions\Extraction.lua
+Server\Actions\GmTicket.lua
+Server\Actions\Hardmode.lua
+Server\Actions\Instance.lua
+Server\Actions\Loadouts.lua
+Server\Actions\OverflowHealth.lua
+Server\Actions\Portals.lua
+Server\Actions\Prestige.lua
+Server\Actions\RaidFinder.lua
+Server\Actions\Reaper.lua
+Server\Actions\RunMort.lua
+Server\Actions\SoulAnchor.lua
+Server\Actions\SpellUnlearn.lua
+Server\Actions\TalentsSpec.lua
+Server\Actions\Toolbelt.lua
+Server\Actions\Trials.lua
+Server\Actions\VoidStorage.lua
+Server\Actions\XpAura.lua
 Server\State.lua
 
 Net\Channel.lua
@@ -50,26 +111,55 @@ Net\Legacy.lua
 UI\Catalog.lua
 UI\Skins.lua
 UI\DefaultSkin.lua
-Skins\Skins.xml
 
 UI\Parameters.lua
 UI\Palette.lua
 UI\Bricks.lua
-UI\Output.lua
 UI\Tiles.lua
 UI\Options.lua
 UI\Windows.lua
 UI\Window.lua
 UI\Kit.lua
+UI\EchoTile.lua
+UI\AffixTile.lua
+UI\AffixRow.lua
+UI\CheckBox.lua
+UI\CodeBox.lua
+UI\WeightRow.lua
+UI\BuildCard.lua
+UI\BuildRow.lua
+UI\RailDisc.lua
 UI\Stacked.lua
 UI\Alerts.lua
 UI\Stack.lua
+UI\Dress.lua
+UI\DressTree.lua
+UI\Replace.lua
+UI\DressEchoes.lua
+UI\DressTreeBody.lua
+UI\DressTransmog.lua
+UI\DressMounts.lua
+UI\DressCompanions.lua
+UI\Freeze.lua
+UI\DressPrestige.lua
+UI\PrestigeRosace.lua
+UI\PrestigeStage.lua
+UI\Emblem.lua
+UI\PrestigeAlert.lua
+UI\BoardPin.lua
+UI\BoardAccordion.lua
 UI\SavesData.lua
 UI\SavesViews.lua
 UI\Saves.lua
 UI\Choice.lua
 UI\Pill.lua
 UI\Tile.lua
+UI\Bare.lua
+UI\Counter.lua
+UI\Round.lua
+UI\Zoom.lua
+UI\MiniView.lua
+UI\TipCard.lua
 UI\MapView.lua
 UI\PerfModel.lua
 UI\PerfPage.lua
@@ -88,8 +178,10 @@ UI\QueueTable.lua
 UI\QueueHolders.lua
 UI\QueueBand.lua
 UI\QueueView.lua
-UI\Synthesis.lua
 UI\QuestLogChecks.lua
+UI\QuestLogSelection.lua
+UI\QuestLogSelect.lua
 UI\QuestLogConfirm.lua
 
+UI\MicroBar.lua
 Boot.lua

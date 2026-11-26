@@ -1,5 +1,6 @@
 ## Interface: 30300
 ## Title: EbonAPI - EbonBuilds
+## X-Part-Of: EbonAPI
 ## X-Website: https://github.com/Siphelis/EbonBuilds/releases/latest
 ## Dependencies: EbonAPI
 ## OptionalDeps: ProjectEbonhold
@@ -24,13 +25,14 @@ locales/deDE.lua
 locales/esES.lua
 core/Timer.lua
 core/Events.lua
+core/Options.lua
 core/Init.lua
 modules/build/Build.lua
-modules/data/SpecData.lua
-modules/data/Catalog.lua
 modules/weights/Weights.lua
+modules/weights/Defaults.lua
 modules/protocol/Protocol.lua
 modules/draw/DrawHook.lua
+modules/draw/SouvenirPrompt.lua
 modules/matrix/Matrix.lua
 modules/matrix/Profiles.lua
 modules/matrix/Rating.lua
@@ -49,6 +51,12 @@ modules/ui/EchoTable.lua
 modules/session/Session.lua
 modules/build/Scoring.lua
 modules/build/ExportImport.lua
+modules/build/Favorites.lua
+modules/build/Recovered.lua
+modules/build/PlayerBuilds.lua
+modules/build/Compare.lua
+modules/build/Discovery.lua
+modules/build/EchoFilter.lua
 modules/sync/Sync.lua
 modules/ui/WeightsView.lua
 modules/ui/WelcomeView.lua
@@ -62,7 +70,41 @@ modules/ui/BuildTabs.lua
 modules/ui/BuildOverview.lua
 modules/ui/Toast.lua
 modules/ui/SessionHistory.lua
+modules/pe/PrioritiesControls.lua
+modules/ui/PrioritiesCard.lua
+modules/ui/PrioritiesGrid.lua
+modules/ui/PrioritiesState.lua
+modules/ui/PrioritiesBar.lua
+modules/ui/PrioritiesBuilds.lua
+modules/ui/PrioritiesCount.lua
+modules/ui/PrioritiesTabWeights.lua
+modules/ui/PrioritiesTabAuto.lua
+modules/ui/PrioritiesTabWishes.lua
+modules/ui/PrioritiesTabDelays.lua
+modules/ui/PrioritiesPanel.lua
+modules/ui/PrioritiesPage.lua
 modules/automation/Automation.lua
 
 modules/reroll/Reroll.lua
+modules/reroll/HuntWindow.lua
 modules/reroll/Wishlist.lua
+modules/pe/Registry.lua
+modules/pe/Common.lua
+modules/pe/IconWindow.lua
+modules/pe/Rail.lua
+modules/pe/Shell.lua
+modules/pe/FilterColumn.lua
+modules/pe/EchoesFilters.lua
+modules/pe/EchoesGrid.lua
+modules/pe/EchoesView.lua
+modules/pe/AffixEngrave.lua
+modules/pe/AffixesView.lua
+modules/pe/PlayersColumn.lua
+modules/pe/PlayersList.lua
+modules/pe/PlayersDetail.lua
+modules/pe/PlayersView.lua
+modules/pe/NewBuildWindow.lua
+modules/affix/CombatMeter.lua
+modules/affix/Formulas.lua
+modules/affix/Calc.lua
+modules/affix/Tooltip.lua

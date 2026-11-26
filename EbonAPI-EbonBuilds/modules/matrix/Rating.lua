@@ -13,7 +13,7 @@ local PARTNERS = 3
 local PARTNER_BUILDS = 3
 local PARTNER_GAIN = 0.15
 
-local Key = ns.Catalog.Key
+local Key = EbonBuilds.Matrix.Key
 local Decode = EbonAPI.Profile.DecodeBuild
 local floor = math.floor
 
@@ -169,17 +169,25 @@ end
 local function Playable(data, class)
     local mask = data.classMask or 0
     if mask == 0 then return true end
-    local bitVal = ns.Const.CLASS_BITS[class]
+    local E = EbonAPI and EbonAPI.EchoCatalog
+    local bitVal = E and E.ClassBit(class)
     return not bitVal or bit.band(mask, bitVal) ~= 0
 end
 
-function Rating.Value(spellId, withRun)
-    local class = ns.Build.PlayerClassToken()
-    local data = class and spellId and ns.Catalog.Entry(spellId)
+function Rating.Value(spellId, withRun, class)
+    class = class or ns.Build.PlayerClassToken()
+    local E = EbonAPI and EbonAPI.EchoCatalog
+    local data = class and spellId and E and E.Entry(spellId)
     if not data or not Playable(data, class) then return nil end
 
     local ban = ns.Matrix.BanVoteRate(spellId, class) or 0
     if ban >= BAN_ZERO then return 0 end
+    if class == ns.Build.PlayerClassToken() then
+        local build = ns.Build.GetActive()
+        if ns.Weights.IsOwnSpec(data, class, (build and build.spec) or ns.Build.PlayerTopTalentTab()) then
+            return TOP
+        end
+    end
 
     local note = BASE[data.quality or 0] or BASE[0]
     local corpus = Corpus(class)
@@ -193,8 +201,8 @@ function Rating.Value(spellId, withRun)
     return note
 end
 
-function Rating.Stars(spellId, withRun)
-    local note = Rating.Value(spellId, withRun)
+function Rating.Stars(spellId, withRun, class)
+    local note = Rating.Value(spellId, withRun, class)
     if not note then return nil end
     local stars = floor(note + 0.5)
     if stars > TOP then stars = TOP end
@@ -254,7 +262,8 @@ function Rating.Partners(spellId)
             table.sort(picks, ByGain)
             out = {}
             for i = 1, math.min(PARTNERS, #picks) do
-                out[i] = ns.Catalog.KeySpell(picks[i].k, class)
+                local E = EbonAPI and EbonAPI.EchoCatalog
+                out[i] = (E and E.GroupSpell(picks[i].k, class)) or picks[i].k
             end
         end
     end

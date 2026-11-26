@@ -15,20 +15,9 @@ local MARK = "\194\183"
 local HEAD_GAP = 6
 local PER = 3
 
-local function word(key)
-  local L = EbonAPI.L
+local word = EbonAPI.QueueParts.word
 
-  return (L and L[key]) or key
-end
-
-local function S(key, fallback)
-  local ok, found = pcall(EbonAPI.Skins.value, key)
-  if ok and found ~= nil then
-    return found
-  end
-
-  return fallback
-end
+local S = EbonAPI.QueueParts.value
 
 local function shapeOf()
   local shape = S("widgets.queue.shape")

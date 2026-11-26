@@ -1,5 +1,9 @@
 local Core = AutoCallboardCore
 local RT = AutoCallboardRuntime
+local L = AutoCallboardLocale
+
+local Log = RT.Log
+
 local ACTION_INTERVAL = 0.35
 local BLOCK_TIMEOUT = 12
 local DIFFICULTY_GRACE = 3
@@ -99,15 +103,13 @@ end
 local function ApplyTier(tier)
   tier = Core.sanitizeDifficulty(tier)
 
-  if not tier then
+  local current = RT.GetCurrentDifficulty()
+
+  if not tier or not current or current == tier then
     return
   end
 
-  if RT.GetCurrentDifficulty() == tier then
-    return
-  end
-
-  if not RT.CanApplyDifficulty() then
+  if not RT.CanApplyDifficulty(tier) then
     local name = UnitAffectingCombat and UnitAffectingCombat("player") and "PLAYER.DIFFICULTY_IN_COMBAT"
       or "PLAYER.DIFFICULTY_NOT_RESTING"
 
@@ -225,19 +227,19 @@ local function RunAction(action, call)
   local argument = action.kind == "turnin" and (action.reward or 0) or action.index
   local ok, failure = pcall(_G[call], argument)
 
-  RT.api:Trace("route", "played", action.kind)
+  Log("route", "played ", tostring(action.kind), " ", tostring(argument), " ok=", tostring(ok))
 
   if not ok then
-    return nil, RT.api:Problem("PLAYER.ACTION_CALL_FAILED", {
+    RT.api:Report(RT.api:Problem("PLAYER.ACTION_CALL_FAILED", {
       what = action.kind,
       position = action.step,
       argument = tostring(argument),
       detail = string.sub(tostring(failure), 1, 120),
       route = RouteName(),
-    })
+    }))
   end
 
-  return true
+  return ok
 end
 
 function RT.QueueRouteBlock(route, index)
@@ -278,6 +280,7 @@ function RT.QueueRouteBlock(route, index)
   blockDeadline = GetTime() + BLOCK_TIMEOUT
 
   RT.PointRouteArrowAtNextStep(route, index)
+  Log("route", "block ", tostring(index), " queued with ", tostring(#(queue)), " actions")
   RT.RefreshRoutePanel()
 
   return true
@@ -297,6 +300,7 @@ function RT.QueueTravelRun(route, from)
     table.insert(queue, {
       kind = "travel",
       checkpoint = step.checkpoint,
+      checkpointName = step.checkpointName,
       difficulty = step.difficulty,
       step = index,
     })
@@ -316,14 +320,11 @@ end
 
 function RT.BeginRoutePlaybackRun(route, from)
   if type(route) ~= "table" or type(route.steps) ~= "table" then
-    local problem = RT.api:Problem("PLAYER.ROUTE_INVALID", {
+    RT.api:Report(RT.api:Problem("PLAYER.ROUTE_INVALID", {
       route = type(route) == "table" and tostring(route.name) or tostring(route),
-    })
-
-    RT.api:Report(problem)
+    }))
     RT.StopRoutePlayback("invalid_route")
-
-    return nil, problem
+    return nil, "invalid_route"
   end
 
   local start = math.max(1, math.floor(tonumber(from) or 1))
@@ -411,6 +412,7 @@ function RT.OnRouteDialogueOpened(source, title)
   local index = RT.MatchRouteStep(route, signature)
 
   if not index then
+    Log("route", "ignored, no block matches ", tostring(signature), " source=", tostring(source))
     return
   end
 
@@ -455,6 +457,7 @@ function RT.ProcessRoutePlayback()
   local now = GetTime()
 
   if blockDeadline and now > blockDeadline then
+    Log("route", "block timed out with ", tostring(#(queue)), " actions left")
     RT.api:Report(RT.api:Problem("PLAYER.BLOCK_TIMEOUT", {
       position = queue[1].step,
       what = queue[1].kind,
@@ -486,17 +489,13 @@ function RT.ProcessRoutePlayback()
 
   if action.kind == "travel" then
     ApplyTier(action.difficulty)
-    RT.UseRouteCheckpoint(action.checkpoint)
+    RT.UseRouteCheckpoint(action.checkpoint, action.checkpointName)
   elseif call then
     if action.kind == "available" then
       BindAcceptTitle(queue[1], PickedQuestTitle(action))
     end
 
-    local played, problem = RunAction(action, call)
-
-    if not played then
-      RT.api:Report(problem)
-    end
+    RunAction(action, call)
   end
 
   if #(queue) == 0 then
@@ -512,36 +511,54 @@ function RT.ProcessRoutePlayback()
   return ACTION_INTERVAL
 end
 
-function RT.UseRouteCheckpoint(checkpointId)
-  checkpointId = tonumber(checkpointId)
+function RT.UseRouteCheckpoint(checkpointId, recordedName)
+  local recorded = tonumber(checkpointId)
+  checkpointId = Core.resolveCheckpointId(recorded)
 
-  local service = EbonAPI.Ebonhold.Checkpoints()
-  local checkpoint = service and service.GetCheckpoints and RT.api:Guard("player.checkpoints", service.GetCheckpoints)
+  local service = EbonAPI.Ebonhold.Service("CheckpointService")
 
-  if checkpointId and type(checkpoint) == "table" and Core.countUnlockedCheckpoints(checkpoint) > 0 then
-    for i = 1, #(checkpoint) do
-      if tonumber(checkpoint[i].id) == checkpointId and not Core.travelCheckpointUsable(checkpoint[i]) then
-        local problem = RT.api:Problem("PLAYER.CHECKPOINT_LOCKED", {
-          checkpoint = checkpointId,
-          place = Core.routeCheckpointName(checkpointId),
-          position = queue[1] and queue[1].step or cursor,
-          route = RouteName(),
-        })
+  if not checkpointId or not service or type(service.UseCheckpoint) ~= "function" then
+    return false
+  end
 
-        RT.api:Report(problem)
-        RT.StopRoutePlayback("checkpoint")
+  local known, checkpoints = pcall(service.GetCheckpoints)
 
-        return nil, problem
+  if known and type(checkpoints) == "table" and Core.countUnlockedCheckpoints(checkpoints) > 0 then
+    local found
+
+    for i = 1, #(checkpoints) do
+      if tonumber(checkpoints[i].id) == checkpointId then
+        found = found or checkpoints[i]
+
+        if Core.travelCheckpointUsable(checkpoints[i]) then
+          found = checkpoints[i]
+          break
+        end
       end
+    end
+
+    local refusal = not found and L.ROUTE_CHECKPOINT_RETIRED
+        or not Core.travelCheckpointUsable(found) and L.ROUTE_CHECKPOINT_LOCKED
+
+    if refusal then
+      RT.api:Report(RT.api:Problem("PLAYER.CHECKPOINT_LOCKED", {
+        checkpoint = checkpointId,
+        place = Core.routeCheckpointName(recorded, recordedName),
+        position = queue[1] and queue[1].step or cursor,
+        route = RouteName(),
+      }))
+      RT.StopRoutePlayback("checkpoint")
+      return false
     end
   end
 
-  local used, problem = EbonAPI.Ebonhold.UseCheckpoint(checkpointId)
+  local used = EbonAPI.Ebonhold.UseCheckpoint(checkpointId)
+
+  Log("route", "checkpoint ", tostring(checkpointId), " ok=", tostring(used and true or false))
 
   if not used then
     RT.StopRoutePlayback("checkpoint_failed")
-
-    return nil, problem
+    return false
   end
 
   return true

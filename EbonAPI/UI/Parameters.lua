@@ -54,7 +54,7 @@ local function held()
   end
 
   if not store then
-    store = DB.store("EbonAPI", { account = { parameters = {} } })
+    store = DB.store("EbonAPI", { account = { parameters = {}, statusLine = { showSpeed = false, showFps = false } } })
   end
 
   local values = store.account.parameters
@@ -162,6 +162,141 @@ function Parameters.resetPlayer()
   end
 
   return changed
+end
+
+local STATUS_NAMES = { showSpeed = true, showFps = true }
+
+local function statusLine()
+  if not held() then
+    return nil
+  end
+
+  local line = store.account.statusLine
+
+  return type(line) == "table" and line or nil
+end
+
+function Parameters.statusShown(name)
+  local line = statusLine()
+
+  return line ~= nil and line[name] == true
+end
+
+function Parameters.setStatusShown(name, value)
+  if not STATUS_NAMES[name] then
+    error(format('EbonAPI: unknown status display "%s"', tostring(name)), 2)
+  end
+
+  local line = statusLine()
+  local shown = value and true or false
+
+  if not line or line[name] == shown then
+    return false
+  end
+
+  line[name] = shown
+  EbonAPI:Emit("PARAMETER_CHANGED", name, shown)
+
+  return true
+end
+
+function Parameters.backgroundAnimations()
+  if not held() then
+    return true
+  end
+
+  return store.account.backgroundAnimations ~= false
+end
+
+function Parameters.setBackgroundAnimations(value)
+  if not held() then
+    return false
+  end
+
+  local shown = value and true or false
+
+  if Parameters.backgroundAnimations() == shown then
+    return false
+  end
+
+  store.account.backgroundAnimations = shown
+  EbonAPI:Emit("PARAMETER_CHANGED", "backgroundAnimations", shown)
+
+  return true
+end
+
+function EbonAPI:GetBackgroundAnimations()
+  return Parameters.backgroundAnimations()
+end
+
+function Handle:GetBackgroundAnimations()
+  return Parameters.backgroundAnimations()
+end
+
+function Parameters.huntAnimation()
+  if not held() then
+    return true
+  end
+
+  return store.account.huntAnimation ~= false
+end
+
+function Parameters.setHuntAnimation(value)
+  if not held() then
+    return false
+  end
+
+  local shown = value and true or false
+
+  if Parameters.huntAnimation() == shown then
+    return false
+  end
+
+  store.account.huntAnimation = shown
+  EbonAPI:Emit("PARAMETER_CHANGED", "huntAnimation", shown)
+
+  return true
+end
+
+function EbonAPI:GetHuntAnimation()
+  return Parameters.huntAnimation()
+end
+
+function Handle:GetHuntAnimation()
+  return Parameters.huntAnimation()
+end
+
+function Parameters.prestigeAnimation()
+  if not held() then
+    return true
+  end
+
+  return store.account.prestigeAnimation ~= false
+end
+
+function Parameters.setPrestigeAnimation(value)
+  if not held() then
+    return false
+  end
+
+  local shown = value and true or false
+
+  if Parameters.prestigeAnimation() == shown then
+    return false
+  end
+
+  store.account.prestigeAnimation = shown
+  EbonAPI:Emit("PARAMETER_CHANGED", "prestigeAnimation", shown)
+
+  return true
+end
+
+function EbonAPI:GetPrestigeAnimation()
+  return Parameters.prestigeAnimation()
+end
+
+function Handle:GetPrestigeAnimation()
+  return Parameters.prestigeAnimation()
 end
 
 function Parameters.setOwn(addon, name, value)

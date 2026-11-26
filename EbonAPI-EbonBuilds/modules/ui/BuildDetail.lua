@@ -12,11 +12,10 @@ local BESIDE     = 2
 local COLUMNS    = 5
 local CELL_W     = 62
 local CELL_H     = 66
-local ICON_SIZE  = 36
+local ICON_SIZE  = 32
+local CELL_ICON  = 36
 local BADGE      = 17
-local BOOK_SIZE  = 11
-local CORNER     = 2
-local HALO       = ICON_SIZE * 1.7
+local HALO       = CELL_ICON * 1.7
 local HALO_TURN  = 8
 local HALO_ALPHA = 0.6
 local DISCS      = { { 0, BADGE - 1 }, { -BADGE, 0 }, { BADGE, 0 } }
@@ -43,24 +42,16 @@ local SMALL_GAP  = 2
 local SPEC_ICON  = 14
 local ACTIVE     = 0.25
 local NAME_MAX   = 32
-local ACK_WINDOW = 30
-local UPLOAD     = "REQUEST_PERK_LOADOUT_UPLOAD"
 local NO_FAMILY  = "No family"
 local ASSETS     = "Interface\\AddOns\\ProjectEbonhold\\assets\\"
 local STAR       = "Interface\\Cooldown\\star4"
-local NO_ICON    = "Interface\\Icons\\INV_Misc_QuestionMark"
+local NO_ICON    = EbonBuilds.Const.UNKNOWN_ICON
 local EMPTY_SLOT = "Interface\\PaperDoll\\UI-Backpack-EmptySlot"
-local BOOK       = "Interface\\Icons\\INV_Misc_Book_09"
-local GREY       = { 0.5, 0.5, 0.5 }
-local GOLD       = { 1, 0.82, 0 }
+local GOLD      = { 1, 0.82, 0 }
 local GOLD_HEX   = "ffd100"
-local SOLID      = "Interface\\Buttons\\WHITE8X8"
+local SOLID      = EbonBuilds.Const.SOLID
 
 local BUILD_SLOTS  = EbonBuilds.Const.BUILD_LOCKED_SLOTS
-local CLASS_COLORS = EbonBuilds.Const.CLASS_RGB
-local QUALITY_HEX  = EbonBuilds.Const.QUALITY_HEX
-local FAMILY_MAP   = EbonBuilds.Const.FAMILY_MAP
-local FAMILIES     = EbonBuilds.Const.FAMILIES
 
 local STAR_RGB = {
     [0] = { 1.0, 1.0, 1.0 },
@@ -73,20 +64,19 @@ local STAR_RGB = {
 local frame, page, others, holder, slotRow
 local permSlots, gridCells = {}, {}
 local echoes, counts, chosen = {}, {}, {}
-local current, pendingEntry, pendingName, pendingAt
-local listening = false
+local current, pendingEntry
 
 local function Quality(spellId)
-    local data = EbonBuilds.Catalog.Entry(spellId)
+    local data = EbonAPI.EchoCatalog.Entry(spellId)
     return data and data.quality or 0
 end
 
-local function Art(quality)
-    return math.min(quality, 3)
+local function TileQuality(quality)
+    return quality and math.min(quality + 1, 5) or 0
 end
 
 local function Hex(quality)
-    return QUALITY_HEX[quality] or QUALITY_HEX[0]
+    return EbonBuilds.Const.QualityHex(quality) or EbonBuilds.Const.QualityHex(0)
 end
 
 local function LockedSet(entry)
@@ -106,9 +96,9 @@ local function ByRarity(a, b)
 end
 
 local function Families(spellId, into)
-    local data = EbonBuilds.Catalog.Entry(spellId)
+    local data = EbonAPI.EchoCatalog.Entry(spellId)
     for _, family in ipairs(data and data.families or {}) do
-        local key = FAMILY_MAP[family] or family
+        local key = EbonAPI.ClientData.Family(family)
         if key ~= NO_FAMILY then into[key] = true end
     end
 end
@@ -210,40 +200,26 @@ local function CreateCell(parent)
     cell:EnableMouse(true)
     cell._spins, cell._discs, cell._counts = {}, {}, {}
 
-    local base = cell:CreateTexture(nil, "BORDER")
-    base:SetWidth(ICON_SIZE + 2)
-    base:SetHeight(ICON_SIZE + 2)
-    base:SetPoint("TOP", cell, "TOP", 0, -2)
-    cell._base = base
+    local tile = W.Kit("echoTile", cell, { size = ICON_SIZE, point = { "TOP", cell, "TOP", 0, -2 } })
+    tile:EnableMouse(false)
+    cell._tile = tile
 
-    local tex = cell:CreateTexture(nil, "ARTWORK")
-    tex:SetWidth(ICON_SIZE - 4)
-    tex:SetHeight(ICON_SIZE - 4)
-    tex:SetPoint("CENTER", base, "CENTER", 0, 0)
-    cell._tex = tex
+    local over = CreateFrame("Frame", nil, cell)
+    over:SetAllPoints(cell)
+    over:SetFrameLevel(tile:GetFrameLevel() + 2)
 
-    local ring = cell:CreateTexture(nil, "OVERLAY")
-    ring:SetWidth(110 * ICON_SIZE / 32)
-    ring:SetHeight(110 * ICON_SIZE / 32)
-    ring:SetPoint("CENTER", base, "CENTER", 0, 1)
-    cell._ring = ring
-
-    cell._halo = Mark(cell, "BACKGROUND", 0, STAR, HALO, "CENTER", base, 0, 0)
+    cell._halo = Mark(cell, "BACKGROUND", 0, STAR, HALO, "CENTER", tile, 0, 0)
     cell._halo:SetBlendMode("ADD")
     Spin(cell, cell._halo, HALO_TURN, 360)
 
     for i, at in ipairs(DISCS) do
-        local disc = Mark(cell, "OVERLAY", 5, ASSETS .. "background_count", BADGE, "CENTER", base, at[1], at[2])
-        local count = cell:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+        local disc = Mark(over, "OVERLAY", 5, ASSETS .. "background_count", BADGE, "CENTER", tile, at[1], at[2])
+        local count = over:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
         count:SetPoint("CENTER", disc, "CENTER", 0, 0)
         cell._discs[i], cell._counts[i] = disc, count
     end
 
-    cell._book = Mark(cell, "OVERLAY", 6, BOOK, BOOK_SIZE, "BOTTOMRIGHT", tex, CORNER, -CORNER)
-    cell._book:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    cell._lock = Mark(cell, "OVERLAY", 7, ASSETS .. "lock", BADGE, "TOPRIGHT", tex, CORNER, CORNER)
-
-    W.Gap(cell, CELL_W, ICON_SIZE + 4)
+    W.Gap(cell, CELL_W, CELL_ICON + 4)
     local name = cell:Add("text", { width = CELL_W - 2, text = function() return cell._nameText end })
     name.text:SetJustifyH("CENTER")
     name.text:SetHeight(NAME_H)
@@ -255,19 +231,20 @@ end
 local function Fill(cell, item)
     local q, held = item.quality, item.held
     local rgb = item.locked and GOLD or STAR_RGB[q] or STAR_RGB[0]
-    local data = EbonBuilds.Catalog.Entry(item.id)
+    local data = EbonAPI.EchoCatalog.Entry(item.id)
     cell._spellId, cell._stacks = item.id, held[1].stacks
-    cell._base:SetTexture(ASSETS .. "perk_quality_" .. Art(q))
-    cell._ring:SetTexture(ASSETS .. "perk_border_quality_" .. Art(q))
-    SetPortraitToTexture(cell._tex, select(3, GetSpellInfo(item.id)) or NO_ICON)
+    cell._tile:SetData({
+        icon = select(3, GetSpellInfo(item.id)) or NO_ICON,
+        quality = TileQuality(q),
+        locked = item.locked and true or false,
+        marked = data and data.requiredSpell and data.requiredSpell ~= 0 and true or false,
+    })
     local counted = #held > 1 or held[1].stacks > 1
     for i, disc in ipairs(cell._discs) do
         local rarity = counted and held[i]
         ShowIf(disc, rarity)
         cell._counts[i]:SetText(rarity and "|cff" .. Hex(rarity.quality) .. rarity.stacks .. "|r" or "")
     end
-    ShowIf(cell._lock, item.locked)
-    ShowIf(cell._book, data and data.requiredSpell and data.requiredSpell ~= 0)
     cell._halo:SetVertexColor(rgb[1], rgb[2], rgb[3], HALO_ALPHA)
     cell._nameText = "|cff" .. (item.locked and GOLD_HEX or Hex(q)) .. item.name .. "|r"
 end
@@ -300,11 +277,8 @@ local function CreatePermSlot(parent)
     local turning = Layer(slot, "OVERLAY", 1, ASSETS .. "rotating_perm_texture", 1.9, "ADD")
     Spin(slot, turning, 6, -360)
 
-    slot._iconBase = Layer(slot, "BORDER", 0, nil, 1.2)
-    slot._icon = Layer(slot, "ARTWORK", 0, nil, 0.8)
-
-    slot._border = Layer(slot, "OVERLAY", 7, nil, 110 / 32)
-    slot._border:SetPoint("CENTER", slot, "CENTER", 0, 2)
+    slot._tile = W.Kit("echoTile", slot, { size = SLOT, point = { "CENTER", slot, "CENTER", 0, 0 } })
+    slot._tile:EnableMouse(false)
 
     EchoTip(slot)
     return slot
@@ -313,17 +287,17 @@ end
 local function FillPerm(slot, item)
     local q = item and Quality(item.id) or 0
     local rgb = STAR_RGB[q] or STAR_RGB[0]
-    slot._iconBase:SetTexture(ASSETS .. "perk_quality_" .. Art(q))
-    slot._border:SetTexture(ASSETS .. "perk_border_quality_" .. Art(q))
+    slot._tile:SetData({
+        icon = item and (select(3, GetSpellInfo(item.id)) or NO_ICON) or false,
+        quality = item and TileQuality(q) or 0,
+    })
+    ShowIf(slot._tile.icon, item)
     if item then
         slot._spellId, slot._stacks = item.id, item.stacks
         slot._swirl:SetVertexColor(rgb[1], rgb[2], rgb[3], 0.55)
-        SetPortraitToTexture(slot._icon, select(3, GetSpellInfo(item.id)) or NO_ICON)
-        slot._icon:Show()
     else
         slot._spellId, slot._stacks = nil, nil
         slot._swirl:SetVertexColor(1, 1, 1, 0.35)
-        slot._icon:Hide()
     end
 end
 
@@ -364,23 +338,14 @@ local function DefaultName(entry)
     return string.format(L.WISHLIST_DEFAULT_NAME, EbonBuilds.ClassName(entry.class), entry.count)
 end
 
-local function Clean(name)
-    name = tostring(name or ""):gsub("[|;:,]", ""):gsub("^%s+", ""):gsub("%s+$", "")
-    return name:sub(1, NAME_MAX)
-end
-
-local function OnAck(body)
-    local status, op = tostring(body):match("^([^,]+),([^,]+)")
-    if op ~= "upload" or not pendingName then return end
-    local elapsed = GetTime() - pendingAt
-    if elapsed > ACK_WINDOW then
-        EbonBuilds.api:Report(EbonBuilds.api:Problem("DETAIL.WISHLIST_ACK_LATE", { wishlist = pendingName, elapsed = math.floor(elapsed) }))
-    elseif status == "OK" then
-        EbonBuilds.api:Notify(string.format(L.WISHLIST_CREATED, pendingName))
+local function Answer(name, r)
+    if r.late then
+        EbonBuilds.api:Report(EbonBuilds.api:Problem("DETAIL.WISHLIST_ACK_LATE", { wishlist = name, elapsed = EbonAPI.Actions.WINDOW }))
+    elseif r.ok then
+        EbonBuilds.api:Notify(string.format(L.WISHLIST_CREATED, name))
     else
-        EbonBuilds.api:Report(EbonBuilds.api:Problem("DETAIL.WISHLIST_ACK_REFUSED", { wishlist = pendingName, status = status }))
+        EbonBuilds.api:Report(EbonBuilds.api:Problem("DETAIL.WISHLIST_ACK_REFUSED", { wishlist = name, status = tostring(r.reason or r.status) }))
     end
-    pendingName = nil
 end
 
 local function Send(name)
@@ -390,24 +355,24 @@ local function Send(name)
         EbonBuilds.api:Report(EbonBuilds.api:Problem("DETAIL.WISHLIST_OTHER_CLASS", { class = EbonBuilds.ClassName(entry.class) }))
         return
     end
-    name = Clean(name)
-    if name == "" then name = Clean(DefaultName(entry)) end
+    name = tostring(name or "")
+    if name:match("^%s*$") then name = DefaultName(entry) end
     local ids, stacks, n = Codec.DecodeBuild(entry.echoes)
     if not ids or n == 0 then
         EbonBuilds.api:Report(EbonBuilds.api:Problem("DETAIL.WISHLIST_BUILD_UNREADABLE", { wishlist = name, echoes = n or 0 }))
         return
     end
     local locked = LockedSet(entry)
-    local parts = {}
+    local list = {}
     for i = 1, n do
-        parts[i] = ids[i] .. "." .. stacks[i] .. "." .. (locked[ids[i]] and 1 or 0)
+        list[i] = { spellId = ids[i], stacks = stacks[i], locked = locked[ids[i]] and true or false }
     end
-    if not listening then
-        EbonBuilds.api:OnServer(EbonAPI.SS.BUILD_ACK, OnAck)
-        listening = true
-    end
-    local sent = EbonAPI.Ebonhold.SendToServer(UPLOAD, "0|" .. name .. "|" .. table.concat(parts, ","))
-    if sent then pendingName, pendingAt = name, GetTime() end
+    local answered = false
+    EbonAPI.Actions.CreateWishlist(name, list, { slot = 0, onResult = function(result)
+        if answered then return end
+        answered = true
+        Answer(name, result)
+    end })
 end
 
 local function AskName()
@@ -465,7 +430,7 @@ end
 
 local function FamilyToggle(bar, family)
     bar:Add("toggle", {
-        text = function() return string.format(L.FAMILY_COUNT, L.FAMILY[family] or family, counts[family] or 0) end,
+        text = function() return string.format(L.FAMILY_COUNT, EbonBuilds.FamilyName(family), counts[family] or 0) end,
         get = function() return chosen[family] == true end,
         hidden = function() return not counts[family] and not chosen[family] end,
         onChange = function(toggle, on)
@@ -500,7 +465,7 @@ local function BuildFrame(main)
     local summary = head:Add("bar", { layout = "VERTICAL", spacing = 0 })
     summary:Add("status", { width = HEAD_TEXT, text = function() return Count(current) end })
     local families = summary:Add("bar", { layout = "FLOW", wrap = FAMILY_W, spacing = FAMILY_GAP })
-    for _, family in ipairs(FAMILIES) do FamilyToggle(families, family) end
+    for _, card in ipairs(EbonAPI.ClientData.Families()) do FamilyToggle(families, card.key) end
 
     W.Gap(page, 1, SLOTS_TOP)
     slotRow = page:Add("bar", { spacing = SLOT_GAP, height = SLOT + SLOT_GAP })
@@ -662,12 +627,14 @@ function EbonBuilds.BuildDetail.Card(parent, width, style)
 end
 
 function EbonBuilds.BuildDetail.FillCard(card, entry)
-    local cc = CLASS_COLORS[entry.class] or GREY
+    local class = EbonAPI.ClientData.Class(entry.class)
+    local cr, cg, cb = 0.5, 0.5, 0.5
+    if class then cr, cg, cb = class.r, class.g, class.b end
     card._entry = entry
     local active = entry.active
-    card._stripe:SetVertexColor(cc[1], cc[2], cc[3], active and 1 or (card._small and 0.6 or 0.8))
+    card._stripe:SetVertexColor(cr, cg, cb, active and 1 or (card._small and 0.6 or 0.8))
     card._stripe:SetWidth(active and 6 or 4)
-    card._tint:SetVertexColor(cc[1], cc[2], cc[3], active and 0.12 or 0.06)
+    card._tint:SetVertexColor(cr, cg, cb, active and 0.12 or 0.06)
     if active then card._active:Show() else card._active:Hide() end
     local ids = entry.lockedIds
     if not ids then

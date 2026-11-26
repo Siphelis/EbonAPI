@@ -4,6 +4,8 @@ local L = AutoCallboardLocale
 local Skin = AutoCallboardSkin
 local state = RT.state
 
+local Log = RT.Log
+
 local BUTTON_NAME = "AutoCallboardTravelButton"
 
 local button
@@ -15,7 +17,6 @@ local MaybeAutoTravel
 local lastTravelCheckpoints
 local lastTravelUnlockedCount
 local lastTravelLocation
-local lastTravelAreaId
 
 local LOCATION_ALIASES = {
   tirisfalglades = "tirisfal", elwynnforest = "elwynn", redridgemountains = "redridge",
@@ -80,15 +81,7 @@ function Core.travelCheckpointUsable(checkpoint)
     return false
   end
 
-  if not checkpoint.unlocked then
-    return false
-  end
-
-  if checkpoint.factionAllowed == false then
-    return false
-  end
-
-  return true
+  return checkpoint.unlocked and true or false
 end
 
 local ClientBounds
@@ -136,11 +129,17 @@ local function WorldPoint(checkpoint, boundsByName)
     y = bounds[3] + (bounds[4] - bounds[3]) * y, map = WorldMapKey(zone, bounds[5]) }
 end
 
+local boundsSource, boundsCopy
+
 ClientBounds = function()
-  local ebonBounds = EbonAPI.Ebonhold.WorldMapBounds()
+  local ebonBounds = EbonAPI.Ebonhold.Service("WorldMapBounds")
 
   if not ebonBounds then
     return nil
+  end
+
+  if ebonBounds == boundsSource then
+    return boundsCopy
   end
 
   local boundsByName = {}
@@ -153,17 +152,19 @@ ClientBounds = function()
     end
   end
 
+  boundsSource, boundsCopy = ebonBounds, boundsByName
+
   return boundsByName
 end
 
-function RT.WorldPointFor(mapName, x, y)
+function RT.WorldPointFor(mapName, x, y, areaId)
   x, y = tonumber(x), tonumber(y)
 
   if not x or not y then
     return nil
   end
 
-  local zone = zonesByName[NormalizeLocation(mapName)]
+  local zone = areaId and zonesByMap[tonumber(areaId)] or zonesByName[NormalizeLocation(mapName)]
 
   if not zone then
     return nil
@@ -172,12 +173,8 @@ function RT.WorldPointFor(mapName, x, y)
   return WorldPoint({ mapId = zone.mapId, serverMapId = zone.serverMapId, x = x, y = y }, ClientBounds())
 end
 
-function Core.travelZoneKey(location, areaId)
+function Core.travelZoneKey(location)
   local wanted = NormalizeLocation(location)
-
-  if wanted == "" then
-    wanted = NormalizeLocation((Core.travelAreaNames or {})[tonumber(areaId)])
-  end
 
   if wanted == "" then
     return ""
@@ -236,11 +233,17 @@ function RT.ReadPlayerMapPoint()
     return nil
   end
 
-  return (GetMapInfo and GetMapInfo()) or "", x, y
+  local areaId = GetCurrentMapAreaID and tonumber(GetCurrentMapAreaID())
+
+  if areaId == 0 then
+    areaId = nil
+  end
+
+  return (GetMapInfo and GetMapInfo()) or "", x, y, areaId
 end
 
-function RT.IsPlayerInTravelZone(location, areaId)
-  local wanted = Core.travelZoneKey(location, areaId)
+function RT.IsPlayerInTravelZone(location)
+  local wanted = Core.travelZoneKey(location)
 
   if wanted == "" then
     return false
@@ -255,15 +258,36 @@ function RT.IsPlayerInTravelZone(location, areaId)
   return here == wanted
 end
 
-function Core.chooseTravelCheckpoint(checkpoints, location, areaId)
+function Core.chooseMeetingStone(checkpoints, text)
+  if type(checkpoints) ~= "table" then
+    return nil
+  end
+
+  local haystack = NormalizeLocation(text)
+  local best, bestLength
+
+  for i = 1, #(checkpoints) do
+    local checkpoint = checkpoints[i]
+
+    if type(checkpoint) == "table" and string.find(tostring(checkpoint.kind or ""), "^MEETINGSTONE")
+        and Core.travelCheckpointUsable(checkpoint) then
+      local name = NormalizeLocation(checkpoint.name)
+
+      if name ~= "" and string.find(haystack, name, 1, true) and (not best or string.len(name) > bestLength) then
+        best, bestLength = checkpoint, string.len(name)
+      end
+    end
+  end
+
+  return best
+end
+
+function Core.chooseTravelCheckpoint(checkpoints, location, zoneOnly, poi)
   if type(checkpoints) ~= "table" then
     return nil
   end
 
   local wanted = NormalizeLocation(location)
-  if wanted == "" then
-    wanted = NormalizeLocation((Core.travelAreaNames or {})[tonumber(areaId)])
-  end
   wanted = subzonesByName[wanted] or wanted
 
   if wanted == "" then
@@ -273,8 +297,17 @@ function Core.chooseTravelCheckpoint(checkpoints, location, areaId)
   local boundsByName = ClientBounds()
 
   local anchors = {}
+  local zones = {}
   local targetZone = zonesByName[wanted]
-  if targetZone then
+  local poiZone = type(poi) == "table" and zonesByMap[(tonumber(poi.area) or -1) + 1] or nil
+  local poiBounds = poiZone and ((boundsByName and boundsByName[NormalizeLocation(poiZone.name)]) or poiZone.bounds)
+  local poiX, poiY = type(poi) == "table" and tonumber(poi.x), type(poi) == "table" and tonumber(poi.y)
+  if poiBounds and poiX and poiY then
+    targetZone = poiZone
+    zones[poiZone.mapId] = true
+    anchors[1] = { x = poiY, y = poiX, map = WorldMapKey(poiZone, poiBounds[5]) }
+  elseif targetZone then
+    zones[targetZone.mapId] = true
     local bounds = (boundsByName and boundsByName[wanted]) or targetZone.bounds
     if bounds then
       anchors[1] = { x = (bounds[1] + bounds[2]) / 2, y = (bounds[3] + bounds[4]) / 2,
@@ -283,6 +316,7 @@ function Core.chooseTravelCheckpoint(checkpoints, location, areaId)
   else
     for _, checkpoint in ipairs(checkpoints) do
       if NormalizeLocation(checkpoint.name) == wanted then
+        zones[tonumber(checkpoint.mapId) or 0] = true
         local point = WorldPoint(checkpoint, boundsByName)
         if point then
           table.insert(anchors, point)
@@ -293,6 +327,7 @@ function Core.chooseTravelCheckpoint(checkpoints, location, areaId)
       for _, entrance in ipairs(entrancesByName[wanted] or {}) do
         local zone = zonesByName[NormalizeLocation(entrance[1])]
         if zone then
+          zones[zone.mapId] = true
           local point = WorldPoint({ mapId = zone.mapId, serverMapId = zone.serverMapId,
             x = entrance[2], y = entrance[3] }, boundsByName)
           if point then
@@ -328,7 +363,10 @@ function Core.chooseTravelCheckpoint(checkpoints, location, areaId)
           end
         end
       end
-      if not score and exact then
+      local inZone = exact or sameZone or zones[tonumber(checkpoint.mapId) or 0] == true
+      if zoneOnly and not inZone then
+        score = nil
+      elseif not score and (exact or (zoneOnly and inZone)) then
         score = math.huge
       end
       if score then
@@ -350,7 +388,7 @@ function Core.travelCheckpointLabel(checkpoint)
     return ""
   end
 
-  local name = Trim(checkpoint.name)
+  local name = Trim(EbonAPI.Ebonhold.Text(checkpoint.name))
 
   if name == "" then
     return ""
@@ -377,8 +415,52 @@ function Core.countUnlockedCheckpoints(checkpoints)
   return count
 end
 
+Core.TRAVEL_CAPITALS = {
+  { key = "dalaran", id = 310 }, { key = "stormwind", id = 2 }, { key = "ironforge", id = 6 },
+  { key = "rutheran", id = 27 }, { key = "orgrimmar", id = 23 }, { key = "thunderbluff", id = 22 },
+  { key = "undercity", id = 11 }, { key = "silvermoon", id = 82 }, { key = "exodar", id = 94 },
+  { key = "shattrath", id = 128 }, { key = "acherus", id = 315 },
+}
+
+Core.TRAVEL_DEFAULT_AUTO = "auto"
+
+Core.TRAVEL_RACE_CAPITAL = {
+  Human = "stormwind", Dwarf = "ironforge", Gnome = "ironforge", NightElf = "rutheran",
+  Orc = "orgrimmar", Troll = "orgrimmar", Tauren = "thunderbluff", Scourge = "undercity",
+  BloodElf = "silvermoon", Draenei = "exodar",
+}
+
+local function UnlockedCapital(checkpoints, key)
+  for _, capital in ipairs(Core.TRAVEL_CAPITALS) do
+    if capital.key == key then
+      for i = 1, #(checkpoints) do
+        local checkpoint = checkpoints[i]
+
+        if type(checkpoint) == "table" and tonumber(checkpoint.id) == capital.id
+            and Core.travelCheckpointUsable(checkpoint) then
+          return checkpoint
+        end
+      end
+    end
+  end
+
+  return nil
+end
+
+function Core.chooseDefaultCapital(checkpoints, setting, raceToken)
+  if type(checkpoints) ~= "table" then
+    return nil
+  end
+
+  return (setting and setting ~= Core.TRAVEL_DEFAULT_AUTO and UnlockedCapital(checkpoints, setting))
+      or UnlockedCapital(checkpoints, "dalaran")
+      or UnlockedCapital(checkpoints, Core.TRAVEL_RACE_CAPITAL[raceToken or ""] or "")
+end
+
+local serviceDown = false
+
 local function GetService()
-  return EbonAPI.Ebonhold.Checkpoints()
+  return EbonAPI.Ebonhold.Service("CheckpointService")
 end
 
 local function GetCheckpoints()
@@ -397,26 +479,6 @@ local function GetCheckpoints()
   return list
 end
 
-local serviceDown = false
-
-local function ServiceReady()
-  if GetService() then
-    if serviceDown then
-      serviceDown = false
-      RT.api:Restore("TRAVEL.SERVICE_UNAVAILABLE")
-    end
-
-    return true
-  end
-
-  if not serviceDown then
-    serviceDown = true
-    RT.api:Degrade(RT.api:Problem("TRAVEL.SERVICE_UNAVAILABLE"))
-  end
-
-  return false
-end
-
 function RT.RequestTravelCheckpoints(source)
   local service = GetService()
 
@@ -433,8 +495,10 @@ function RT.RequestTravelCheckpoints(source)
   requestedAt = now
 
   local _, problem = RT.api:Guard("travel.request", service.RequestCheckpoints)
+  local ok = problem == nil
+  Log("travel", "requested checkpoint data ", tostring(source), " ok=", tostring(ok))
 
-  return problem == nil
+  return ok
 end
 
 function RT.IsTravelEnabled()
@@ -449,12 +513,54 @@ function RT.IsTravelAutoEnabled()
   return state and state.travelAuto and true or false
 end
 
-local function ActiveQuestKey(objective)
-  if type(objective) ~= "table" then
+local function ContractKey(contract)
+  if type(contract) ~= "table" then
     return ""
   end
 
-  return tostring(objective.questId or 0) .. ":" .. tostring(Core.questTitle(objective))
+  return tostring(contract.questId or 0) .. ":" .. tostring(Core.questTitle(contract))
+end
+
+local selectedQuestId
+
+local autoTarget, autoLocation, acceptedQuestKey, lastAcceptedQuestKey
+
+function RT.GetAcceptedTravelContract()
+  local board = RT.GetBoard()
+
+  if not board then
+    return nil
+  end
+
+  local lastID = RT.lastAcceptedQuest and tonumber(RT.lastAcceptedQuest.questID)
+  local first
+
+  for i = 1, #(board.quests) do
+    local quest = board.quests[i]
+
+    if quest.state == Core.STATE.ACCEPTED then
+      if lastID and quest.questId == lastID then
+        return quest
+      end
+
+      first = first or quest
+    end
+  end
+
+  return first
+end
+
+function RT.GetTravelContract()
+  local selected = selectedQuestId and RT.IsBoardWindowShown and RT.IsBoardWindowShown()
+      and RT.GetBoardQuest(selectedQuestId)
+
+  return selected or RT.GetAcceptedTravelContract()
+end
+
+local function IsInstanceContract(contract)
+  local category = Core.questCategory(contract)
+
+  return category == Core.CATEGORY.DUNGEON or category == Core.CATEGORY.RAID
 end
 
 local function UpdateButton()
@@ -503,18 +609,23 @@ local function AutoTravelBlocked()
   return nil
 end
 
+local SendTravel
+
+RT.AutoTravelBlocked = AutoTravelBlocked
+
 function MaybeAutoTravel(questKey)
   if not RT.IsTravelAutoEnabled() then
     autoQuestKey = questKey
     return false
   end
 
-  if not suggestion or questKey == "" then
+  if not autoTarget or questKey == "" then
     return false
   end
 
   if autoQuestKey == nil then
     autoQuestKey = questKey
+    Log("travel", "auto armed on ", questKey)
     return false
   end
 
@@ -522,28 +633,31 @@ function MaybeAutoTravel(questKey)
     return false
   end
 
-  if not ServiceReady() then
+  local service = GetService()
+  if not service or type(service.UseCheckpoint) ~= "function" then
     return false
   end
 
-  if AutoTravelBlocked() then
+  local blocked = AutoTravelBlocked()
+
+  if blocked then
+    Log("travel", "auto held (", blocked, ") for ", questKey)
     return false
   end
 
-  if RT.IsPlayerInTravelZone(lastTravelLocation, lastTravelAreaId) then
+  if RT.IsPlayerInTravelZone(autoLocation) then
     autoQuestKey = questKey
+    Log("travel", "auto skipped, already in ", tostring(autoLocation))
     return false
   end
 
   autoQuestKey = questKey
 
-  return RT.TravelToSuggestion("auto")
+  return SendTravel(autoTarget, "auto")
 end
 
 function RT.ResetTravelAutoBaseline()
-  local objective = RT.GetActiveObjective()
-
-  autoQuestKey = ActiveQuestKey(objective)
+  autoQuestKey = ContractKey(RT.GetAcceptedTravelContract())
 end
 
 function RT.GetTravelSuggestion()
@@ -556,8 +670,96 @@ function RT.ClearTravelSuggestion()
   lastTravelCheckpoints = nil
   lastTravelUnlockedCount = nil
   lastTravelLocation = nil
-  lastTravelAreaId = nil
+  autoTarget = nil
+  autoLocation = nil
+  lastAcceptedQuestKey = nil
   UpdateButton()
+end
+
+local function PlayerRaceToken()
+  if not UnitRace then
+    return nil
+  end
+
+  local _, token = UnitRace("player")
+
+  return token
+end
+
+local function PoiOf(contract)
+  local area = tonumber(contract and contract.poiArea)
+  local x, y = tonumber(contract and contract.poiX), tonumber(contract and contract.poiY)
+
+  if not area or area <= 0 or not x or not y then
+    return nil
+  end
+
+  local areas = EbonAPI.Ebonhold.Service("CallboardMapAreas")
+
+  if not areas or type(areas[area]) ~= "table" then
+    return nil
+  end
+
+  return { area = area, x = x, y = y }
+end
+
+function RT.ContractWorldPoint(contract)
+  local poi = PoiOf(contract)
+  local zone = poi and zonesByMap[poi.area + 1]
+  local bounds = zone and ((ClientBounds() or {})[NormalizeLocation(zone.name)] or zone.bounds)
+
+  if not bounds then
+    return nil
+  end
+
+  return { x = poi.y, y = poi.x, map = WorldMapKey(zone, bounds[5]), zone = zone.name }
+end
+
+function RT.NearestContractTarget()
+  local board = RT.GetBoard and RT.GetBoard()
+  local map, x, y, areaId = RT.ReadPlayerMapPoint()
+  local here = board and map and RT.WorldPointFor(map, x, y, areaId)
+
+  if not here then
+    return nil
+  end
+
+  local best, bestPoint, bestDistance, other, otherPoint
+
+  for _, contract in ipairs(board.accepted or {}) do
+    local point = RT.ContractWorldPoint(contract)
+
+    if point and point.map == here.map then
+      local distance = (point.x - here.x) ^ 2 + (point.y - here.y) ^ 2
+
+      if not best or distance < bestDistance then
+        best, bestPoint, bestDistance = contract, point, distance
+      end
+    elseif point and not other then
+      other, otherPoint = contract, point
+    end
+  end
+
+  if best then
+    return best, bestPoint, true
+  end
+
+  return other, otherPoint, false
+end
+
+local function ChooseFor(contract, checkpoints)
+  local location = Core.travelLocationFromText(Core.objectiveText(contract))
+  local chosen = IsInstanceContract(contract)
+      and Core.chooseMeetingStone(checkpoints, Core.questTitle(contract) .. " " .. Core.objectiveText(contract))
+      or nil
+
+  chosen = chosen or Core.chooseTravelCheckpoint(checkpoints, location, true, PoiOf(contract))
+
+  if chosen then
+    return chosen, location, true
+  end
+
+  return Core.chooseDefaultCapital(checkpoints, state and state.travelDefault, PlayerRaceToken()), location, false
 end
 
 function RT.RefreshTravelSuggestion(source, skipAuto)
@@ -566,9 +768,9 @@ function RT.RefreshTravelSuggestion(source, skipAuto)
     return nil
   end
 
-  local objective = RT.GetActiveObjective()
+  local contract = RT.GetTravelContract()
 
-  if not objective then
+  if not contract then
     if autoQuestKey ~= nil then
       autoQuestKey = ""
     end
@@ -576,9 +778,13 @@ function RT.RefreshTravelSuggestion(source, skipAuto)
     return nil
   end
 
-  local questKey = ActiveQuestKey(objective)
+  local questKey = ContractKey(contract)
+  local accepted = RT.GetAcceptedTravelContract()
+  local acceptedKey = accepted and ContractKey(accepted) or ""
+  acceptedQuestKey = acceptedKey
+
   if autoQuestKey == nil then
-    autoQuestKey = questKey
+    autoQuestKey = acceptedKey
   end
 
   local checkpoints = GetCheckpoints()
@@ -590,13 +796,13 @@ function RT.RefreshTravelSuggestion(source, skipAuto)
     return nil
   end
 
-  local location = Core.travelLocationFromText(Core.objectiveText(objective))
-  local areaId = Core.objectiveMetadata(objective)
+  local location = Core.travelLocationFromText(Core.objectiveText(contract))
 
-  if source == "watch" and suggestionQuestKey == questKey and lastTravelCheckpoints == checkpoints
-      and lastTravelUnlockedCount == unlocked and lastTravelLocation == location and lastTravelAreaId == areaId then
+  if source == "watch" and suggestionQuestKey == questKey and lastAcceptedQuestKey == acceptedKey
+      and lastTravelCheckpoints == checkpoints and lastTravelUnlockedCount == unlocked
+      and lastTravelLocation == location then
     if not skipAuto then
-      MaybeAutoTravel(questKey)
+      MaybeAutoTravel(acceptedKey)
     end
     return suggestion
   end
@@ -604,12 +810,28 @@ function RT.RefreshTravelSuggestion(source, skipAuto)
   lastTravelCheckpoints = checkpoints
   lastTravelUnlockedCount = unlocked
   lastTravelLocation = location
-  lastTravelAreaId = areaId
+  lastAcceptedQuestKey = acceptedKey
 
-  local chosen = Core.chooseTravelCheckpoint(checkpoints, location, areaId)
+  local chosen, _, onSite = ChooseFor(contract, checkpoints)
+  local portal = RT.PortalSuggestion and RT.PortalSuggestion(checkpoints, location)
+
+  if portal then
+    chosen = portal
+  end
+
+  if accepted == contract then
+    autoTarget, autoLocation = onSite and chosen or nil, location
+  elseif accepted then
+    local target, where, there = ChooseFor(accepted, checkpoints)
+    autoTarget, autoLocation = there and target or nil, where
+  else
+    autoTarget, autoLocation = nil, nil
+  end
 
   if (chosen and chosen.id) ~= (suggestion and suggestion.id) or suggestionQuestKey ~= questKey then
-    RT.api:Trace("travel.suggestion", Core.questTitle(objective), chosen and chosen.name or "none")
+    Log("travel", "contract=", Core.questTitle(contract), " location=", location,
+      " checkpoint=", chosen and chosen.name or "none", " source=", tostring(source),
+      " selected=", tostring(selectedQuestId))
   end
 
   suggestion = chosen
@@ -617,46 +839,39 @@ function RT.RefreshTravelSuggestion(source, skipAuto)
   CreateButton()
   UpdateButton()
   if not skipAuto then
-    MaybeAutoTravel(questKey)
+    MaybeAutoTravel(acceptedKey)
   end
 
   return suggestion
 end
 
-function RT.TravelToSuggestion(source)
-  if not ServiceReady() then
-    return false
+function RT.SetTravelSelection(questId)
+  questId = tonumber(questId)
+
+  if questId == selectedQuestId then
+    return
   end
 
-  local previousId = suggestion and suggestion.id
-  local previousQuestKey = suggestionQuestKey
-  local target = RT.RefreshTravelSuggestion("send", true)
+  selectedQuestId = questId
+  RT.RefreshTravelSuggestion("selection", true)
+end
 
-  if not target then
-    local objective = RT.GetActiveObjective()
-    local quest = objective and Core.questTitle(objective) or ""
-    if quest == "" then
-      quest = L.QUEST_FALLBACK_LABEL
-    end
+function RT.GetTravelSelection()
+  return selectedQuestId
+end
 
-    RT.api:Report(RT.api:Problem("TRAVEL.NO_DESTINATION", { quest = quest }))
-    return false
-  end
-
-  if target.id ~= previousId or suggestionQuestKey ~= previousQuestKey then
-    RT.api:Report(RT.api:Problem("TRAVEL.SUGGESTION_CHANGED", { checkpoint = Core.travelCheckpointLabel(target) }))
-    return false
-  end
-
+function SendTravel(target, source)
   local blocked = AutoTravelBlocked()
 
-  if blocked == "combat" then
-    RT.api:Report(RT.api:Problem("TRAVEL.IN_COMBAT"))
+  if blocked then
+    RT.api:Report(RT.api:Problem(blocked == "combat" and "TRAVEL.IN_COMBAT" or "TRAVEL.PLAYER_DEAD"))
     return false
   end
 
-  if blocked then
-    RT.api:Report(RT.api:Problem("TRAVEL.PLAYER_DEAD"))
+  local service = GetService()
+
+  if not service or not service.UseCheckpoint then
+    RT.Error(L.TRAVEL_UNAVAILABLE)
     return false
   end
 
@@ -665,15 +880,141 @@ function RT.TravelToSuggestion(source)
     return false
   end
 
-  RT.api:Trace("travel.use", target.id, source)
+  Log("travel", "using checkpoint ", tostring(target.id), " ", tostring(target.name), " source=", tostring(source))
 
-  autoQuestKey = suggestionQuestKey
+  autoQuestKey = acceptedQuestKey
+  local ok, result = pcall(service.UseCheckpoint, tonumber(target.id))
 
-  if not EbonAPI.Ebonhold.UseCheckpoint(tonumber(target.id)) then
+  if not ok or result == false then
+    RT.Error(L.TRAVEL_UNAVAILABLE)
     return false
   end
 
+  Log("travel", "teleport requested source=", tostring(source),
+    " target=", Core.travelCheckpointLabel(target))
+
   return true
+end
+
+RT.SendTravel = SendTravel
+
+local ROAM_MIN_INTERVAL = 60
+local roamAt, roamFrom, roamDestination
+
+function RT.MaybeTravelAround()
+  if not RT.IsTravelAutoEnabled() then
+    return false
+  end
+
+  if not RT.IsStarted() then
+    return false
+  end
+
+  if IsInInstance and IsInInstance() then
+    return false
+  end
+
+  local board = RT.GetBoard and RT.GetBoard()
+
+  if not board or #(board.accepted or {}) == 0 then
+    return false
+  end
+
+  local here = RT.GetCurrentZoneKey()
+
+  if here == "" then
+    return false
+  end
+
+  for _, contract in ipairs(board.accepted) do
+    local point = RT.ContractWorldPoint(contract)
+
+    if point and RT.IsPlayerInTravelZone(point.zone) then
+      return false
+    end
+  end
+
+  local contract, point = RT.NearestContractTarget()
+
+  if not contract or not point then
+    return false
+  end
+
+  local destination = Core.travelZoneKey(point.zone)
+  local now = GetTime and GetTime() or 0
+
+  if roamAt and now - roamAt < ROAM_MIN_INTERVAL then
+    return false
+  end
+
+  if roamDestination == destination and roamFrom == here then
+    return false
+  end
+
+  if AutoTravelBlocked() then
+    return false
+  end
+
+  local service = GetService()
+
+  if not service or type(service.UseCheckpoint) ~= "function" then
+    return false
+  end
+
+  local target = Core.chooseTravelCheckpoint(GetCheckpoints(), point.zone, true, PoiOf(contract))
+
+  if not target then
+    return false
+  end
+
+  roamAt, roamFrom, roamDestination = now, here, destination
+  Log("travel", "nothing left around ", here, ", going to ", tostring(point.zone))
+
+  return SendTravel(target, "around")
+end
+
+function RT.TravelToSuggestion(source)
+  local previousId = suggestion and suggestion.id
+  local previousQuestKey = suggestionQuestKey
+  local target = RT.RefreshTravelSuggestion("send", true)
+
+  if not target then
+    RT.api:Report(RT.api:Problem("TRAVEL.NO_DESTINATION", { quest = L.QUEST_FALLBACK_LABEL }))
+  elseif target.id ~= previousId or suggestionQuestKey ~= previousQuestKey then
+    RT.api:Report(RT.api:Problem("TRAVEL.SUGGESTION_CHANGED", { checkpoint = Core.travelCheckpointLabel(target) }))
+  end
+
+  if not target or target.id ~= previousId or suggestionQuestKey ~= previousQuestKey then
+    return false
+  end
+
+  return SendTravel(target, source)
+end
+
+function RT.TravelDefaultChoices()
+  local values = { [Core.TRAVEL_DEFAULT_AUTO] = L.TRAVEL_DEFAULT_AUTO }
+  local sorting = { Core.TRAVEL_DEFAULT_AUTO }
+  local checkpoints = GetCheckpoints() or {}
+
+  for _, capital in ipairs(Core.TRAVEL_CAPITALS) do
+    local label
+
+    for i = 1, #(checkpoints) do
+      if type(checkpoints[i]) == "table" and tonumber(checkpoints[i].id) == capital.id then
+        label = Core.travelCheckpointLabel(checkpoints[i])
+        break
+      end
+    end
+
+    values[capital.key] = (label and label ~= "") and label or capital.key
+    sorting[#(sorting) + 1] = capital.key
+  end
+
+  return values, sorting
+end
+
+function RT.SetTravelDefault(key)
+  RT.SetField("travelDefault", key)
 end
 
 function RT.OnTravelEnabledChanged()
@@ -687,6 +1028,7 @@ end
 
 function RT.OnTravelAutoChanged()
   RT.ResetTravelAutoBaseline()
+  Log("travel", "auto travel ", tostring(RT.IsTravelAutoEnabled()))
 end
 
 function RT.SetTravelEnabled(enabled)
@@ -710,12 +1052,23 @@ function RT.WatchTravelSuggestion()
     return 5
   end
 
-  if not ServiceReady() then
+  if not GetService() then
+    if not serviceDown then
+      serviceDown = true
+      RT.api:Degrade(RT.api:Problem("TRAVEL.SERVICE_UNAVAILABLE"))
+    end
+
     RT.ClearTravelSuggestion()
     return 5
   end
 
+  if serviceDown then
+    serviceDown = false
+    RT.api:Restore("TRAVEL.SERVICE_UNAVAILABLE")
+  end
+
   RT.RefreshTravelSuggestion("watch")
+  RT.MaybeTravelAround()
 
   return 1
 end

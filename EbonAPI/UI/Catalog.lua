@@ -14,6 +14,8 @@ local STRATA = {
   BACKGROUND = true, LOW = true, MEDIUM = true, HIGH = true, DIALOG = true,
   FULLSCREEN = true, FULLSCREEN_DIALOG = true, TOOLTIP = true,
 }
+-- R7d
+Catalog.strataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP" }
 local OUTLINE = { NONE = true, OUTLINE = true, THICKOUTLINE = true, MONOCHROME = true }
 local AUTO_OUTLINE = { AUTO = true, NONE = true, OUTLINE = true, THICKOUTLINE = true, MONOCHROME = true }
 local SIDE = { LEFT = true, RIGHT = true }
@@ -29,7 +31,7 @@ local PALETTE = {
   "bg", "bgSoft", "card", "border", "borderDim", "button", "buttonBorder", "buttonHover",
   "buttonDisabledBorder", "buttonText", "buttonDisabledText", "checkbox", "checkboxBorder", "checked",
   "thumb", "selected", "selectedText", "text", "muted", "title", "heading", "menu", "shadow",
-  "focus", "buttonHoverFill", "rowHover", "headerBg", "navBg", "pageBg", "footerBg", "success", "danger", "caution",
+  "focus", "buttonHoverFill", "rowHover", "headerBg", "navBg", "pageBg", "footerBg", "menuBg", "success", "danger", "caution",
   "well",
 }
 
@@ -112,6 +114,7 @@ add("media.warning", "texture")
 add("media.icon", "texture")
 add("media.addonIcon", "texture")
 add("media.pointer", "texture")
+add("media.rosace", "texture")
 
 whole("border.size", 1, 8)
 whole("border.round.base", 0, 32)
@@ -132,6 +135,7 @@ whole("window.spacing", 0, 60)
 add("window.card.border", "key")
 choice("window.strata", STRATA)
 add("window.texture", "texture")
+whole("window.textureTile", 0, 1024)
 number("window.textureAlpha", 0, 1)
 choice("window.gradient.orientation", GRADIENT)
 add("window.gradient.color", "key")
@@ -144,6 +148,7 @@ number("window.shadow.alphaSpread", 0, 1)
 number("window.shadow.x", -32, 32)
 number("window.shadow.y", -32, 32)
 whole("window.shadow.level", -8, 0)
+add("window.shadow.attached", "boolean")
 add("window.glass.enabled", "boolean")
 add("window.glass.tint", "color")
 number("window.glass.darken", 0, 1)
@@ -179,6 +184,8 @@ add("header.banner.texture", "texture")
 whole("header.banner.width", 16, 1024)
 whole("header.banner.height", 8, 256)
 number("header.banner.y", -100, 100)
+whole("header.banner.pad", 0, 200)
+number("header.banner.titleY", -100, 100)
 add("header.version.show", "boolean")
 number("header.version.gap", 0, 60)
 number("header.version.y", -20, 20)
@@ -193,6 +200,7 @@ add("header.close.show", "boolean")
 whole("header.close.size", 10, 60)
 number("header.close.y", -60, 160)
 brick("header.close.brick", "close")
+brick("header.reset.brick", "reset")
 whole("header.close.width", 10, 120)
 add("header.close.glyph", "text")
 add("header.close.hover", "color")
@@ -348,6 +356,7 @@ whole("widgets.toggle.size", 6, 60)
 number("widgets.toggle.mark", -16, 20)
 add("widgets.toggle.markTexture", "texture")
 add("widgets.toggle.roundKnob", "boolean")
+add("widgets.toggle.knob", "key")
 number("widgets.toggle.gap", 0, 40)
 number("widgets.toggle.margin", 0, 40)
 whole("widgets.toggle.switch.width", 10, 120)
@@ -376,6 +385,7 @@ whole("widgets.select.arrow.size", 4, 40)
 number("widgets.select.arrow.right", 0, 60)
 number("widgets.select.arrow.x", 0, 40)
 number("widgets.select.arrow.y", -20, 20)
+add("widgets.select.arrow.gray", "boolean")
 
 whole("widgets.menu.row", 10, 60)
 whole("widgets.menu.gap", 0, 20)
@@ -386,7 +396,23 @@ choice("widgets.menu.strata", STRATA)
 brick("widgets.menu.brick", "row")
 add("widgets.menu.title.font", "role")
 add("widgets.menu.title.color", "key")
+add("widgets.menu.color", "key")
 choice("widgets.menu.title.align", ALIGN)
+-- Replace: drop-down lists of the client (DropDownList1..3) opened from the Filter / weapon menus of the PE Collections tabs
+add("widgets.menu.native.dress", "boolean")
+add("widgets.menu.native.border", "key")
+add("widgets.menu.native.text", "key")
+add("widgets.menu.native.dim", "key")
+add("widgets.menu.native.check", "key")
+add("widgets.menu.native.arrow", "key")
+add("widgets.menu.native.hover", "key")
+add("widgets.menu.native.font", "role")
+add("widgets.menu.native.checkGlyph", "text")
+add("widgets.menu.native.arrowGlyph", "text")
+add("widgets.menu.native.separator", "key")
+whole("widgets.menu.native.markX", -20, 20)
+whole("widgets.menu.native.markY", -20, 20)
+whole("widgets.menu.native.levelBelow", 0, 20)
 
 brick("widgets.color.brick", "color")
 whole("widgets.color.height", 10, 80)
@@ -406,6 +432,47 @@ whole("widgets.input.linePad", 0, 40)
 whole("widgets.input.bottom", 0, 40)
 whole("widgets.input.gap", 0, 20)
 
+add("widgets.checkBox.fill", "color")
+add("widgets.echoTile.markColor", "color")
+add("widgets.echoTile.stacksColor", "color")
+add("widgets.echoTile.missingFill", "color")
+add("widgets.echoTile.missingBorder", "color")
+add("widgets.echoTile.round", "boolean")
+add("widgets.echoTile.nameQualityColor", "boolean")
+add("widgets.echoTile.disc.0", "texture")
+add("widgets.echoTile.ring.0", "texture")
+add("widgets.echoTile.disc.1", "texture")
+add("widgets.echoTile.ring.1", "texture")
+add("widgets.echoTile.disc.2", "texture")
+add("widgets.echoTile.ring.2", "texture")
+add("widgets.echoTile.disc.3", "texture")
+add("widgets.echoTile.ring.3", "texture")
+add("widgets.echoTile.book", "texture")
+whole("widgets.echoTile.width", 20, 200)
+whole("widgets.echoTile.height", 20, 300)
+whole("widgets.echoTile.nameTop", 0, 200)
+whole("widgets.echoTile.nameHeight", 8, 100)
+number("widgets.echoTile.discScale", 0.5, 3)
+number("widgets.echoTile.iconScale", 0.3, 2)
+number("widgets.echoTile.ringScale", 0.5, 6)
+number("widgets.echoTile.ringShift", -10, 10)
+number("widgets.echoTile.markScale", 0.1, 1)
+number("widgets.echoTile.bookScale", 0, 1)
+number("widgets.echoTile.bookCorner", -6, 10)
+add("widgets.buildCard.selectedFill", "color")
+add("widgets.buildCard.empty", "color")
+add("widgets.buildCard.avatar", "color")
+add("widgets.buildCard.missing", "color")
+add("widgets.buildCard.back", "color")
+add("widgets.buildRow.neutral", "color")
+add("widgets.buildRow.fillNormal", "color")
+add("widgets.buildRow.fillSelected", "color")
+add("widgets.buildRow.edgeNormal", "color")
+add("widgets.buildRow.hole", "color")
+add("widgets.buildRow.missing", "color")
+add("widgets.railDisc.neutral", "color")
+add("widgets.railDisc.empty", "color")
+
 brick("widgets.heading.brick", "heading")
 whole("widgets.heading.height", 10, 80)
 number("widgets.heading.gap", 0, 60)
@@ -417,28 +484,6 @@ add("widgets.heading.color", "key")
 brick("widgets.text.brick", "text")
 whole("widgets.text.extra", 0, 40)
 
-brick("widgets.output.brick", "output")
-whole("widgets.output.height", 80, 900)
-whole("widgets.output.padding", 0, 40)
-choice("widgets.output.frame", { LARGE = true, SMALL = true, FLAT = true })
-add("widgets.output.font", "role")
-add("widgets.output.fill", "key")
-add("widgets.output.border", "key")
-add("widgets.output.section.color", "key")
-add("widgets.output.section.font", "role")
-add("widgets.output.label.color", "key")
-add("widgets.output.value.color", "key")
-whole("widgets.output.label.width", 60, 300)
-whole("widgets.output.row.gap", 0, 20)
-whole("widgets.output.marker.size", 6, 40)
-whole("widgets.output.log.time", 30, 150)
-whole("widgets.output.log.owner", 40, 300)
-number("widgets.output.log.tint", 0, 0.5)
-whole("widgets.output.log.gap", 0, 20)
-whole("widgets.output.toolbar.gap", 0, 30)
-whole("widgets.output.toolbar.search", 60, 400)
-whole("widgets.output.ops.dir", 30, 200)
-whole("widgets.output.ops.code", 30, 150)
 brick("widgets.synthesis.brick", "synthesis")
 whole("widgets.synthesis.tile.width", 80, 400)
 whole("widgets.synthesis.tile.height", 30, 120)
@@ -453,10 +498,12 @@ add("widgets.synthesis.selected", "key")
 local LOOK_FRAME = { LARGE = true, SMALL = true, FLAT = true }
 
 brick("widgets.saves.brick", "saves")
+add("widgets.saves.tiled", "boolean") -- true = the saves panel is laid out in tiles (read by the STAL module)
 brick("widgets.stacked.brick", "stacked")
 choice("widgets.saves.view", { list = true, grid = true, gauge = true })
 choice("widgets.saves.detail", { inline = true, dock = true })
-add("widgets.saves.search", "boolean")
+choice("widgets.saves.denseTipAnchor", ANCHOR)
+number("widgets.saves.denseTipGap", -100, 100)
 whole("widgets.saves.width", 160, 400)
 number("widgets.saves.fold", 0, 2)
 add("widgets.saves.font", "role")
@@ -480,6 +527,44 @@ choice("widgets.saves.drawer.frame", LOOK_FRAME)
 add("widgets.saves.drawer.fill", "key")
 add("widgets.saves.drawer.border", "key")
 add("widgets.saves.owned", "key")
+whole("widgets.saves.dot.size", 4, 24)
+add("widgets.saves.dot.border", "key")
+whole("widgets.saves.coin.size", 4, 24)
+add("widgets.saves.coin.border", "key")
+add("widgets.saves.coin.line", "boolean")
+whole("widgets.saves.metric.pad", 0, 20)
+whole("widgets.saves.metric.inset", 0, 5)
+whole("widgets.saves.metric.gap", 0, 20)
+whole("widgets.saves.metric.iconSize", 4, 32)
+whole("widgets.saves.metric.chevronSize", 4, 32)
+whole("widgets.saves.metric.dotsWidth", 8, 40)
+whole("widgets.saves.metric.stateTrim", 0, 12)
+whole("widgets.saves.metric.stateShift", 0, 12)
+whole("widgets.saves.metric.pctWidth", 16, 64)
+whole("widgets.saves.metric.pctGap", 0, 12)
+whole("widgets.saves.metric.menuReserve", 0, 40)
+whole("widgets.saves.metric.checkReserve", 0, 30)
+whole("widgets.saves.metric.slotInset", 0, 12)
+whole("widgets.saves.metric.markLeft", 0, 40)
+whole("widgets.saves.metric.dotTop", 0, 20)
+whole("widgets.saves.metric.coinTop", 0, 20)
+whole("widgets.saves.metric.nameTop", 0, 30)
+whole("widgets.saves.metric.nameLines", 1, 6)
+whole("widgets.saves.metric.miniBar", 1, 10)
+whole("widgets.saves.metric.stripWidth", 1, 10)
+whole("widgets.saves.metric.coinGap", 0, 20)
+whole("widgets.saves.metric.doneWidth", 20, 120)
+whole("widgets.saves.metric.toggleMin", 8, 60)
+whole("widgets.saves.metric.cursorHeight", 8, 40)
+whole("widgets.saves.metric.levelStep", 0, 5)
+whole("widgets.saves.metric.listMargin", 0, 30)
+number("widgets.saves.metric.doubleClick", 0.1, 2) -- seconds between two clicks counted as a double click
+number("widgets.saves.metric.minBar", 0, 1) -- narrowest width of a progress bar, px
+number("widgets.saves.metric.nodesShare", 0.1, 1) -- share of the drawer width given to the nodes text
+number("widgets.saves.metric.restShare", 0.1, 1) -- share of the drawer width given to the remaining-cost text
+add("widgets.saves.metric.percentSuffix", "text")
+add("widgets.saves.metric.countSeparator", "text")
+add("widgets.saves.metric.unknown", "text")
 
 brick("widgets.choice.brick", "choice")
 add("widgets.choice.font", "role")
@@ -524,6 +609,64 @@ add("widgets.tile.gauge.back", "key")
 add("widgets.tile.gauge.warn", "key")
 add("widgets.tile.gauge.bad", "key")
 
+brick("widgets.bare.brick", "bare")
+choice("widgets.bare.frame", LOOK_FRAME)
+add("widgets.bare.fill", "key")
+add("widgets.bare.border", "key")
+whole("widgets.bare.borderSize", 0, 8)
+brick("widgets.counter.brick", "counter")
+whole("widgets.counter.height", 12, 48)
+choice("widgets.counter.frame", LOOK_FRAME)
+add("widgets.counter.fill", "key")
+add("widgets.counter.font", "role")
+add("widgets.counter.text", "key")
+whole("widgets.counter.dot", 4, 24)
+whole("widgets.counter.inset", 0, 12)
+number("widgets.counter.trim", 0, 0.45)
+add("widgets.counter.tint", "color")
+add("widgets.counter.token.gold", "key")
+add("widgets.counter.token.silver", "key")
+add("widgets.counter.token.copper", "key")
+add("widgets.counter.token.ash", "key")
+add("widgets.counter.token.shard", "key")
+add("widgets.counter.token.essence", "key")
+add("widgets.counter.token.artisan", "key")
+brick("widgets.round.brick", "round")
+whole("widgets.round.size", 16, 64)
+add("widgets.round.fill", "key")
+add("widgets.round.border", "key")
+add("widgets.round.activeFill", "key")
+add("widgets.round.activeBorder", "key")
+add("widgets.round.text", "key")
+add("widgets.round.activeText", "key")
+add("widgets.round.hover", "key")
+brick("widgets.zoom.brick", "zoom")
+whole("widgets.zoom.height", 14, 40)
+whole("widgets.zoom.gap", 0, 16)
+add("widgets.zoom.fill", "key")
+add("widgets.zoom.border", "key")
+add("widgets.zoom.text", "key")
+add("widgets.zoom.button", "key")
+brick("widgets.miniview.brick", "miniview")
+whole("widgets.miniview.width", 60, 400)
+whole("widgets.miniview.height", 40, 300)
+add("widgets.miniview.fill", "key")
+add("widgets.miniview.border", "key")
+add("widgets.miniview.view", "key")
+add("widgets.miniview.viewBorder", "key")
+add("widgets.miniview.dot", "key")
+number("widgets.miniview.viewAlpha", 0, 1)
+add("widgets.miniview.showDot", "boolean")
+brick("widgets.tipcard.brick", "tipcard")
+choice("widgets.tipcard.frame", LOOK_FRAME)
+add("widgets.tipcard.fill", "key")
+add("widgets.tipcard.border", "key")
+add("widgets.tipcard.title", "key")
+add("widgets.tipcard.text", "key")
+add("widgets.tipcard.muted", "key")
+whole("widgets.tipcard.width", 120, 480)
+whole("widgets.tipcard.padding", 2, 24)
+
 brick("widgets.map.brick", "map")
 whole("widgets.map.gap", 0, 8)
 choice("widgets.map.frame", LOOK_FRAME)
@@ -547,11 +690,18 @@ add("widgets.group.color", "key")
 add("widgets.group.font", "role")
 choice("widgets.group.frame", { LARGE = true, SMALL = true, FLAT = true })
 
+add("widgets.list.selected", "key")
+number("widgets.list.selectedAlpha", 0, 1)
+-- S2 (A99.T6): brick of the rows that dress a native list (Replace); a transparent list row keeps the names readable
+choice("widgets.list.rowBrick", { list = true, fill = true })
 brick("widgets.scroll.brick", "scroll")
 whole("widgets.scroll.width", 1, 40)
 whole("widgets.scroll.thumb", 4, 200)
 whole("widgets.scroll.step", 1, 400)
 number("widgets.scroll.trackAlpha", 0, 1)
+add("widgets.scroll.arrowUp", "text")
+add("widgets.scroll.arrowDown", "text")
+whole("widgets.scroll.arrowPad", 0, 40)
 
 choice("widgets.cells.shape", { round = true, bevel = true, square = true })
 
@@ -593,7 +743,30 @@ choice("widgets.cards.shape", { square = true, bevel = true, round = true, pill 
 whole("widgets.cards.gap", 0, 30)
 whole("widgets.cards.pad", 0, 30)
 
+add("kit.quality.0", "color")
+add("kit.quality.1", "color")
+add("kit.quality.2", "color")
+add("kit.quality.3", "color")
+add("kit.quality.4", "color")
+add("kit.quality.5", "color")
+add("kit.quality.6", "color")
+add("kit.category.offensive", "color")
+add("kit.category.defensive", "color")
+add("kit.category.resource", "color")
+add("kit.category.utility", "color")
+add("kit.category.mobility", "color")
+add("kit.affix.equipped", "color")
+add("kit.affix.none", "color")
+
 whole("kit.padding", 0, 40)
+whole("kit.followLevel", 0, 100)
+add("kit.followAbove", "boolean")
+whole("kit.followLevelInside", 0, 200)
+whole("kit.followLevelBase", 0, 200)
+whole("kit.releaseLevel", 0, 20)
+whole("tree.stack.levelStep", 0, 5) -- frame levels the tree chrome, surface and bottom frame sit above the native frame
+-- R7g: frame levels of waste tolerated between the lowest and the highest window before the order is packed again
+whole("tree.stack.compact", 10, 10000)
 whole("kit.spacing", 0, 40)
 whole("kit.inset", 0, 20)
 whole("kit.gap", 0, 20)
@@ -733,7 +906,25 @@ number("kit.combatAlpha", 0, 1)
 number("kit.animation", 0, 2)
 number("kit.rescale.delay", 0, 1)
 
+add("board.dress", "boolean")
+add("board.portrait", "boolean")
+choice("board.frame", { LARGE = true, SMALL = true, FLAT = true })
+add("board.color", "key")
+add("board.border", "key")
+add("board.title.font", "role")
+add("board.title.color", "key")
+choice("board.title.align", { SIDE = true, CENTER = true })
+number("board.title.x", -60, 200)
+number("board.title.y", 0, 60)
+add("board.name.font", "role")
+add("board.name.color", "key")
+add("board.heading.font", "role")
+add("board.heading.color", "key")
+add("board.text.font", "role")
+add("board.text.color", "key")
 add("board.note.font", "role")
+add("board.note.color", "key")
+add("board.objective.done", "key")
 whole("board.header.height", 10, 60)
 add("board.header.font", "role")
 add("board.header.color", "key")
@@ -744,8 +935,19 @@ whole("board.row.height", 20, 120)
 whole("board.row.gap", 0, 40)
 whole("board.row.icon", 12, 64)
 add("board.row.font", "role")
+add("board.panel.color", "key")
+add("board.panel.border", "key")
+add("board.strip.color", "key")
+add("board.strip.rule", "key")
+add("board.tab.idle", "key")
+add("board.tab.border", "key")
+whole("board.tab.padding", 0, 40)
+add("board.button.idle", "key")
+add("board.art.frame", "boolean")
 brick("board.card.brick", "card")
 brick("board.cardHeader.brick", "cardHeader")
+brick("board.picture.brick", "picture")
+brick("board.slot.brick", "slot")
 
 add("chat.prefix", "color")
 add("chat.text", "color")
@@ -757,6 +959,170 @@ add("chat.muted", "color")
 add("chat.gold", "color")
 add("chat.silver", "color")
 add("chat.copper", "color")
+
+-- T10 (A99.T10): false = no frame (edge) drawn around the pieces of the Journal, the fills stay
+add("tree.frames.enabled", "boolean")
+-- T12 (E1): fill of the panels that ProjectEbonhold pieces are replaced with, when the caller gives none
+add("tree.piece.fill", "key")
+number("tree.title.top", -60, 60)
+whole("tree.bottom.height", 16, 100)
+add("tree.bottom.fill", "key")
+add("tree.bottom.border", "key")
+add("tree.search.hide", "boolean")
+whole("tree.bottom.edge", 0, 40)
+whole("tree.tab.trim", 0, 60)
+whole("tree.title.margin", 0, 200)
+number("tree.title.drop", -60, 60)
+add("tree.gauge.text", "color")
+choice("tree.gauge.outline", OUTLINE)
+add("tree.gauge.shadow", "color")
+number("tree.gauge.shadowAlpha", 0, 1)
+number("tree.gauge.shadowX", -4, 4)
+number("tree.gauge.shadowY", -4, 4)
+add("tree.button.fill", "key")
+add("tree.button.border", "key")
+add("tree.banner.fill", "key")
+add("tree.banner.border", "key")
+add("tree.paper.fill", "key")
+choice("tree.prestige.circleFrame", LOOK_FRAME)
+add("tree.prestige.animation", "text") -- "" = none; any other name is an animation a skin registers in EbonAPI.PrestigeAnimations (unknown name = none)
+add("tree.prestige.fill", "key")
+add("tree.prestige.border", "key")
+add("tree.prestige.barFill", "text") -- palette color name; "" leaves the native art as it is
+add("tree.prestige.barDesaturate", "boolean")
+add("tree.prestige.previewFill", "text") -- palette key behind the reward model; "" = tree.prestige.fill
+add("tree.prestige.text", "text") -- palette key of the texts of the Prestige panels; "" leaves the native colour
+add("tree.paper.border", "key")
+whole("tree.dense.pad", 0, 20)
+whole("tree.dense.gap", 0, 20)
+whole("tree.dense.zoomMargin", 0, 40)
+whole("tree.dense.hubSize", 16, 256)
+whole("tree.dense.hubMax", 1, 40)
+number("tree.dense.hubAuraMargin", 0.5, 3)
+number("tree.dense.hubAuraOwn", 0, 1)
+number("tree.dense.hubAuraOther", 0, 1)
+number("tree.dense.hubIconScale", 0.2, 2)
+number("tree.dense.hubRingScale", 0.5, 2)
+whole("tree.dense.hubRadius", 50, 3000)
+add("tree.dense.hubKey", "key")
+add("tree.dense.centerIcon", "texture")
+add("tree.dense.centerGlow", "texture")
+add("tree.dense.hubAura", "texture")
+add("tree.dense.hubRing", "texture")
+add("tree.dense.nodeHaloTex", "texture")
+add("tree.dense.normalHaloTex", "texture")
+add("tree.dense.hubIcon", "texture")
+add("tree.dense.currencyAsh", "texture")
+add("tree.dense.currencyShard", "texture")
+add("tree.dense.currencyEssence", "texture")
+add("tree.dense.currencyArtisan", "texture")
+whole("tree.dense.nodePx", 1, 8)
+whole("tree.dense.hubPx", 1, 16)
+whole("tree.dense.maxDots", 1, 32)
+number("tree.dense.dotStep", 1, 10)
+number("tree.dense.dotMin", 0, 10)
+add("tree.dense.linkKey", "key")
+add("tree.dense.linkLitKey", "key")
+add("tree.dense.stateActive", "key")
+add("tree.dense.stateReady", "key")
+add("tree.dense.stateNopoints", "key")
+add("tree.dense.stateLocked", "key")
+add("tree.dense.stateUnknown", "key")
+add("tree.dense.mapLinkLitKey", "key")
+number("tree.dense.pendingAlpha", 0, 1)
+number("tree.dense.haloAlpha", 0, 1)
+number("tree.dense.normalHaloAlpha", 0, 1)
+number("tree.dense.minimapIdleAlpha", 0, 1)
+number("tree.dense.lockedAlpha", 0, 1)
+add("tree.dense.fillKey", "key")
+number("tree.dense.fillLockedAlpha", 0, 1)
+whole("tree.dense.iconMinPx", 1, 64)
+whole("tree.dense.noticeHeight", 8, 60)
+whole("tree.dense.slotWidth", 100, 600)
+whole("tree.dense.tipIcon", 8, 64)
+add("tree.dense.tipColor", "color")
+number("tree.dense.dotSize", 0.5, 8)
+choice("tree.bottom.frame", LOOK_FRAME)
+choice("tree.button.frame", LOOK_FRAME)
+choice("tree.banner.frame", LOOK_FRAME)
+choice("tree.paper.frame", LOOK_FRAME)
+choice("tree.piece.frame", LOOK_FRAME)
+choice("tree.piece.panel", LOOK_FRAME)
+choice("tree.piece.bar", LOOK_FRAME)
+choice("tree.piece.scroll", LOOK_FRAME)
+choice("tree.piece.slot", LOOK_FRAME)
+-- S4 (A99.T9): palette key of the edge of the Transmogrify bar piece (the bg key = no visible frame around the bar)
+add("tree.piece.barBorder", "key")
+number("tree.dense.minZoom", 0.01, 1)
+number("tree.dense.maxZoom", 1, 10)
+number("tree.dense.zoomStep", 1.01, 2)
+number("tree.dense.defaultZoom", 0.05, 5)
+number("tree.dense.textMinZoom", 0, 5)
+whole("tree.dense.nodeSize", 8, 128)
+whole("tree.dense.nodeMinPx", 1, 16)
+whole("tree.dense.borderPx", 0, 8)
+whole("tree.dense.presetGrow", 0, 32)
+whole("tree.dense.haloGrow", 0, 64)
+whole("tree.dense.nodeHaloGrow", 0, 64)
+whole("tree.dense.viewMargin", 0, 200)
+whole("tree.dense.linkPx", 1, 16)
+whole("tree.dense.linkLitPx", 1, 16)
+add("tree.dense.linkTexStraight", "texture")
+add("tree.dense.linkTexTilted", "texture")
+number("tree.dense.linkTexFactor", 0.5, 2)
+add("tree.dense.presetKey", "key")
+add("tree.dense.pendingKey", "key")
+add("tree.dense.rankKey", "key")
+add("tree.dense.noticeKey", "key")
+add("tree.dense.navTipFallback", "color")
+whole("tree.journal.portraitSize", 20, 200)
+number("tree.journal.portraitLeft", -100, 100)
+number("tree.journal.portraitTop", -100, 100)
+number("tree.journal.iconLeft", -100, 100)
+whole("tree.journal.portraitMargin", 0, 20)
+add("tree.journal.ringColor", "text")
+whole("tree.journal.ringInset", 0, 20) -- px the ring disc spans beyond the icon on each side
+add("tree.journal.tabs", "list")
+number("tree.journal.fadeAlpha", 0, 1)
+-- T14: tuile journal.footer (barre du bas de l'onglet actif : noms globaux des pieces natives a y poser, par onglet)
+add("windows.detach.footer", "boolean")
+add("windows.tile.content", "boolean") -- R7f
+-- R7h: content frame of each journal page, "+" joins frames whose union is the content
+add("windows.tilePages", "list")
+-- R7h end
+whole("tree.journal.height", 400, 1200)
+whole("tree.journal.footerHeight", 10, 200)
+add("tree.journal.footer.SkillTree", "list")
+add("tree.journal.footer.Transmog", "list")
+add("tree.journal.footer.Mounts", "list")
+add("tree.journal.footer.Companions", "list")
+-- T16: skin share of the Saves hover margin (px, added to Common saves.hoverMargin)
+number("saves.hoverMarginAdd", -100, 100)
+whole("journal.tab.seat.leftAdd", -50, 50)
+whole("journal.tab.seat.topAdd", -50, 50)
+whole("journal.tab.seat.rightAdd", -50, 50)
+whole("journal.tab.seat.bottomAdd", -50, 50)
+whole("journal.tab.textPadAdd", -50, 50)
+-- R7a
+whole("journal.title.gapAdd", -50, 50)
+whole("board.pe.row", 20, 120)
+whole("board.pe.gap", 0, 20)
+whole("board.pe.head", 10, 60)
+whole("board.pe.portrait.size", 20, 120)
+whole("board.pe.portrait.left", -20, 40)
+whole("board.pe.portrait.top", -40, 20)
+whole("board.pe.portrait.inset", 0, 10)
+whole("board.pe.star.size", 6, 40)
+whole("board.pe.star.x", -20, 20)
+whole("board.pe.star.y", -20, 20)
+add("board.pe.star.color", "key")
+whole("board.pe.toggle.size", 6, 40)
+whole("board.pe.toggle.x", -20, 20)
+whole("board.pe.toggle.y", -20, 20)
+add("board.pe.toggle.color", "key")
+add("board.pe.toggle.open", "text")
+add("board.pe.toggle.close", "text")
+whole("board.pe.frame.margin", 0, 30)
 
 local BY_KEY = {}
 local SECTIONS = {}
@@ -894,4 +1260,162 @@ function Catalog.problem(entry, value)
   end
 
   return nil
+end
+
+-- Common: the values EbonAPI keeps for EVERY skin (neither colours nor sizes of a look, so no skin token): stacking
+-- order relative to a parent frame, technical timer delays, behaviour flags, native frames recognised by size or
+-- texture name, and the work limits of the dense tree. They are declared ONCE, here. The code reads them with
+-- EbonAPI.Common.get(name) (or api:Common(name)) at the moment of use; a skin or another addon replaces one with
+-- EbonAPI.Common.set(name, value) (or api:Common(name, value)), the new value must have the declared type.
+EbonAPI.Common = {}
+
+local Common = EbonAPI.Common
+
+local DECLARED = {
+  -- DressTreeBody / DressTree: frame levels, relative to the parent frame
+  ["tree.gaugeFillLevel"] = 1,        -- the gauge fill piece sits this many levels under the gauge
+  ["tree.gaugeLevel"] = 40,           -- the dressed gauge sits this many levels over the surface
+  ["tree.progressTexture"] = "progression_bar", -- part of the texture path of the native gauge art (found, then replaced)
+  ["tree.searchIcon"] = "Interface\\Common\\UI-Searchbox-Icon", -- magnifier of the skin search field (replaces the native one)
+  ["tree.searchIconSize"] = 14,       -- its size and the space around it, in the field (px)
+  ["tree.searchIconGap"] = 4,
+  -- every dress: technical delay of the timers that wait for the native frame to settle
+  ["dress.timerDelay"] = 0.01,
+  -- Saves: status line (lines of room, padding under them, inset from the bottom edge) in px / font lines
+  ["saves.statusLines"] = 2,
+  ["saves.statusPad"] = 4,
+  -- T16: Saves hover zone: margin (px) added on the 4 sides of the visible list; the skin token saves.hoverMarginAdd is added to it
+  ["saves.hoverMargin"] = 8,
+  -- R7c
+  ["journal.nativeArt"] = "framegeneral",
+  -- R7f: depth of sub-frames swept under the native gauge
+  ["tree.gaugeDepth"] = 6,
+  -- R7a
+  ["journal.title.gap"] = 8,
+  ["journal.tab.seat.left"] = 9,
+  ["journal.tab.seat.top"] = -6,
+  ["journal.tab.seat.right"] = -8,
+  ["journal.tab.seat.bottom"] = 4,
+  ["journal.tab.textPad"] = 8,
+  ["saves.statusInset"] = 2,
+  -- DressTree: smallest height of a piece drawn from a measure (a zero height would hide it)
+  ["tree.pieceMinHeight"] = 1,
+  -- Dress: the board is replaced by every skin (false: only when the skin sets board.dress)
+  ["dress.replaceAll"] = true,
+  -- DressMounts: offset of the filter reset cross from the top right corner of the filter button (SharedUIPanelTemplates.xml:633-636)
+  ["mounts.resetCrossX"] = -3,
+  ["mounts.resetCrossY"] = 0,
+  -- DressCompanions: same offset for the filter reset cross of the Companions tab
+  ["companions.resetCrossX"] = -3,
+  ["companions.resetCrossY"] = 0,
+  -- DressTransmog: same offset for the filter reset cross of the Transmog tab
+  ["transmog.resetCrossX"] = -3,
+  ["transmog.resetCrossY"] = 0,
+  -- Dress: icon of the board portrait, constant ICON_BOARD of ProjectEbonhold (callboard_ui.lua:63); used when the
+  -- hook of SetPortraitToTexture did not keep the path of the native portrait
+  ["board.portraitIcon"] = "Interface\\Icons\\INV_Misc_Note_01",
+  -- Dress: icon of the travel button drawn over the native one (size, offset from the left edge, texture trim)
+  ["board.travelIconSize"] = 18,
+  ["board.travelIconX"] = 8,
+  ["board.travelIconTrim"] = 0.08,
+  ["board.travelIconLevel"] = 4,
+  -- Dress: tabs of the board (text width cap, height, minimum middle part, padding around the text, outer padding)
+  ["board.tabTextMax"] = 120,
+  ["board.tabHeight"] = 32,
+  ["board.tabMiddleMin"] = 40,
+  ["board.tabTextPad"] = 20,
+  ["board.tabOuterPad"] = 40,
+  -- Dress: column of the list's scroll bar, right of the rows (callboard_ui.lua:874-877)
+  ["board.listBar"] = 22,
+  -- Dress: quest paper behind the detail (used width and width of the file, in pixels) and its three border lines
+  ["board.paperWidth"] = 326,
+  ["board.paperTexture"] = "Interface\\LFGFrame\\UI-LFG-BACKGROUND-QUESTPAPER",
+  ["board.paperFileWidth"] = 512,
+  ["board.paperLineDark"] = { 0.16, 0.11, 0.06 },
+  ["board.paperLineLight"] = { 0.42, 0.32, 0.20 },
+  -- Dress: thickness of the paper lines, frame levels above the host frame
+  ["board.paperLineThickness"] = 1,
+  ["board.levelBox"] = 1,
+  ["board.levelRow"] = 2,
+  ["board.levelMap"] = 6,
+  -- DressPrestige: native frames recognised by size (width, height) and tolerance in pixels
+  ["prestige.tolerance"] = 1,
+  ["prestige.circleTexture"] = "dragonflightmajorfactionstuskarr",
+  ["prestige.separator"] = { 100, 1 },     -- height 1, wider than 100
+  ["prestige.deal"] = { 420, 42 },
+  ["prestige.preview"] = { 240, 310 },
+  ["prestige.previewButton"] = { 26, 26 },
+  ["prestige.button"] = { 170, 34 },
+  ["prestige.bar"] = { 690, 42 },
+  ["prestige.bubble"] = { 30, 30 },
+  -- STAL dense tree: stacking, data limits, geometry maths and behaviour (nothing drawn)
+  ["stal.haloSublevel"] = -8,         -- lowest drawing sublevel of the engine (3.3.5): the halo goes under all the BACKGROUND art of its button
+  ["stal.controlLevel"] = 6,          -- zoom control over the node view
+  ["stal.viewLevel"] = 1,             -- node view sits this many levels over the dense root
+  ["stal.miniLevel"] = 6,             -- minimap sits this many levels over the node view
+  ["stal.miniMargin"] = 8,            -- minimap distance from the bottom right corner of the node view (px)
+  ["stal.zoomGaugeGap"] = 24,         -- zoom control sits this far left of the soul gauge, on the gauge row (the gauge plate is wider than its frame)
+  ["stal.zoomReadout"] = 44,         -- zoom control: width of the percent readout, room for "100 %" between the - and + buttons (px)
+  ["stal.spacingScale"] = 0.8,        -- data units to pixels, before the zoom
+  ["stal.defaultWidth"] = 1000,       -- view size used before the first layout
+  ["stal.defaultHeight"] = 640,
+  ["stal.maxButtons"] = 300,          -- pool of node buttons (never created beyond)
+  ["stal.maxLinks"] = 350,
+  ["stal.linkMinLength"] = 1,
+  ["stal.linkAxisTolerance"] = 0.5,   -- under this many pixels a link is drawn straight
+  ["stal.dragThreshold"] = 2,
+  ["stal.dragInterval"] = 0.016,
+  ["stal.centerSeconds"] = 0.25,
+  ["stal.minimapMiddle"] = 0.5,       -- middle of each part of a segment (minimap dots)
+  ["stal.roundSizeKey"] = "widgets.round.size", -- name of the skin token of the class buttons
+  ["stal.rankOffsetX"] = -2,          -- rank text offset from the node's bottom right corner (PE skillTree.lua:2972)
+  ["stal.rankOffsetY"] = 2,
+  ["stal.iconTint"] = { 1, 1, 1 },    -- vertex colour of the node icon
+  ["stal.iconTrim"] = 0.07,           -- texture trim of the node icon (PE skillTree.lua:3910)
+  ["stal.defaultCurrency"] = "ash",   -- currency key used when a balance has none
+}
+
+local current = {}
+
+for name, value in pairs(DECLARED) do
+  current[name] = value
+end
+
+function Common.get(name)
+  local value = current[name]
+
+  if value == nil then
+    error(format('EbonAPI: Common: "%s" is not declared', tostring(name)), 2)
+  end
+
+  return value
+end
+
+function Common.set(name, value)
+  if DECLARED[name] == nil then
+    error(format('EbonAPI: Common: "%s" is not declared', tostring(name)), 2)
+  end
+
+  if type(value) ~= type(DECLARED[name]) then
+    error(format('EbonAPI: Common: "%s" expects a %s, got %s', name, type(DECLARED[name]), type(value)), 2)
+  end
+
+  current[name] = value
+end
+
+function Common.reset(name)
+  Common.set(name, DECLARED[name])
+end
+
+function Common.names()
+  return Lib.sortedKeys(DECLARED)
+end
+
+-- Public API: api:Common(name) reads, api:Common(name, value) replaces and returns the value now in force.
+function EbonAPI.Handle:Common(name, value)
+  if value ~= nil then
+    Common.set(name, value)
+  end
+
+  return Common.get(name)
 end

@@ -10,6 +10,7 @@ local LISTED_NODES = 8
 
 local loadoutId, loadoutName
 local serverSpendable, serverCommitted
+local serverPools
 local serverNodes
 local installed = false
 local due, left
@@ -80,9 +81,28 @@ local function OnLoadout(_, loadout)
     NS.api:Untick("loadout")
 end
 
+local function RefreshIfShown()
+    local frame = EbonAPI.Ebonhold.SkillTreeFrame()
+    if not (frame and frame:IsVisible()) then return end
+    NS.Core.InvalidateSnapshot()
+    NS.UI.RefreshList()
+end
+
 local function OnAsh(_, ash)
-    serverSpendable, serverCommitted = ash.spendable, ash.committed
+    local held = EbonAPI.State.GetAsh() or ash
+    serverSpendable, serverCommitted = held.spendable, held.committed
     NS.api:Restore("BALANCE.NOT_RECEIVED")
+    RefreshIfShown()
+end
+
+local function OnPools(_, pools)
+    serverPools = pools
+    RefreshIfShown()
+end
+
+local function OnPoolsFromServer(original, ...)
+    original(...)
+    RefreshIfShown()
 end
 
 local function RestorePayload(body)
@@ -156,6 +176,10 @@ function Bridge.GetServerNodes()
     return serverNodes
 end
 
+function Bridge.GetServerPools()
+    return serverPools
+end
+
 function Bridge.GetServerBalance()
     return serverSpendable, serverCommitted
 end
@@ -184,8 +208,9 @@ local function CompletePayload(original, id, body, opcode)
     return original(id, body)
 end
 
-local function OnApplyResult(original, spellId, success)
-    original(spellId, success)
+local function OnApplyResult(original, spellId, success, ...)
+    original(spellId, success, ...)
+    if NS.UI and NS.UI.OnApplyResult then NS.UI.OnApplyResult(success and true or false) end
     if success then
         treeRefusal = nil
         EbonAPI.Ebonhold.RequestLoadout()
@@ -203,6 +228,25 @@ end
 
 function Bridge.Init()
     if installed then return end
+
+    if type(SkillTreeMicroButton_ShowAlert) == "function" and type(SkillTreeMicroButton_HideAlert) == "function" then
+        local canFlash = type(SkillTreeMicroButton_StartFlashing) == "function" and type(SkillTreeMicroButton_StopFlashing) == "function"
+        local flashing, flashingBefore = false, false
+        if canFlash then
+            hooksecurefunc("SkillTreeMicroButton_StartFlashing", function()
+                flashingBefore = flashing
+                flashing = true
+            end)
+            hooksecurefunc("SkillTreeMicroButton_StopFlashing", function()
+                flashing = false
+            end)
+        end
+        hooksecurefunc("SkillTreeMicroButton_ShowAlert", function(text)
+            if text == nil or not NS.Data.IsAutoAdd() then return end
+            SkillTreeMicroButton_HideAlert()
+            if canFlash and not flashingBefore then SkillTreeMicroButton_StopFlashing() end
+        end)
+    end
 
     local Ebonhold = EbonAPI.Ebonhold
     local opcode = Ebonhold.OpcodeCS("REQUEST_LOADOUT_UPDATE")
@@ -231,7 +275,11 @@ function Bridge.Init()
         end
     end
 
+    local pooled, poolsWhy = NS.api:HookEbonhold("SkillTree", "UpdateTotalSoulPoints", OnPoolsFromServer)
+    if not pooled then Lapse("BRIDGE.HOOK_FAILED", {}, poolsWhy) end
+
     NS.api:On("SERVER_LOADOUT", OnLoadout)
+    NS.api:On("SERVER_POOLS", OnPools)
     NS.api:On("SERVER_ASH", OnAsh)
 
     StartLoadoutRequest()

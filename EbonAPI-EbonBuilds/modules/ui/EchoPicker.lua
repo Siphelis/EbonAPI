@@ -2,7 +2,6 @@ EbonBuilds.EchoPicker = {}
 
 local W = EbonBuilds.Widgets
 
-local QUALITY_COLOR = EbonBuilds.Const.QUALITY_HEX
 
 local ROW_HEIGHT    = 24
 local WINDOW_WIDTH  = 400
@@ -19,9 +18,9 @@ local onPick
 local searchText   = ""
 
 local function BuildEntries()
-    local best = EbonBuilds.Catalog.BestByName()
+    local best = EbonAPI.EchoCatalog.Names()
     local list = {}
-    for name, entry in pairs(best) do
+    for name, entry in pairs(best or {}) do
         list[#list + 1] = {
             spellId = entry.spellId,
             name    = name,
@@ -54,7 +53,7 @@ end
 local function RowText(self)
     local entry = self._entry
     if not entry then return "" end
-    return "|cff" .. (QUALITY_COLOR[entry.quality] or "ffffff") .. entry.name .. "|r"
+    return "|cff" .. (EbonBuilds.Const.QualityHex(entry.quality) or "ffffff") .. entry.name .. "|r"
 end
 
 local function RowIcon(self)
@@ -149,7 +148,7 @@ function EbonBuilds.EchoPicker.Show(callback, dataSource)
     if type(dataSource) == "table" then
         allEntries = dataSource
     elseif dataSource then
-        allEntries = EbonBuilds.Catalog.AllQualities()
+        allEntries = EbonAPI.EchoCatalog.QualityList() or {}
     else
         allEntries = BuildEntries()
     end

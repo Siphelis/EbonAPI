@@ -372,6 +372,88 @@ local function row(entry, order)
   }
 end
 
+local controlHosts = setmetatable({}, { __mode = "k" })
+
+local function controlsBuild(parent, width)
+  local existing = controlHosts[parent]
+
+  if existing then
+    existing.width = width
+    existing:Relayout()
+
+    return existing
+  end
+
+  local Kit, NAME = EbonAPI.Kit, EbonAPI.name
+  local root = CreateFrame("Frame", nil, parent)
+
+  root.width = width
+  controlHosts[parent] = root
+
+  root.errors = Kit.create(NAME, "toggle", root, {
+    text = function()
+      return L.UI_DIAG_ERRORS
+    end,
+    get = function()
+      return Problems.networkShown()
+    end,
+    onChange = function(_, value)
+      Problems.setNetworkShown(value)
+    end,
+  })
+  root.errorsNote = Kit.create(NAME, "text", root, {
+    width = width, color = "muted",
+    text = function()
+      return L.UI_DIAG_ERRORS_HINT
+    end,
+  })
+  root.debug = Kit.create(NAME, "toggle", root, {
+    text = function()
+      return L.UI_DIAG_DEBUG
+    end,
+    get = function()
+      return EbonAPI.Log.isDebug(nil)
+    end,
+    onChange = function(_, value)
+      EbonAPI.Log.setDebug(nil, value)
+    end,
+  })
+  root.debugNote = Kit.create(NAME, "text", root, {
+    width = width, color = "muted",
+    text = function()
+      return L.UI_DIAG_DEBUG_HINT
+    end,
+  })
+
+  function root:Relayout()
+    local gap = EbonAPI.Bricks.value("kit.gap")
+    local y = 0
+
+    for _, note in ipairs({ self.errorsNote, self.debugNote }) do
+      note.spec.width = self.width
+      note:Refresh()
+    end
+
+    for _, frame in ipairs({ self.errors, self.errorsNote, self.debug, self.debugNote }) do
+      frame:ClearAllPoints()
+      frame:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -y)
+      y = y + (frame:GetHeight() or 0) + gap
+    end
+
+    self:SetWidth(self.width)
+    self:SetHeight(math.max(1, y - gap))
+  end
+
+  root:SetScript("OnShow", function(self)
+    self.errors:Refresh()
+    self.debug:Refresh()
+  end)
+
+  root:Relayout()
+
+  return root
+end
+
 function Center.rebuild()
   local args = Settings.tree.args[PAGE].args
   local groups, order, sizes = {}, {}, {}
@@ -447,6 +529,12 @@ function Center.rebuild()
       return L.CENTER_EMPTY
     end }
   end
+
+  args.controls = {
+    type = "description", order = 100000, fontSize = "medium", view = "kit",
+    name = "",
+    build = controlsBuild,
+  }
 
   built, dirty = true, false
 end

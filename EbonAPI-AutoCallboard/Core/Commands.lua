@@ -3,7 +3,6 @@ AutoCallboardCore = Core
 local L = AutoCallboardLocale
 
 local tonumber = tonumber
-local math = math
 
 local trim = Core.trim
 
@@ -36,71 +35,34 @@ local DEBUG_COMMANDS = {
   clearlogs = "clearlogs",
 }
 
-local function reject(kind, name, facts, fallback)
-  local problem = Core.problem(name, facts)
-  local RT = AutoCallboardRuntime
-  local message = fallback
-
-  if problem and RT and RT.api then
-    message = RT.api:ProblemText(problem)
-  end
-
-  return { kind = kind, problem = problem, message = message }
-end
-
-local function invalid(command, rest, usage)
-  return reject("invalid", "COMMAND.BAD_ARGUMENT",
-      { command = command, value = rest ~= "" and rest or "-", usage = L[usage] }, L[usage])
-end
-
-local function parseText(rest, usage, field, command)
+local function parseText(rest, usage, field)
   if rest == "" then
-    return invalid(command, rest, usage)
+    return { kind = "invalid", message = L[usage] }
   end
 
   return { kind = "set", field = field, value = rest }
 end
 
-local function parseDebugFlag(rest, usage, action, command)
+local function parseDebugFlag(rest, usage, action)
   local value = parseBoolean(rest)
 
   if value == nil then
-    return invalid(command, rest, usage)
+    return { kind = "invalid", message = L[usage] }
   end
 
   return { kind = "debug", action = action, value = value }
 end
 
 local SLASH_PARSERS = {
-  name = function(rest) return parseText(rest, "USAGE_NAME", "targetName", "name") end,
-  buttonfield = function(rest) return parseText(rest, "USAGE_BUTTONFIELD", "objectiveButtonField", "buttonfield") end,
-  id = function(rest)
-    local spellID = tonumber(rest)
-
-    if not spellID then
-      return invalid("id", rest, "USAGE_ID")
-    end
-
-    return { kind = "set", field = "summonSpellID", value = spellID }
-  end,
-  reroll = function(rest) return parseText(rest, "USAGE_REROLL", "rerollFrame", "reroll") end,
-  maxrolls = function(rest)
-    local value = tonumber(rest)
-
-    if not value or value < 1 then
-      return invalid("maxrolls", rest, "USAGE_MAXROLLS")
-    end
-
-    return { kind = "set", field = "maxRerolls", value = math.floor(value) }
-  end,
+  name = function(rest) return parseText(rest, "USAGE_NAME", "targetName") end,
   debug = function(rest)
     if rest == "" then
       return { kind = "debug", action = "open" }
     end
 
-    return parseDebugFlag(rest, "USAGE_DEBUG", "enabled", "debug")
+    return parseDebugFlag(rest, "USAGE_DEBUG", "enabled")
   end,
-  watch = function(rest) return parseDebugFlag(rest, "USAGE_WATCH", "mouseWatch", "watch") end,
+  watch = function(rest) return parseDebugFlag(rest, "USAGE_WATCH", "mouseWatch") end,
   sniff = function(rest)
     local lowered = rest:lower()
 
@@ -112,11 +74,10 @@ local SLASH_PARSERS = {
       return { kind = "debug", action = "sniffClear" }
     end
 
-    return parseDebugFlag(rest, "USAGE_SNIFF", "sniffer", "sniff")
+    return parseDebugFlag(rest, "USAGE_SNIFF", "sniffer")
   end,
 }
 
-SLASH_PARSERS.spellid = SLASH_PARSERS.id
 SLASH_PARSERS.sniffer = SLASH_PARSERS.sniff
 
 function Core.parseSlash(input)
@@ -137,8 +98,15 @@ function Core.parseSlash(input)
 
   local parser = SLASH_PARSERS[command]
   if parser then
-    return parser(rest)
+    local parsed = parser(rest)
+
+    if parsed.kind == "invalid" then
+      parsed.command = command
+      parsed.value = rest
+    end
+
+    return parsed
   end
 
-  return reject("unknown", "COMMAND.UNKNOWN", { command = command }, L.CORE_UNKNOWN_COMMAND)
+  return { kind = "unknown", command = command }
 end

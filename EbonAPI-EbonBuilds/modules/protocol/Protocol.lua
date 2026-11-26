@@ -1,52 +1,42 @@
 EbonBuilds.Protocol = {}
 
-local OP = {
-    GRANTED_PERKS = EbonAPI.SS.PLAYER_PERK_GRANTED,
-}
+local GRANTED = 18
 
-EbonBuilds.Protocol.OP = OP
+local NONE = {}
 
-local ownedBody = nil
+local ownedSource = nil
 local ownedEchoes = nil
 
-local function ParseGrantedPerks(body)
-    local owned = {}
-    local first = true
-    for chunk in body:gmatch("[^;]+") do
-        if first then
-            first = false
-        else
-            local id, stacks, level, quality, locked =
-                chunk:match("^(%d+),(%d+),(%d+),(%d+),(%d+)$")
-            if id then
-                owned[tonumber(id)] = {
-                    stacks  = tonumber(stacks),
-                    level   = tonumber(level),
-                    quality = tonumber(quality),
-                    locked  = locked == "1",
-                }
-            end
-        end
-    end
-    return owned
-end
-
 function EbonBuilds.Protocol.GetOwnedEchoes()
-    if ownedBody then
-        ownedEchoes = ParseGrantedPerks(ownedBody)
-        ownedBody = nil
+    local state = EbonBuilds.api:ServerState(GRANTED)
+    if not state then
+        if EbonAPI.Ebonhold.HasNoGrantedPerk() == true then return NONE end
+        return nil
+    end
+    if state ~= ownedSource then
+        local owned = {}
+        for i = 1, #state.perks do
+            local p = state.perks[i]
+            owned[p.spellId] = {
+                stacks   = p.stack,
+                maxStack = p.maxStack,
+                quality  = p.quality,
+                locked   = p.locked,
+            }
+        end
+        ownedSource, ownedEchoes = state, owned
     end
     return ownedEchoes
 end
 
-local function OnGrantedPerks(body)
-    ownedBody = body
-    local maxPermanent = tonumber(body:match("^(%d+)"))
+local function OnGranted(state)
+    local maxPermanent = state and state.maxSlots
     if maxPermanent and maxPermanent > 0 and EbonBuilds.Build then
         EbonBuilds.Build.LOCKED_SLOTS = maxPermanent
     end
 end
 
 function EbonBuilds.Protocol.Init()
-    EbonBuilds.api:OnServer(OP.GRANTED_PERKS, OnGrantedPerks)
+    EbonBuilds.api:SubscribeServer(GRANTED, OnGranted)
+    OnGranted(EbonBuilds.api:ServerState(GRANTED))
 end

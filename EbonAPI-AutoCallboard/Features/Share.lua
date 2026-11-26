@@ -1,9 +1,8 @@
 local Core = AutoCallboardCore
 local L = AutoCallboardLocale
 local RT = AutoCallboardRuntime
-local SyncGoldTracker = RT.SyncGoldTracker
-local FinalizeTrackedQuestSpend = RT.FinalizeTrackedQuestSpend
-local state = RT.state
+
+local Log = RT.Log
 
 local function NormalizeQuestTitle(title)
   title = Core.stripColorCodes(tostring(title or ""):lower())
@@ -34,56 +33,6 @@ function RT.GetQuestLogEntryInfo(index)
     isComplete = isComplete,
     questID = questID,
   }
-end
-
-local function GetQuestIdFromLogIndex(index)
-  local entry = RT.GetQuestLogEntryInfo(index)
-  if entry and tonumber(entry.questID) and tonumber(entry.questID) > 0 then
-    return tonumber(entry.questID)
-  end
-
-  if GetQuestLogQuestID then
-    local questID = GetQuestLogQuestID(index)
-    if tonumber(questID) and tonumber(questID) > 0 then
-      return tonumber(questID)
-    end
-  end
-
-  if GetQuestLink then
-    local link = GetQuestLink(index)
-    local questID = link and link:match("quest:(%d+)")
-    if questID then
-      return tonumber(questID)
-    end
-  end
-
-  return nil
-end
-
-local function FindSelectedQuestInLog()
-  if not RT.GetSelectedQuest() or not GetNumQuestLogEntries or not GetQuestLogTitle then
-    return false, false
-  end
-
-  local selectedID = tonumber(RT.GetSelectedQuest().questId) or 0
-  local selectedTitle = NormalizeQuestTitle(RT.GetSelectedQuest().title)
-  local entries = GetNumQuestLogEntries()
-
-  for i = 1, entries do
-    local entry = RT.GetQuestLogEntryInfo(i)
-
-    if entry and not entry.isHeader then
-      local questID = tonumber(entry.questID) or GetQuestIdFromLogIndex(i)
-      local idMatches = selectedID > 0 and questID == selectedID
-      local titleMatches = selectedTitle ~= "" and NormalizeQuestTitle(entry.title) == selectedTitle
-
-      if idMatches or titleMatches then
-        return true, entry.isComplete == true or entry.isComplete == 1
-      end
-    end
-  end
-
-  return false, false
 end
 
 function RT.FindQuestLogIndexByID(questID, preferredIndex)
@@ -152,15 +101,20 @@ end
 
 function RT.ShareQuestLogIndex(index, quest, source)
   if not index then
-    return nil, RT.api:Problem("SHARE.QUEST_NOT_IN_LOG", { quest = RT.QuestShareLabel(quest) })
+    RT.api:Report(RT.api:Problem("SHARE.QUEST_NOT_IN_LOG", { quest = RT.QuestShareLabel(quest) }))
+  elseif not SelectQuestLogEntry then
+    RT.api:Report(RT.api:Problem("SHARE.UNAVAILABLE", { api = "SelectQuestLogEntry" }))
   end
 
-  if not SelectQuestLogEntry then
-    return nil, RT.api:Problem("SHARE.UNAVAILABLE", { api = "SelectQuestLogEntry" })
+  if not index or not SelectQuestLogEntry then
+    Log("quest", "share blocked source=", source, " reason=missing SelectQuestLogEntry")
+    return false, L.SHARE_LOG_UNAVAILABLE
   end
 
   if not QuestLogPushQuest then
-    return nil, RT.api:Problem("SHARE.UNAVAILABLE", { api = "QuestLogPushQuest" })
+    RT.api:Report(RT.api:Problem("SHARE.UNAVAILABLE", { api = "QuestLogPushQuest" }))
+    Log("quest", "share blocked source=", source, " reason=missing QuestLogPushQuest")
+    return false, L.SHARE_PUSH_UNAVAILABLE
   end
 
   local previousIndex = GetQuestLogSelection and GetQuestLogSelection() or nil
@@ -171,7 +125,9 @@ function RT.ShareQuestLogIndex(index, quest, source)
       SelectQuestLogEntry(previousIndex)
     end
 
-    return nil, RT.api:Problem("SHARE.NOT_SHAREABLE", { quest = RT.QuestShareLabel(quest) })
+    RT.api:Report(RT.api:Problem("SHARE.NOT_SHAREABLE", { quest = RT.QuestShareLabel(quest) }))
+    Log("quest", "share skipped source=", source, " quest=", RT.QuestShareLabel(quest), " reason=not pushable")
+    return false, string.format(L.SHARE_NOT_SHAREABLE, RT.QuestShareLabel(quest))
   end
 
   QuestLogPushQuest()
@@ -180,12 +136,15 @@ function RT.ShareQuestLogIndex(index, quest, source)
     SelectQuestLogEntry(previousIndex)
   end
 
+  Log("quest", "shared source=", source, " quest=", RT.QuestShareLabel(quest), " index=", index)
   return true
 end
 
 function RT.ShareAcceptedQuest(source)
   if not RT.lastAcceptedQuest then
-    return nil, RT.api:Report(RT.api:Problem("SHARE.NO_ACCEPTED_QUEST"))
+    RT.api:Report(RT.api:Problem("SHARE.NO_ACCEPTED_QUEST"))
+    Log("quest", "share skipped source=", source, " reason=no accepted quest")
+    return false
   end
 
   local lastAcceptedQuest = RT.lastAcceptedQuest
@@ -194,23 +153,25 @@ function RT.ShareAcceptedQuest(source)
     lastAcceptedQuest.title = entry.title
   end
 
-  local shared, problem = RT.ShareQuestLogIndex(index, {
+  if not index then
+    RT.api:Report(RT.api:Problem("SHARE.QUEST_NOT_IN_LOG", { quest = RT.QuestShareLabel(lastAcceptedQuest) }))
+    Log("quest", "share skipped source=", source, " quest=", RT.QuestShareLabel(lastAcceptedQuest), " reason=not in log yet")
+    return false
+  end
+
+  local shared, message = RT.ShareQuestLogIndex(index, {
       questID = lastAcceptedQuest.questID,
       title = lastAcceptedQuest.title,
     }, source)
 
-  if not shared then
-    return nil, RT.api:Report(problem)
+  if shared then
+    RT.SetQuestStatus("SHARE_ACCEPTED_QUEST", RT.QuestShareLabel(lastAcceptedQuest))
   end
 
-  RT.SetQuestStatus(string.format(L.SHARE_ACCEPTED_QUEST, RT.QuestShareLabel(lastAcceptedQuest)))
-  RT.api:Notify(string.format(L.SHARE_REQUESTED, RT.QuestShareLabel(lastAcceptedQuest)))
-
-  return true
+  return shared, message
 end
 
 function RT.TrackAcceptedQuest(arg1, arg2)
-  SyncGoldTracker()
   local first = tonumber(arg1)
   local second = tonumber(arg2)
   local questLogIndex = second and first or nil
@@ -236,13 +197,10 @@ function RT.TrackAcceptedQuest(arg1, arg2)
 
   if not questID or questID <= 0 then
     RT.api:Reject("SHARE.ACCEPTED_QUEST_ID_UNKNOWN", { first = tostring(arg1), second = tostring(arg2) })
+    Log("quest", "accepted quest id unavailable arg1=", arg1, " arg2=", arg2)
     RT.lastAcceptedQuest = nil
     RT.UpdateShareButtonState()
     return
-  end
-
-  if RT.LogRollNote then
-    RT.LogRollNote("questAccepted", questID, nil)
   end
 
   RT.lastAcceptedQuest = {
@@ -252,22 +210,7 @@ function RT.TrackAcceptedQuest(arg1, arg2)
     acceptedAt = GetTime(),
   }
 
-  RT.NoteQuestAccepted(questID, RT.lastAcceptedQuest.title)
-
-  if Core.shouldPauseForAcceptedQuest(RT.IsRolling(), questID,
-      RT.GetCurrentObjectives(), RT.GetActiveObjective(), state and state.knownQuests) then
-    local selectedID = tonumber(RT.GetSelectedQuest() and RT.GetSelectedQuest().questId) or 0
-    if selectedID ~= questID then
-      RT.StartSelectedQuestPause({
-          questId = questID,
-          title = RT.lastAcceptedQuest.title,
-        })
-    end
-  end
-
-  local spent = FinalizeTrackedQuestSpend()
-  RT.trackedGoldAt = nil
-  RT.api:Trace("quest.accepted", questID, spent)
+  Log("quest", "accepted ", RT.QuestShareLabel(RT.lastAcceptedQuest), " index=", questLogIndex or "unknown")
   RT.UpdateShareButtonState()
 
   RT.HandleEternalQuest()
@@ -286,7 +229,6 @@ function RT.RefreshLastAcceptedQuest()
 
   accepted.questLogIndex = index
   accepted.title = entry.title or ""
-  RT.NoteQuestAccepted(accepted.questID, accepted.title)
 end
 
 function RT.GetQuestOfferTitle()
@@ -305,13 +247,19 @@ function RT.GetQuestOfferTitle()
 end
 
 function RT.IsQuestOfferFromPlayer()
-  return (UnitIsPlayer("questnpc") or UnitIsUnit("questnpc", "player")) and true or false
+  return (RT.SafeCall(UnitIsPlayer, "questnpc") or RT.SafeCall(UnitIsUnit, "questnpc", "player")) and true or false
 end
 
 function RT.IsQuestOfferFromNpc()
-  local guid = UnitGUID("questnpc") or UnitGUID("npc")
+  local guid = RT.SafeCall(UnitGUID, "questnpc") or RT.SafeCall(UnitGUID, "npc")
 
   return RT.ExtractBoardObjectIdFromGuid(guid) ~= nil
+end
+
+function RT.IsQuestOfferFromBoard()
+  local guid = RT.SafeCall(UnitGUID, "questnpc") or RT.SafeCall(UnitGUID, "npc")
+
+  return RT.IsKnownBoardObjectId(RT.ExtractBoardObjectIdFromGuid(guid)) == true
 end
 
 function RT.AcceptCurrentQuestOffer(source)
@@ -320,12 +268,12 @@ function RT.AcceptCurrentQuestOffer(source)
   elseif QuestFrameAcceptButton then
     QuestFrameAcceptButton:Click()
   else
-    local problem = RT.api:Report(RT.api:Problem("SHARE.ACCEPT_UNAVAILABLE"))
-    return false, problem
+    RT.api:Report(RT.api:Problem("SHARE.ACCEPT_UNAVAILABLE"))
+    Log("quest", "auto accept blocked source=", source, " reason=no accept API")
+    return false
   end
 
   return true
 end
 
 RT.NormalizeQuestTitle = NormalizeQuestTitle
-RT.FindSelectedQuestInLog = FindSelectedQuestInLog

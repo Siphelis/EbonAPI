@@ -3,9 +3,6 @@ EbonBuilds.BonusView = {}
 local L = EbonBuilds.L
 local W = EbonBuilds.Widgets
 
-local QUALITY_NAME = EbonBuilds.Const.QUALITY_NAME
-local QUALITY_HEX  = EbonBuilds.Const.QUALITY_HEX
-local FAMILIES     = EbonBuilds.Const.FAMILIES
 
 local MODE_ADD      = "+"
 local MODE_MULTIPLY = "|cff19ff19x|r"
@@ -80,7 +77,7 @@ local function BuildQualityBonusSection(parent, width)
     for q = 0, 3 do
         local quality = q
         Cell(grid,
-            function() return "|cff" .. QUALITY_HEX[quality] .. QUALITY_NAME[quality] .. "|r" end,
+            function() return "|cff" .. EbonAPI.ClientData.Quality(quality).hex .. EbonAPI.ClientData.Quality(quality).name .. "|r" end,
             function() return Settings().qualityBonus[quality] end,
             function(v) Settings().qualityBonus[quality] = v end,
             function() return Settings().qualityBonusMode[quality] end,
@@ -91,25 +88,15 @@ end
 local function BuildFamilyBonusSection(parent, width)
     local section = Section(parent, "BONUS_FAMILY", "BONUS_MODE_HINT", width)
     local grid = section:Add("grid", { columns = COLUMNS })
-    for _, fam in ipairs(FAMILIES) do
-        local family = fam
+    for _, card in ipairs(EbonAPI.ClientData.Families()) do
+        local family = card.key
         Cell(grid,
-            function() return L.FAMILY[family] or family end,
+            function() return EbonBuilds.FamilyName(family) end,
             function() return Settings().familyBonus[family] end,
             function(v) Settings().familyBonus[family] = v end,
             function() return Settings().familyBonusMode[family] end,
             function(v) Settings().familyBonusMode[family] = v end)
     end
-end
-
-local function BuildNoveltyBonusSection(parent, width)
-    local section = Section(parent, "BONUS_NOVELTY", "BONUS_NOVELTY_HINT", width)
-    Cell(section,
-        function() return L.BONUS_VALUE end,
-        function() return Settings().noveltyValue end,
-        function(v) Settings().noveltyValue = v end,
-        function() return Settings().noveltyMode end,
-        function(v) Settings().noveltyMode = v end)
 end
 
 local function BuildViewFrame(container)
@@ -120,7 +107,6 @@ local function BuildViewFrame(container)
 
     BuildQualityBonusSection(page, width)
     BuildFamilyBonusSection(page, width)
-    BuildNoveltyBonusSection(page, width)
 
     return f
 end

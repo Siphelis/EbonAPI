@@ -1,0 +1,10 @@
+## Interface: 30300
+## Title: EbonAPI - Skin VSCode
+## X-Part-Of: EbonAPI
+## Author: Siphelis
+## Version: 2.2.5
+## Dependencies: EbonAPI
+
+VSCode.lua
+Saut.lua
+

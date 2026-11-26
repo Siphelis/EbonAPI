@@ -6,8 +6,6 @@ local Lib = EbonAPI.Lib
 local Bus = EbonAPI.Bus
 local DB = EbonAPI.DB
 local Format = EbonAPI.Format
-local Locale = EbonAPI.Locale
-local Skins = EbonAPI.Skins
 local Palette = EbonAPI.Palette
 local Bricks = EbonAPI.Bricks
 local Windows = EbonAPI.Windows
@@ -23,7 +21,7 @@ local floor, ceil, max, min, sin, cos, atan2 =
 local format, find, gsub, lower, concat, sort, sub =
   string.format, string.find, string.gsub, string.lower, table.concat, table.sort, string.sub
 
-local S = Skins.value
+local S = EbonAPI.Skins.value
 local paint = Palette.paint
 local THEME = Palette.THEME
 local WEAK = { __mode = "k" }
@@ -37,7 +35,6 @@ local proxies = {}
 local pending = {}
 local targets = {}
 local toasts = {}
-local store = nil
 local dragging = nil
 local ghost = nil
 local cursorAnchor = nil
@@ -134,7 +131,7 @@ local function source(element, name)
 end
 
 local function localized(owner, key)
-  local texts = Locale.get(owner)
+  local texts = EbonAPI.Locale.get(owner)
 
   return texts and texts[key] or key
 end
@@ -157,7 +154,10 @@ end
 
 Kit.textOf = textOf
 
-local function saved(owner)
+local saved
+do
+local store = nil
+function saved(owner)
   if not DB.isAttached() then
     return nil
   end
@@ -178,6 +178,7 @@ local function saved(owner)
   end
 
   return kit[owner]
+end
 end
 
 Kit.evaluate = evaluate
@@ -205,6 +206,7 @@ function Kit.pending()
   return #pending
 end
 
+do
 local Lines = {}
 Lines.__index = Lines
 
@@ -235,6 +237,7 @@ end
 function Kit.lines(tooltip)
   return setmetatable({ tooltip = tooltip }, Lines)
 end
+end
 
 local lines = Kit.lines(GameTooltip)
 
@@ -261,7 +264,7 @@ local function showTip(element)
   local body = spec.tip
 
   if spec.tipKey then
-    local texts = Locale.get(element.owner)
+    local texts = EbonAPI.Locale.get(element.owner)
 
     body = texts and texts[spec.tipKey]
 
@@ -448,6 +451,7 @@ function Kit.windowOf(frame)
   return nil
 end
 
+do
 local function gridColumns(host, columns, spacing)
   local widths, offsets, index, left = {}, {}, 0, 0
 
@@ -545,6 +549,7 @@ function relayout(host, upward)
 end
 
 Kit.relayout = relayout
+end
 
 local function refreshChildren(host)
   host.kitBusy = true
@@ -557,6 +562,18 @@ local function refreshChildren(host)
   relayout(host, false)
 end
 
+local CARD_BADGES = { take = true, daily = true, active = true, dailyActive = true, ready = true }
+local ACTIONS = { "macro", "spell", "item" }
+local ATTRIBUTE = { macro = "macrotext", spell = "spell", item = "item" }
+local function frameName(kind, owner, id)
+  return format("EbonAPIKit%s%d_%s_%s", kind, #owner, owner, id)
+end
+
+local function elementName(owner, spec)
+  return spec.name or (spec.shortcut and frameName("S", owner, spec.shortcut)) or nil
+end
+local container, makeContainer, checkAction, colorProblem, checkItems, checkAttach, validate
+do
 local LAYOUTS = { VERTICAL = true, HORIZONTAL = true, GRID = true, FLOW = true, NONE = true }
 
 local function holdsSecure(host)
@@ -607,7 +624,7 @@ local function release(element)
   end
 end
 
-local container = {}
+container = {}
 
 function container:Add(kind, spec)
   local element = Kit.create(self.owner, kind, self, spec)
@@ -661,7 +678,7 @@ function container:Layout()
   return self
 end
 
-local function makeContainer(frame, spec, direction, pad)
+function makeContainer(frame, spec, direction, pad)
   frame.children = {}
   frame.kitDirection = spec.layout or direction or "VERTICAL"
   frame.kitPad = pad
@@ -676,22 +693,13 @@ end
 local SCROLLS = { NONE = true, VERTICAL = true, HORIZONTAL = true, BOTH = true }
 local SCROLLING = { group = true, panel = true, window = true }
 local CONTAINERS = { bar = true, grid = true, group = true, panel = true, window = true }
-local CLICKABLE = { button = true, secure = true, icon = true, slot = true, handle = true, card = true, cardHeader = true }
-local CARD_BADGES = { take = true, daily = true, active = true, dailyActive = true, ready = true }
+local CLICKABLE = { button = true, secure = true, icon = true, slot = true, round = true, handle = true, card = true, cardHeader = true, echoTile = true, railDisc = true, emblem = true }
 local MENUS = { list = true, tree = true, table = true }
 local NAMED = { secure = true, icon = true }
 local FRAMES = { flat = true, small = true, large = true }
+Kit.FRAMES = FRAMES
 local ROW_SIZES = { small = true, medium = true, large = true }
-local ACTIONS = { "macro", "spell", "item" }
-local ATTRIBUTE = { macro = "macrotext", spell = "spell", item = "item" }
 
-local function frameName(kind, owner, id)
-  return format("EbonAPIKit%s%d_%s_%s", kind, #owner, owner, id)
-end
-
-local function elementName(owner, spec)
-  return spec.name or (spec.shortcut and frameName("S", owner, spec.shortcut)) or nil
-end
 
 local function checkScroll(owner, kind, spec, level)
   local mode = spec.scroll
@@ -720,6 +728,16 @@ end
 
 local function checkShape(owner, kind, spec, level)
   level = level + 1
+
+  if kind == "button" and spec.glyph ~= nil then
+    if type(spec.glyph) ~= "string" then
+      error(format("EbonAPI: %s: glyph expects a string, got %s", owner, tostring(spec.glyph)), level)
+    end
+
+    if not Bricks.glyphs[spec.glyph] then
+      error(format('EbonAPI: %s: unknown glyph "%s"', owner, tostring(spec.glyph)), level)
+    end
+  end
 
   if kind == "range" then
     for _, name in ipairs({ "min", "max", "step" }) do
@@ -777,6 +795,11 @@ local function checkShape(owner, kind, spec, level)
   if (kind == "bar" or kind == "grid") and spec.frame ~= nil
     and not (type(spec.frame) == "string" and FRAMES[lower(spec.frame)]) then
     error(format("EbonAPI: %s: frame expects flat, small or large, got %s", owner, tostring(spec.frame)), level)
+  end
+
+  if (kind == "bar" or kind == "grid") and spec.border ~= nil and not THEME[spec.border] then
+    error(format("EbonAPI: %s: border expects a palette color, got %s (known: %s)", owner, tostring(spec.border),
+      concat(Palette.KEYS, ", ")), level)
   end
 end
 
@@ -841,7 +864,7 @@ local function checkName(owner, spec, level)
   end
 end
 
-local function checkAction(owner, action, level)
+function checkAction(owner, action, level)
   if type(action) ~= "table" then
     error(format("EbonAPI: %s: SetAction expects a table with macro, spell or item, got %s", owner, type(action)),
       level + 1)
@@ -885,7 +908,7 @@ local function rowProblem(owner, item)
   end
 
   if item.suffix ~= nil and type(item.suffix) ~= "string" and type(item.suffix) ~= "number" then
-    return format("EbonAPI: %s: list item suffix expects a text, got %s", owner, type(item.suffix))
+    return format("EbonAPI: %s: list item suffix expects a text or a number, got %s", owner, type(item.suffix))
   end
 
   for _, name in ipairs(HOVERS) do
@@ -936,7 +959,7 @@ local function isGameColor(color)
   return true
 end
 
-local function colorProblem(owner, items)
+function colorProblem(owner, items)
   for _, item in ipairs(items) do
     if type(item.color) == "table" then
       if not isGameColor(item.color) then
@@ -966,7 +989,7 @@ local function colorProblem(owner, items)
   return nil
 end
 
-local function checkItems(owner, items, level)
+function checkItems(owner, items, level)
   local problem = colorProblem(owner, items)
 
   if problem then
@@ -997,7 +1020,7 @@ local function isFrame(value)
   return type(value) == "table" and type(value.IsShown) == "function"
 end
 
-local function checkAttach(owner, at, level)
+function checkAttach(owner, at, level)
   level = level + 1
 
   if type(at) ~= "table" then
@@ -1010,6 +1033,10 @@ local function checkAttach(owner, at, level)
 
   if at.anchor ~= nil and not isFrame(at.anchor) then
     error(format("EbonAPI: %s: attach.anchor expects a frame, got %s", owner, type(at.anchor)), level)
+  end
+
+  if at.ancestor ~= nil and at.ancestor ~= false and not isFrame(at.ancestor) then
+    error(format("EbonAPI: %s: attach.ancestor expects a frame, got %s", owner, type(at.ancestor)), level)
   end
 
   if at.side ~= nil and not SIDES[at.side] then
@@ -1041,7 +1068,7 @@ local function checkAttach(owner, at, level)
   end
 end
 
-local function validate(owner, kind, spec, level)
+function validate(owner, kind, spec, level)
   level = level + 1
 
   if kind == "window" and spec.attach ~= nil then
@@ -1078,10 +1105,8 @@ local function validate(owner, kind, spec, level)
     checkAction(owner, spec, level)
   end
 end
+end
 
--- The scroll parameter of a container: NONE keeps its body as it is; VERTICAL, HORIZONTAL or BOTH
--- put the body in a scroll brick, frozen while secure content is in combat. The caller anchors the
--- returned frame where the body would go.
 local function scrollArea(host, parent, spec)
   local mode = spec.scroll or "NONE"
 
@@ -1112,12 +1137,10 @@ local function scrolls(host)
   return Bricks.SCROLL_VERTICAL[mode] == true, Bricks.SCROLL_HORIZONTAL[mode] == true
 end
 
--- Room the bar takes, in each scrolled direction, beside the content.
 local function barRoom()
   return S("widgets.scroll.width") + S("kit.gap")
 end
 
--- The view gets the visible size, the child the content: the bars take their room inside the view.
 local function fitScroll(host, viewWidth, viewHeight, width, height)
   local scroll = host.kitScroll
 
@@ -1204,7 +1227,6 @@ function Kit.kinds()
   return list
 end
 
--- Registers an element kind that lives in its own file: its builder and, optionally, the check of its fields.
 function Kit.addKind(name, build, check)
   KINDS[name] = build
   CHECKS[name] = check
@@ -1272,12 +1294,49 @@ local function autoWidth(button)
   button:Fit(button.spec.width or max(button.spec.minWidth or 0, button:TextWidth()))
 end
 
+do
+local function dimWhenDisabled(button)
+  local show = button.SetDisabledState
+
+  function button:SetDisabledState(disabled)
+    show(self, disabled)
+    self:SetAlpha(self.disabledState and S("widgets.disabledAlpha") or 1)
+  end
+end
+
 KINDS.button = function(owner, parent, spec)
   local button = Bricks.create("button", parent)
 
+  dimWhenDisabled(button)
   button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   button.onClick = function(self, mouse)
     click(self, mouse)
+  end
+
+  if spec.glyph then
+    local texture = button:CreateTexture(nil, "OVERLAY")
+
+    texture:SetPoint("CENTER", button, "CENTER", 0, 0)
+    texture:SetTexture(Bricks.media("icons"))
+    texture:SetTexCoord(Bricks.glyphCoords(spec.glyph))
+    Bricks.paint(texture, "SetVertexColor", "text")
+    button.glyphTexture = texture
+
+    function button:kitRefresh()
+      local side = spec.height or self:GetHeight()
+
+      if not side or side <= 0 then
+        side = S("widgets.button.height")
+      end
+
+      self:SetLabel("")
+      self:SetHeight(side)
+      self:Fit(side)
+      self.glyphTexture:SetWidth(side * 0.6)
+      self.glyphTexture:SetHeight(side * 0.6)
+    end
+
+    return button
   end
 
   function button:kitRefresh()
@@ -1286,6 +1345,7 @@ KINDS.button = function(owner, parent, spec)
   end
 
   return button
+end
 end
 
 KINDS.secure = function(owner, parent, spec)
@@ -1380,6 +1440,7 @@ KINDS.range = function(owner, parent, spec)
   return range
 end
 
+do
 local function itemOf(owner, item)
   if type(item) ~= "table" then
     return { key = item, text = tostring(item) }
@@ -1449,6 +1510,7 @@ KINDS.select = function(owner, parent, spec)
   end
 
   return box
+end
 end
 
 KINDS.color = function(owner, parent, spec)
@@ -1556,6 +1618,7 @@ KINDS.heading = function(owner, parent, spec)
   return box
 end
 
+do
 local function textKind(parent, spec, color)
   local box = Bricks.create("text", parent)
 
@@ -1578,9 +1641,11 @@ end
 KINDS.status = function(owner, parent, spec)
   return textKind(parent, spec, "muted")
 end
+end
 
 local problemViews = setmetatable({}, WEAK)
 
+do
 local function bandText(field, text, suffix, room)
   field:SetText(text .. suffix)
 
@@ -1602,7 +1667,7 @@ KINDS.band = function(owner, parent, spec)
   band.shade:SetTexture(Bricks.media("solid"))
   band.shade:SetAllPoints(band)
   paint(band.shade, "SetVertexColor", "danger")
-  band.shade:SetAlpha(S("kit.band.alpha"))
+  Palette.alpha(band.shade, S("kit.band.alpha"))
   band.text = Bricks.text(band, "small", S("kit.band.text"))
   band.text:SetPoint("LEFT", band, "LEFT", pad, 0)
   band.text:SetPoint("RIGHT", band, "RIGHT", -pad, 0)
@@ -1655,6 +1720,7 @@ KINDS.band = function(owner, parent, spec)
 
   return band
 end
+end
 
 local function headBadge(frame)
   local head = frame.head
@@ -1689,17 +1755,22 @@ local function headBadge(frame)
     end)
     badge:SetScript("OnLeave", Bricks.hideTip)
   end
+
+  if frame.kitHeadSync then
+    frame:kitHeadSync()
+  end
 end
 
 local function padOf(spec)
   return spec.padding or (spec.frame and S("kit.padding")) or 0
 end
 
+do
 local function barKind(parent, spec, direction)
   local bar = CreateFrame("Frame", nil, parent)
 
   if spec.frame then
-    Bricks.frame(bar, lower(spec.frame), S("kit.bar.color"), S("kit.bar.border"))
+    Bricks.frame(bar, lower(spec.frame), spec.color or S("kit.bar.color"), spec.border or S("kit.bar.border"))
   end
 
   bar.body = CreateFrame("Frame", nil, bar)
@@ -1734,6 +1805,7 @@ end
 
 KINDS.grid = function(owner, parent, spec)
   return barKind(parent, spec, "GRID")
+end
 end
 
 KINDS.group = function(owner, parent, spec)
@@ -1778,6 +1850,7 @@ KINDS.group = function(owner, parent, spec)
   return group
 end
 
+do
 local function animateHeight(frame, target, done)
   local duration = S("kit.animation")
 
@@ -1927,6 +2000,7 @@ KINDS.panel = function(owner, parent, spec)
 
   return panel
 end
+end
 
 KINDS.tabs = function(owner, parent, spec)
   local frame = CreateFrame("Frame", nil, parent)
@@ -1948,7 +2022,7 @@ KINDS.tabs = function(owner, parent, spec)
     end
 
     if not self.spec.height then
-      self:SetHeight(height + spacing + (page and page:GetHeight() or 0))
+      self:SetHeight(self:StripHeight() + spacing + (page and page:GetHeight() or 0))
     end
 
     if self.kitHost then
@@ -1956,8 +2030,16 @@ KINDS.tabs = function(owner, parent, spec)
     end
   end
 
+  function frame:StripHeight()
+    return self.kitStripHeight or height
+  end
+
   function frame:kitLayoutTabs()
-    local x = 0
+    local x, y, widest = 0, 0, 0
+    local limit = self.spec.wrap == true and type(self.spec.width) == "number" and self.spec.width or nil
+    local columns = type(self.spec.width) == "number" and type(self.spec.columns) == "number" and self.spec.columns >= 1 and self.spec.columns or nil
+    local cell = columns and (self.spec.width - (columns - 1) * spacing) / columns
+    local col = 0
 
     for _, id in ipairs(self.order) do
       local button = self.tabs[id]
@@ -1979,14 +2061,36 @@ KINDS.tabs = function(owner, parent, spec)
         button:SetPadding(S("page.strip.padding"))
         button:Fit()
         button:SetHeight(height)
+
+        if columns then
+          button:Fit(cell)
+
+          if col == columns then
+            widest = max(widest, x)
+            x = 0
+            y = y + height + S("kit.gap")
+            col = 0
+          end
+
+          col = col + 1
+        end
+
+        if limit and x > 0 and x + button:GetWidth() > limit then
+          widest = max(widest, x)
+          x = 0
+          y = y + height + S("kit.gap")
+        end
+
         button:ClearAllPoints()
-        button:SetPoint("TOPLEFT", self.strip, "TOPLEFT", x, 0)
+        button:SetPoint("TOPLEFT", self.strip, "TOPLEFT", x, -y)
         button:SetSelected(id == self.current)
-        x = x + button:GetWidth() + S("kit.gap")
+        x = x + (columns and cell + spacing or button:GetWidth() + S("kit.gap"))
       end
     end
 
-    self.kitTabsWidth = x
+    self.kitTabsWidth = max(widest, x)
+    self.kitStripHeight = y + height
+    self.strip:SetHeight(self.kitStripHeight)
   end
 
   function frame:AddTab(id, tabSpec)
@@ -2177,6 +2281,8 @@ end
 
 local listRender
 
+local listAffix
+do
 local function affixPaint(region, row, item)
   local color = item.color
 
@@ -2205,8 +2311,7 @@ local function affixRegion(row, name)
   return region
 end
 
--- The prefix: a column at the left of the row label, as wide as the widest prefix of the list.
-local function listAffix(row, item, column)
+function listAffix(row, item, column)
   local prefix = item.prefix
   local check = row.kitCheck and row.kitCheck:IsShown() and row.kitCheck or nil
 
@@ -2250,8 +2355,8 @@ local function listAffix(row, item, column)
   row.label:SetPoint("RIGHT", row, "RIGHT", -S("kit.inset"), 0)
   row.label:SetJustifyH("LEFT")
 end
+end
 
--- The prefix column is measured in the font of the rows themselves, the one a skin gives its row brick.
 local function prefixColumn(frame, items, role, outline)
   local column = 0
   local measure = frame.kitMeasure
@@ -2273,7 +2378,6 @@ local function prefixColumn(frame, items, role, outline)
   return column
 end
 
--- A list with maxRows takes the height of its rows, up to that many.
 local function listFit(frame, items, rowHeight)
   local rows = min(#items, frame.spec.maxRows)
 
@@ -2296,8 +2400,6 @@ local function listFit(frame, items, rowHeight)
   end
 end
 
--- The tag: a small pill in the skin's small frame, coloured from the palette. It sits at the right of the
--- row's actions; returns the room it takes.
 local function listTag(row, item, right)
   local tag = row.kitTag
 
@@ -2335,6 +2437,7 @@ local function listTag(row, item, right)
   return width + S("kit.gap")
 end
 
+do
 local function listFree(row)
   if row.kitRoom then
     restoreAnchors(row.label, row.kitRoom)
@@ -2352,7 +2455,7 @@ local function rowBand(row, field, key, alpha)
   end
 
   paint(band, "SetVertexColor", S(key))
-  band:SetAlpha(S(alpha))
+  Palette.alpha(band, S(alpha))
   band:ClearAllPoints()
 
   return band
@@ -2440,6 +2543,8 @@ local function listTail(frame, row, item, rowHeight, rowWidth)
 
   used = used + listTag(row, item, used)
 
+  local last = item.tag ~= nil and row.kitTag or nil
+
   if item.suffix ~= nil and item.suffix ~= "" then
     local suffix = row.kitSuffix
 
@@ -2460,8 +2565,15 @@ local function listTail(frame, row, item, rowHeight, rowWidth)
 
     suffix:SetText(tostring(item.suffix))
     suffix:ClearAllPoints()
-    suffix:SetPoint("RIGHT", row, "RIGHT", -used, 0)
+
+    if last then
+      suffix:SetPoint("RIGHT", last, "LEFT", -gap, 0)
+    else
+      suffix:SetPoint("RIGHT", row, "RIGHT", -used, 0)
+    end
+
     suffix:Show()
+    last = suffix
     used = used + suffix:GetStringWidth() + gap
   elseif row.kitSuffix then
     row.kitSuffix:Hide()
@@ -2490,7 +2602,11 @@ local function listTail(frame, row, item, rowHeight, rowWidth)
       label:SetJustifyH("LEFT")
     end
 
-    label:SetPoint("RIGHT", row, "RIGHT", -used, 0)
+    if last then
+      label:SetPoint("RIGHT", last, "LEFT", -gap, 0)
+    else
+      label:SetPoint("RIGHT", row, "RIGHT", -used, 0)
+    end
   end
 
   if fill and fill > 0 then
@@ -2509,6 +2625,38 @@ local function listTail(frame, row, item, rowHeight, rowWidth)
     row.kitMark:Show()
   elseif row.kitMark then
     row.kitMark:Hide()
+  end
+end
+
+local function listIcon(row, item, selected)
+  if not row.kitIcon then
+    local inset = S("kit.icon.inset")
+
+    row.kitIcon = row:CreateTexture(nil, "ARTWORK")
+    row.kitIcon:SetPoint("TOPLEFT", row, "TOPLEFT", inset, -inset)
+    row.kitIcon:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -inset, inset)
+    trim(row.kitIcon)
+    row.kitEdge = Bricks.frame(CreateFrame("Frame", nil, row), "flat", "bg", "selected")
+    Palette.unpaint(row.kitEdge, "SetBackdropColor")
+    row.kitEdge:SetBackdropColor(0, 0, 0, 0)
+    row.kitEdge:SetAllPoints(row)
+    row.kitEdge:EnableMouse(false)
+  end
+
+  row.kitIcon:SetTexture(Lib.icon(item.icon) or Bricks.media("addonIcon"))
+  row.kitIcon:Show()
+  row.label:Hide()
+  row.kitEdge:SetFrameLevel(row:GetFrameLevel() + 1)
+  Lib.setShown(row.kitEdge, selected)
+  row.kitIconOnly = true
+end
+
+local function listPlain(row)
+  if row.kitIconOnly then
+    row.kitIcon:Hide()
+    row.kitEdge:Hide()
+    row.label:Show()
+    row.kitIconOnly = nil
   end
 end
 
@@ -2550,15 +2698,17 @@ function listRender(frame)
       payload = ask(frame, spec.drag, item)
     end
 
-    -- A sized list gives its rows the skin's font for that size; the row brick applies it at each visual.
     if size and row.role ~= role then
       row.role, row.outline = role, nil
       row:Visual()
     end
 
-    row:SetWidth(max(1, width - depth * indent))
+    local iconOnly = spec.iconOnly == true
+    local rowWidth = iconOnly and rowHeight or width - depth * indent
+
+    row:SetWidth(max(1, rowWidth))
     row:SetHeight(rowHeight)
-    row:SetPoint("TOPLEFT", child, "TOPLEFT", depth * indent, -y)
+    row:SetPoint("TOPLEFT", child, "TOPLEFT", iconOnly and 0 or depth * indent, -y)
     row:SetLabel(lineOf(owner, item))
     row:SetSelected(frame.selected == item)
     row:SetDisabledState(item.disabled and true or false)
@@ -2590,6 +2740,13 @@ function listRender(frame)
       frame:kitPick(item, mouse, row)
     end
 
+    if iconOnly then
+      listIcon(row, item, frame.selected == item)
+      row.tipTitle = lineOf(owner, item)
+    else
+      listPlain(row)
+    end
+
     if frame.kitTree then
       local branch = item.children ~= nil and #item.children > 0
 
@@ -2617,7 +2774,7 @@ function listRender(frame)
     listFree(row)
     listCheck(frame, row, item, rowHeight)
     listAffix(row, item, column)
-    listTail(frame, row, item, rowHeight, width - depth * indent)
+    listTail(frame, row, item, rowHeight, rowWidth)
 
     if payload then
       row:RegisterForDrag("LeftButton")
@@ -2644,7 +2801,9 @@ function listRender(frame)
 
   frame.scroll:SetContentHeight(y)
 end
+end
 
+do
 local function newList(owner, parent, spec, tree)
   local frame = CreateFrame("Frame", nil, parent)
 
@@ -2652,7 +2811,6 @@ local function newList(owner, parent, spec, tree)
   frame:SetHeight(spec.height or S("kit.list"))
   frame.kitPad = 0
 
-  -- A framed list sits on the skin's collection background, its rows inside the frame's margin.
   if spec.frame then
     Bricks.frame(frame, lower(spec.frame), S("kit.collection.color"), S("kit.collection.border"))
     frame.kitFramed = true
@@ -2831,6 +2989,7 @@ end
 KINDS.tree = function(owner, parent, spec)
   return newList(owner, parent, spec, true)
 end
+end
 
 local function compare(a, b)
   local na, nb = tonumber(a), tonumber(b)
@@ -2933,10 +3092,11 @@ KINDS.table = function(owner, parent, spec)
     local row = frame.rowFrames[index]
 
     if row then
-      return row
+      return Bricks.under(row)
     end
 
     row = CreateFrame("Button", nil, frame.scroll.child)
+    Bricks.under(row)
     row:SetHeight(rowHeight)
     row.fill = row:CreateTexture(nil, "BACKGROUND")
     row.fill:SetTexture(Bricks.media("solid"))
@@ -2972,10 +3132,6 @@ KINDS.table = function(owner, parent, spec)
         return
       end
 
-      -- Double-clic (contrat) : spec.onActivate(frame, row, mouse) est appele quand deux clics
-      -- gauches tombent sur la meme ligne en 0,3 s ou moins (GetTime lu au clic, ni ticker ni
-      -- cout au repos). Le clic simple reste inchange (selection, onClick, onSelect, bascule
-      -- d'un groupe) ; le double-clic s'y ajoute, apres lui. Sans onActivate : rien de change.
       local activate = false
 
       if mouse ~= "RightButton" and frame.spec and type(frame.spec.onActivate) == "function" then
@@ -3375,35 +3531,198 @@ KINDS.table = function(owner, parent, spec)
   return frame
 end
 
-KINDS.progress = function(owner, parent, spec)
-  local bar = CreateFrame("Frame", nil, parent)
-  local edge = S("border.size")
-
-  bar:SetWidth(spec.width or S("page.unit"))
-  bar:SetHeight(spec.height or S("kit.progress.height"))
+do
+local function skinBar(bar)
   Bricks.frame(bar, "flat", S("kit.progress.background"), S("kit.progress.border"))
-  bar.fill = bar:CreateTexture(nil, "ARTWORK")
-  bar.fill:SetTexture(Bricks.media("solid"))
-  bar.fill:SetPoint("TOPLEFT", bar, "TOPLEFT", edge, -edge)
-  bar.fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", edge, edge)
-  paint(bar.fill, "SetVertexColor", spec.color or S("kit.progress.color"))
-  bar.text = Bricks.text(bar, "small", "text")
-  bar.text:SetPoint("CENTER", bar, "CENTER", 0, 0)
-  bar.value, bar.max = 0, 1
+
+  if not bar.text then
+    bar.text = Bricks.text(bar, "small", "text")
+    bar.text:SetPoint("CENTER", bar, "CENTER", 0, 0)
+  end
+
+  bar.text:Show()
+end
+
+local function rememberBar(bar, fill, regions)
+  local origin = { hidden = {}, points = {} }
+
+  for _, region in ipairs(regions) do
+    if region ~= fill and region.GetObjectType and region:GetObjectType() == "Texture" then
+      origin.hidden[#origin.hidden + 1] = { region, region:GetAlpha(), region:IsShown() }
+    end
+  end
+
+  origin.texture = fill and fill:GetTexture()
+  origin.color = fill and { fill:GetVertexColor() } or {}
+
+  for i = 1, bar:GetNumPoints() do
+    origin.points[i] = { bar:GetPoint(i) }
+  end
+
+  origin.width, origin.height = bar:GetWidth(), bar:GetHeight()
+
+  return origin
+end
+
+local function dressBar(bar)
+  local fill = bar:GetStatusBarTexture()
+  local regions = { bar:GetRegions() }
+  local origin = rememberBar(bar, fill, regions)
+
+  bar.kitOrigin = origin
+
+  for _, item in ipairs(origin.hidden) do
+    item[1]:Hide()
+  end
+
+  bar:SetStatusBarTexture(Bricks.media("solid"))
+  fill = bar:GetStatusBarTexture()
+  paint(fill, "SetVertexColor", S("kit.progress.color"))
+  skinBar(bar)
+  bar.kitNative = true
+
+  origin.setValue = rawget(bar, "SetValue")
+  origin.setRange = rawget(bar, "SetMinMaxValues")
+
+  local baseValue, baseRange = bar.SetValue, bar.SetMinMaxValues
+
+  function bar:SetMinMaxValues(low, high)
+    baseRange(self, low, high)
+
+    if self.kitNative then
+      self:kitDraw()
+    end
+  end
 
   function bar:SetValue(value, maximum)
-    self.value = tonumber(value) or 0
-
     if maximum ~= nil then
-      self.max = tonumber(maximum) or self.max
+      baseRange(self, 0, tonumber(maximum) or 1)
     end
 
-    self:kitDraw()
+    baseValue(self, value)
+
+    if self.kitNative then
+      self:kitDraw()
+    end
+  end
+
+  if not bar.kitHooked then
+    bar.kitHooked = true
+
+    bar:HookScript("OnSizeChanged", function()
+      if bar.kitNative then
+        bar:kitDraw()
+      end
+    end)
+  end
+
+  function bar:Undress()
+    local origin = self.kitOrigin
+
+    if not origin then
+      return self
+    end
+
+    self.kitOrigin = nil
+    self.kitNative = false
+    self.SetValue = origin.setValue
+    self.SetMinMaxValues = origin.setRange
+
+    local current = self:GetStatusBarTexture()
+
+    if current then
+      Palette.unpaint(current, "SetVertexColor")
+    end
+
+    if origin.texture then
+      self:SetStatusBarTexture(origin.texture)
+    end
+
+    current = self:GetStatusBarTexture()
+
+    if current and origin.color[1] then
+      current:SetVertexColor(origin.color[1], origin.color[2], origin.color[3], origin.color[4])
+    end
+
+    for _, item in ipairs(origin.hidden) do
+      item[1]:SetAlpha(item[2])
+
+      if item[3] then
+        item[1]:Show()
+      end
+    end
+
+    Bricks.unframe(self)
+
+    if self.text then
+      Palette.unpaint(self.text, "SetTextColor")
+      self.text:Hide()
+    end
+
+    if #origin.points > 0 then
+      self:ClearAllPoints()
+
+      for _, point in ipairs(origin.points) do
+        self:SetPoint(point[1], point[2], point[3], point[4], point[5])
+      end
+    end
+
+    self:SetSize(origin.width, origin.height)
 
     return self
   end
+end
+
+KINDS.progress = function(owner, parent, spec)
+  local native = spec.bar
+  local bar = native or CreateFrame("Frame", nil, parent)
+  local edge = S("border.size")
+
+  if native then
+    if not native.kitNative then
+      dressBar(native)
+    end
+
+    bar.value, bar.max = bar:GetValue(), select(2, bar:GetMinMaxValues())
+  else
+    bar:SetWidth(spec.width or S("page.unit"))
+    bar:SetHeight(spec.height or S("kit.progress.height"))
+    skinBar(bar)
+    bar.fill = bar:CreateTexture(nil, "ARTWORK")
+    bar.fill:SetTexture(Bricks.media("solid"))
+    bar.fill:SetPoint("TOPLEFT", bar, "TOPLEFT", edge, -edge)
+    bar.fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", edge, edge)
+    paint(bar.fill, "SetVertexColor", spec.color or S("kit.progress.color"))
+    bar.value, bar.max = 0, 1
+
+    function bar:SetValue(value, maximum)
+      self.value = tonumber(value) or 0
+
+      if maximum ~= nil then
+        self.max = tonumber(maximum) or self.max
+      end
+
+      self:kitDraw()
+
+      return self
+    end
+  end
 
   function bar:kitDraw()
+    if not self.kitNative and not self.fill then
+      return
+    end
+
+    if self.kitNative then
+      local high = select(2, self:GetMinMaxValues())
+      local value = self:GetValue()
+
+      self.value, self.max = value, high
+      self.text:SetText(textOf(self) or (high and high > 0 and (Format.number(floor(value)) .. " / " .. Format.number(floor(high))) or ""))
+
+      return
+    end
+
     local inner = max(0, self:GetWidth() - edge * 2)
     local share = self.max > 0 and max(0, min(1, self.value / self.max)) or 0
 
@@ -3420,23 +3739,108 @@ KINDS.progress = function(owner, parent, spec)
   function bar:kitRefresh()
     local value, maximum = source(self, "value"), source(self, "max")
 
-    if value ~= nil then
-      self.value = tonumber(value) or 0
-    end
+    if self.kitNative then
+      if maximum ~= nil then
+        self:SetMinMaxValues(0, tonumber(maximum) or 1)
+      end
 
-    if maximum ~= nil then
-      self.max = tonumber(maximum) or self.max
+      if value ~= nil then
+        self:SetValue(tonumber(value) or 0)
+      end
+    else
+      if value ~= nil then
+        self.value = tonumber(value) or 0
+      end
+
+      if maximum ~= nil then
+        self.max = tonumber(maximum) or self.max
+      end
     end
 
     self.kitDone = true
     self:kitDraw()
   end
 
-  bar:SetScript("OnSizeChanged", function(self)
-    self:kitDraw()
-  end)
+  if not native then
+    bar:SetScript("OnSizeChanged", function(self)
+      self:kitDraw()
+    end)
+  end
 
   return bar
+end
+end
+
+KINDS.portrait = function(owner, parent, spec)
+  local frame = CreateFrame("Frame", nil, parent)
+  local inset = spec.inset or 0
+  local ringInset = spec.ringInset or 0
+
+  frame.round = spec.round ~= false
+  frame:SetWidth(spec.size or S("kit.icon.size"))
+  frame:SetHeight(spec.size or S("kit.icon.size"))
+  frame.disc = frame:CreateTexture(nil, "BACKGROUND")
+  frame.disc:SetTexture(Bricks.media("circle"))
+  frame.icon = frame:CreateTexture(nil, "ARTWORK")
+  frame.icon:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
+  frame.icon:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
+  frame.ring = frame.disc
+  frame.disc:SetPoint("TOPLEFT", frame.icon, "TOPLEFT", -ringInset, ringInset)
+  frame.disc:SetPoint("BOTTOMRIGHT", frame.icon, "BOTTOMRIGHT", ringInset, -ringInset)
+
+  function frame:SetRing(key)
+    self.ringKey = key
+
+    if key == nil then
+      self.disc:Hide()
+    else
+      paint(self.disc, "SetVertexColor", key)
+      self.disc:Show()
+    end
+
+    return self
+  end
+
+  function frame:SetIcon(path)
+    self.path = path
+
+    if path == nil then
+      self.icon:Hide()
+
+      return self
+    end
+
+    if self.round then
+      self.icon:SetTexCoord(0, 1, 0, 1)
+
+      if type(SetPortraitToTexture) == "function" then
+        pcall(SetPortraitToTexture, self.icon, path)
+      else
+        self.icon:SetTexture(path)
+      end
+    else
+      self.icon:SetTexture(path)
+      trim(self.icon)
+    end
+
+    self.icon:SetAlpha(1)
+    self.icon:Show()
+
+    return self
+  end
+
+  function frame:SetSize(size)
+    self:SetWidth(size)
+    self:SetHeight(size)
+
+    return self
+  end
+
+  frame:EnableMouse(false)
+  frame:SetRing(spec.ring)
+  frame:SetIcon(spec.icon)
+
+  return frame
 end
 
 KINDS.timer = function(owner, parent, spec)
@@ -3534,10 +3938,6 @@ KINDS.chart = function(owner, parent, spec)
     return self
   end
 
-  -- Fixed columns on a capped scale: each entry { label, value, ceiling, text, color } makes one column whose height is
-  -- value / ceiling of the track (clamped to 100 %), the label under it, the text (else the value) above it. "color" is
-  -- an optional palette key chosen by the caller (state); without it the column takes spec.color or kit.chart.color.
-  -- The chart defines no thresholds.
   function frame:SetColumns(columns)
     self.columns = columns or {}
     self:kitDraw()
@@ -3685,6 +4085,8 @@ KINDS.chart = function(owner, parent, spec)
   return frame
 end
 
+local BADGE = 14
+
 KINDS.icon = function(owner, parent, spec)
   local secure = spec.macro ~= nil or spec.spell ~= nil or spec.item ~= nil
   local size = spec.size or S("kit.icon.size")
@@ -3703,6 +4105,7 @@ KINDS.icon = function(owner, parent, spec)
   button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", inset, -inset)
   button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -inset, inset)
   trim(button.icon)
+  button.kitOwnBadge = true
   button.cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
   button.cooldown:SetAllPoints(button.icon)
   button.cooldown:Hide()
@@ -3746,7 +4149,32 @@ KINDS.icon = function(owner, parent, spec)
   function button:SetDisabledState(disabled)
     self.disabledState = disabled and true or false
     self.icon:SetDesaturated(self.disabledState)
+
+    if self.badge then
+      self.badge:SetDesaturated(self.disabledState)
+    end
+
     self:SetAlpha(self.disabledState and S("widgets.disabledAlpha") or 1)
+  end
+
+  function button:SetBadge(path)
+    if type(path) == "string" then
+      if not self.badge then
+        self.badge = self:CreateTexture(nil, "OVERLAY")
+        self.badge:SetWidth(BADGE)
+        self.badge:SetHeight(BADGE)
+        self.badge:SetPoint("TOPLEFT", self.icon, "TOPLEFT", 0, 0)
+      end
+
+      self.badge:SetTexture(path)
+      trim(self.badge)
+      self.badge:SetDesaturated(self.disabledState and true or false)
+      self.badge:Show()
+    elseif self.badge then
+      self.badge:Hide()
+    end
+
+    return self
   end
 
   if secure then
@@ -3787,7 +4215,11 @@ KINDS.icon = function(owner, parent, spec)
     local count = evaluate(self, self.spec.count)
 
     self.icon:SetTexture(Lib.icon(evaluate(self, self.spec.icon)) or Bricks.media("addonIcon"))
-    self.count:SetText(count ~= nil and tostring(count) or "")
+    self.count:SetText(count ~= nil and (type(count) == "number" and Format.number(count) or tostring(count)) or "")
+
+    if reads(self, "badge") then
+      self:SetBadge(evaluate(self, self.spec.badge))
+    end
 
     if reads(self, "checked") then
       self:SetCheckedState(evaluate(self, self.spec.checked))
@@ -3859,8 +4291,6 @@ KINDS.slot = function(owner, parent, spec)
   return slot
 end
 
--- The check box on the right of a card or a card header. It hands the mouse back to the card, whose
--- hover would otherwise go out while the mouse is on the box.
 local function cardBox(element, onToggle)
   local box = Bricks.create("toggle", element)
 
@@ -3890,9 +4320,6 @@ local function cardBox(element, onToggle)
   return box
 end
 
--- The box no taller than the card or the header it sits on, read at each refresh: the skin's square can be
--- taller than a group header (26 pixels in Azeroth, widgets.toggle.size, for board.header.height = 20). The
--- square keeps its proportions; the box's width follows it.
 local function fitBox(element)
   local box = element.kitBox
   local room = element:GetHeight()
@@ -3947,9 +4374,6 @@ local function cardTip(element)
   end
 end
 
--- A card or a card header dragged with the left button carries the value of its `drag` field; Kit.endDrag
--- hands it to the element of the same addon under the cursor that has an `onDrop` field. A disabled one
--- cannot be dragged.
 local function draggable(element, owner)
   element:RegisterForDrag("LeftButton")
   element:SetScript("OnDragStart", function(self)
@@ -3965,8 +4389,11 @@ local function draggable(element, owner)
   end)
 end
 
--- A card, drawn by the skin's card brick: an icon, round or square, with a state badge, a title, a line under
--- it and an optional check box on the right.
+local function setChecked(self, checked)
+  if self.kitBox then self.kitBox:SetValue(checked and true or false) end
+  return self
+end
+
 KINDS.card = function(owner, parent, spec)
   local card = CreateFrame("Button", nil, parent)
 
@@ -4014,13 +4441,7 @@ KINDS.card = function(owner, parent, spec)
     return self
   end
 
-  function card:SetChecked(checked)
-    if self.kitBox then
-      self.kitBox:SetValue(checked and true or false)
-    end
-
-    return self
-  end
+  card.SetChecked = setChecked
 
   function card:SetDisabledState(disabled)
     self.disabledState = disabled and true or false
@@ -4085,8 +4506,7 @@ KINDS.card = function(owner, parent, spec)
   return card
 end
 
--- A group header of a list of cards, drawn by the skin's cardHeader brick: a text and a line, with an
--- optional check box on the right and an optional count on its left, the line stopping 4 pixels before them.
+do
 local HEADER_INSET = 4
 
 local function headerChevron(header, open)
@@ -4153,13 +4573,7 @@ KINDS.cardHeader = function(owner, parent, spec)
     end)
   end
 
-  function header:SetChecked(checked)
-    if self.kitBox then
-      self.kitBox:SetValue(checked and true or false)
-    end
-
-    return self
-  end
+  header.SetChecked = setChecked
 
   function header:SetDisabledState(disabled)
     self.disabledState = disabled and true or false
@@ -4195,7 +4609,7 @@ KINDS.cardHeader = function(owner, parent, spec)
     local count = evaluate(self, fields.count)
     local inset = 4
 
-    count = count ~= nil and tostring(count) or ""
+    count = count ~= nil and (type(count) == "number" and Format.number(count) or tostring(count)) or ""
 
     if count ~= "" and not self.kitCount then
       self.kitCount = Bricks.text(self, "small", "muted")
@@ -4224,6 +4638,7 @@ KINDS.cardHeader = function(owner, parent, spec)
   end
 
   return header
+end
 end
 
 KINDS.handle = function(owner, parent, spec)
@@ -4528,6 +4943,9 @@ local function settle(window, shown)
   end)
 end
 
+local attachTo
+
+do
 local followers = setmetatable({}, WEAK)
 
 local function fold(window)
@@ -4575,14 +4993,12 @@ local function track(window)
     end
   end)
   window:HookScript("OnHide", function(self)
-    if self.kitAttach and not self.kitFolding then
+    if self.kitAttach and not self.kitFolding and not self:IsShown() then
       self.kitMeant = false
     end
   end)
 end
 
--- Sets the level of a frame and of all its descendants, each one at the level of its parent plus the offset it had: a
--- client that moves the children along with their parent ends at the same levels as one that does not.
 local function relevel(frame, level)
   local children = { frame:GetChildren() }
   local base, offsets = frame:GetFrameLevel(), {}
@@ -4596,6 +5012,117 @@ local function relevel(frame, level)
   for index, child in ipairs(children) do
     relevel(child, level + offsets[index])
   end
+end
+
+local function contentHeight(frame)
+  local base, top = frame:GetFrameLevel(), 0
+  local function walk(parent)
+    for _, child in ipairs({ parent:GetChildren() }) do
+      top = max(top, child:GetFrameLevel() - base)
+      walk(child)
+    end
+  end
+
+  walk(frame)
+
+  return top
+end
+
+local function followedLevel(ancestor)
+  local level = ancestor:GetFrameLevel() + S("kit.followLevel")
+
+  if S("kit.followAbove") then
+    level = level + contentHeight(ancestor)
+  end
+
+  return level
+end
+
+local function hostOf(frame)
+  local top = frame
+
+  while top:GetParent() and top:GetParent() ~= UIParent do
+    top = top:GetParent()
+  end
+
+  if top:IsMovable() then
+    return top
+  end
+
+  return frame
+end
+
+local function unblock(window)
+  local held = window.kitBlock
+
+  if not held then
+    return
+  end
+
+  window.kitBlock = nil
+  held.host:SetClampRectInsets(unpack(held.insets))
+  held.host:SetClampedToScreen(held.hostClamped)
+  window:SetClampedToScreen(held.windowClamped)
+end
+
+local function block(window, at)
+  local host = hostOf(at.frame)
+  local held = window.kitBlock
+
+  if held and held.host ~= host then
+    unblock(window)
+    held = nil
+  end
+
+  if not held then
+    local left, right, top, bottom = host:GetClampRectInsets()
+
+    held = {
+      host = host,
+      insets = { left, right, top, bottom },
+      hostClamped = host:IsClampedToScreen() and true or false,
+      windowClamped = window:IsClampedToScreen() and true or false,
+    }
+    window.kitBlock = held
+    host:SetClampedToScreen(true)
+    window:SetClampedToScreen(false)
+  end
+
+  local push = (window:GetWidth() or 0) + (at.gap or 0)
+  local left, right, top, bottom = unpack(held.insets)
+
+  if at.side == "RIGHT" then
+    right = right + push
+  else
+    left = left - push
+  end
+
+  host:SetClampRectInsets(left, right, top, bottom)
+end
+
+local function holdHooks(window)
+  if window.kitBlockHooked then
+    return
+  end
+
+  window.kitBlockHooked = true
+  window:HookScript("OnSizeChanged", function(self)
+    local at = self.kitAttach
+
+    if self.kitBlock and at and not at.inside then
+      block(self, at)
+    end
+  end)
+  window:HookScript("OnShow", function(self)
+    local at = self.kitAttach
+
+    if at and not at.inside then
+      block(self, at)
+    end
+  end)
+  window:HookScript("OnHide", function(self)
+    unblock(self)
+  end)
 end
 
 local function lay(window, at)
@@ -4613,21 +5140,71 @@ local function lay(window, at)
     x = right and 0 - (insets.right or 0) or (insets.left or 0)
     top, bottom = 0 - (insets.top or 0), insets.bottom or 0
     window:SetParent(host)
-    window:SetFrameStrata(host:GetFrameStrata())
-    -- A window left at the level of its parent shows between the frames the host holds: a talent tree stacks its nodes
-    -- a dozen levels over its own frame. The window and its content rise above all of them.
-    relevel(window, host:GetFrameLevel() + 40)
+    local base = at.ancestor or host
+
+    window:SetFrameStrata(base:GetFrameStrata())
+    relevel(window, base:GetFrameLevel() + (at.ancestor and S("kit.followLevelInside") or S("kit.followLevelBase")))
     window.kitRaised = true
+    window.kitFollowed = base:GetFrameLevel()
+
+    if not window.kitInsideHooked then
+      window.kitInsideHooked = true
+      window:HookScript("OnUpdate", function(self)
+        local current = self.kitAttach
+        local host = current and current.inside and not current.ancestor and current.frame
+
+        if host and (host:GetFrameStrata() ~= self:GetFrameStrata() or host:GetFrameLevel() ~= self.kitFollowed) then
+          self.kitFollowed = host:GetFrameLevel()
+          self:SetFrameStrata(host:GetFrameStrata())
+          relevel(self, host:GetFrameLevel() + S("kit.followLevelBase"))
+        end
+      end)
+    end
   else
     anchor, edge = host, right and "LEFT" or "RIGHT"
     x = right and (at.gap or 0) or 0 - (at.gap or 0)
     top, bottom = 0, 0
     window:SetParent(UIParent)
-    window:SetFrameStrata("DIALOG")
 
-    if window.kitRaised then
-      window.kitRaised = nil
-      relevel(window, UIParent:GetFrameLevel() + 1)
+    if at.ancestor then
+      window:SetFrameStrata(at.ancestor:GetFrameStrata())
+      relevel(window, followedLevel(at.ancestor))
+      window.kitRaised = true
+      window.kitFollowed = at.ancestor:GetFrameLevel()
+
+      if not window.kitFollowHooked then
+        window.kitFollowHooked = true
+        window:HookScript("OnUpdate", function(self)
+          local current = self.kitAttach
+          local ancestor = current and current.ancestor
+
+          if ancestor and not current.inside and (ancestor:GetFrameLevel() ~= self.kitFollowed
+            or ancestor:GetFrameStrata() ~= self:GetFrameStrata()) then
+            self.kitFollowed = ancestor:GetFrameLevel()
+            self:SetFrameStrata(ancestor:GetFrameStrata())
+            relevel(self, followedLevel(ancestor))
+          end
+        end)
+      end
+    else
+      window:SetFrameStrata("DIALOG")
+
+      if window.kitRaised then
+        window.kitRaised = nil
+        relevel(window, UIParent:GetFrameLevel() + S("kit.releaseLevel"))
+      end
+    end
+  end
+
+  if at.inside then
+    unblock(window)
+  else
+    holdHooks(window)
+
+    if window:IsShown() then
+      block(window, at)
+    else
+      unblock(window)
     end
   end
 
@@ -4635,7 +5212,7 @@ local function lay(window, at)
   window:SetPoint("BOTTOM" .. edge, anchor, "BOTTOM" .. side, x, bottom)
 end
 
-local function attachTo(window, at)
+function attachTo(window, at)
   local old = window.kitAttach and window.kitAttach.frame
 
   if old and old ~= at.frame then
@@ -4650,6 +5227,7 @@ local function attachTo(window, at)
 
   follow(window, at.frame)
   lay(window, at)
+  Bricks.reshadow(window)
 
   if window.kitMeant == nil then
     window.kitMeant = window:IsShown() and true or false
@@ -4662,6 +5240,7 @@ local function attachTo(window, at)
   elseif window.kitMeant and not window:IsShown() then
     window:Show()
   end
+end
 end
 
 function Kit.window(owner, id, spec)
@@ -4682,6 +5261,7 @@ function Kit.window(owner, id, spec)
   local frame = Windows.create(key, escape and frameName("W", owner, id) or nil, owner)
   local pad = spec.padding or S("kit.padding")
   local top = pad
+  local drop = pad
 
   frame.kitWindow = true
   frame.body = CreateFrame("Frame", nil, frame)
@@ -4727,7 +5307,7 @@ function Kit.window(owner, id, spec)
     frame.close = close
     frame.headButtons = {}
 
-    if not S("header.close.show") then
+    if not S("header.close.show") or spec.close == false then
       close:Hide()
     end
 
@@ -4744,7 +5324,6 @@ function Kit.window(owner, id, spec)
       frame.headButtons[index] = element
     end
 
-    -- a hidden button takes no room: the chain runs from the close cross through the shown buttons only
     function frame:kitChain()
       local last, key = close:IsShown() and close or head, close:IsShown() and "close" or "head"
       local from = last == head and side or facing
@@ -4774,7 +5353,6 @@ function Kit.window(owner, id, spec)
       self.kitTitleKey = nil
     end
 
-    -- room taken by the controls: the cross, then every shown button and its gap
     function frame:kitHeadRoom()
       local room = (self.close:IsShown() and self.close:GetWidth() or 0) + pad
 
@@ -4787,8 +5365,6 @@ function Kit.window(owner, id, spec)
       return room
     end
 
-    -- a centered title keeps its place while it fits; when the width is short it leaves the centre,
-    -- sticks to the facing edge and stops at the leftmost shown button
     function frame:kitTitleFit(width)
       if not self.titleCentered then
         return
@@ -4807,7 +5383,9 @@ function Kit.window(owner, id, spec)
       self.title:ClearAllPoints()
 
       if tight then
-        self.title:SetWordWrap(false)
+        if self.title.SetWordWrap then
+          self.title:SetWordWrap(false)
+        end
         self.title:SetPoint(facing, head, facing, -sign * pad, 0)
         self.title:SetPoint(side, self.kitChainEnd, self.kitChainFrom, sign * floor(pad / 2), 0)
       else
@@ -4817,7 +5395,35 @@ function Kit.window(owner, id, spec)
 
     frame:kitChain()
 
-    top = height + S("kit.spacing")
+    drop = height + S("kit.spacing")
+    top = spec.flushHead and pad or drop
+
+    if spec.flushHead then
+      function frame:kitHeadBusy()
+        if close:IsShown() or (self.title:GetText() or "") ~= "" or (head.kitBadge and head.kitBadge:IsShown()) then
+          return true
+        end
+
+        for _, element in ipairs(self.headButtons) do
+          if element:IsShown() then
+            return true
+          end
+        end
+
+        return false
+      end
+
+      function frame:kitHeadSync()
+        local busy = self:kitHeadBusy()
+
+        if self.kitHeadOpen ~= busy then
+          self.kitHeadOpen = busy
+          relayout(self, false)
+        end
+      end
+
+      frame.kitHeadOpen = frame:kitHeadBusy()
+    end
   end
 
   makeContainer(frame, spec, "VERTICAL", pad)
@@ -4832,7 +5438,7 @@ function Kit.window(owner, id, spec)
 
   function frame:kitResize(width, height)
     local minimum = self.spec.minWidth or 0
-    local top = top + (self.kitBandRoom or 0)
+    local top = (self.kitHeadOpen and drop or top) + (self.kitBandRoom or 0)
 
     if self.kitAreaTop ~= top then
       self.kitAreaTop = top
@@ -4902,6 +5508,10 @@ function Kit.window(owner, id, spec)
 
     for _, element in ipairs(self.headButtons or {}) do
       element:Refresh()
+    end
+
+    if self.kitHeadSync then
+      self:kitHeadSync()
     end
 
     if self.title then
@@ -5040,7 +5650,7 @@ function Kit.openMenu(owner, items, anchor)
     return false
   end
 
-  local list, current = {}, nil
+  local list = {}
 
   for index, item in ipairs(items) do
     local entry = {
@@ -5048,6 +5658,8 @@ function Kit.openMenu(owner, items, anchor)
       text = item.key and localized(owner, item.key) or tostring(item.text or ""),
       title = item.title,
       disabled = item.disabled,
+      separator = item.separator,
+      checked = item.checked and true or false,
     }
 
     if type(item.range) == "table" then
@@ -5070,21 +5682,19 @@ function Kit.openMenu(owner, items, anchor)
     end
 
     list[index] = entry
-
-    if item.checked then
-      current = index
-    end
   end
 
   if not anchor then
     Bricks.closeMenu()
   end
 
-  Bricks.openMenu(anchor or ensureCursorAnchor(), list, current, function(index)
+  local place = anchor or ensureCursorAnchor()
+
+  Bricks.openMenu(place, list, nil, function(index)
     local item = items[index]
 
     if item and not item.disabled and type(item.onClick) == "function" then
-      local ok, err = pcall(item.onClick, item)
+      local ok, err = pcall(item.onClick, item, place)
 
       if not ok then
         report(err, owner, "menu", "onClick")
@@ -5123,7 +5733,6 @@ function Kit.beginDrag(owner, payload, source)
   local frame = ensureGhost()
   local text = source and textOf(source)
 
-  -- a card shows its title, which may come from a function rather than from `text` or `key`
   if (text == nil or text == "") and source and source.title and source.title.GetText then
     text = source.title:GetText()
   end
@@ -5303,7 +5912,6 @@ local function shiftDialog(height)
       region:ClearAllPoints()
 
       for _, point in ipairs(points) do
-        -- A point relative to another button of the dialog follows that button.
         if point[2] == dialog.accept or point[2] == dialog.cancel then
           region:SetPoint(point[1], point[2], point[3], point[4], point[5])
         else
@@ -5343,7 +5951,6 @@ local function buildDialog()
       Kit.closeDialog(true)
     end
   end)
-  -- Grey indication shown while the input is empty (options.placeholder).
   frame.placeholder = Bricks.text(frame.input.edit, "small", "muted")
   frame.input.edit:HookScript("OnTextChanged", function(edit)
     if edit:GetText() == "" and (frame.placeholder:GetText() or "") ~= "" then
@@ -5377,8 +5984,6 @@ local function buildDialog()
   frame.content = makeContainer(CreateFrame("Frame", nil, frame), {}, "VERTICAL", 0)
   frame.content.owner, frame.content.spec = "EbonAPI", {}
 
-  -- An element without width takes the width it is placed in; a container placed in the content passes
-  -- the width inside its margins on to its own elements, so a framed group of texts wraps inside its frame.
   local function fillAdd(self, kind, spec)
     if spec == nil or (type(spec) == "table" and spec.width == nil) then
       local copy = {}
@@ -5391,7 +5996,6 @@ local function buildDialog()
       spec = copy
     end
 
-    -- container:Add itself, called here directly so that a wrong field points at the caller's line.
     local element = Kit.create(self.owner, kind, self, spec)
 
     if element and element ~= self and element.Add == container.Add and type(spec) == "table" and spec.width then
@@ -5417,7 +6021,6 @@ local function buildDialog()
   frame.cancel.onClick = function()
     Kit.closeDialog(false)
   end
-  -- No clipboard in the client: the extra button selects the whole text and gives it the focus, Ctrl+C does the rest.
   frame.extra = Bricks.create("button", frame)
   frame.extra.onClick = function()
     local edit = frame.options and (frame.options.copy ~= nil and frame.copy or frame.input.edit)
@@ -5448,8 +6051,6 @@ function Kit.openDialog(options)
       type(options.content)), 2)
   end
 
-  -- A dialog with content takes the rich presentation of the skin: wider, margins and gaps of its own,
-  -- title and text aligned and coloured by the skin, buttons on the right.
   local rich = options.content ~= nil
   local pad, spacing = S("kit.padding"), S("kit.spacing")
   local width = S("kit.dialog.width")
@@ -5472,7 +6073,6 @@ function Kit.openDialog(options)
     titleKey = "kit.dialog.rich.title"
   end
 
-  -- The tone is optional for a skin's brick: B.baseButton gives it, a brick that makes its button itself may not.
   if dialog.accept.SetTone then
     if options.danger then
       dialog.accept:SetTone(S("kit.dialog.danger.color"), S("kit.dialog.danger.border"))
@@ -5658,7 +6258,6 @@ function Kit.openDialog(options)
     dialog.hint:Hide()
   end
 
-  -- onSubmit reserves a line for its error message, empty until onSubmit refuses.
   if options.onSubmit then
     dialog.error:SetWidth(inner)
     dialog.error:SetText("M\nM")
@@ -5711,7 +6310,6 @@ function Kit.openDialog(options)
 
     dialog.cancel:Hide()
 
-    -- Without cancel, the extra button takes its slot, to the left of the accept button.
     if options.copyButton and not rich then
       dialog.accept:ClearAllPoints()
       dialog.accept:SetPoint("TOPLEFT", dialog, "TOP", floor(spacing / 2), -y)
@@ -5751,7 +6349,6 @@ function Kit.closeDialog(accepted)
     value = dialog.choice
   end
 
-  -- A dialog with onSubmit stays open, with the message under its fields, while onSubmit answers a text.
   if accepted and options.onSubmit then
     local ok, problem = pcall(options.onSubmit, value)
 
@@ -5947,10 +6544,7 @@ Bus.on("PLAYER_REGEN_ENABLED", function()
   Kit.combat(false)
 end)
 
-EbonAPI:On("LANGUAGE_CHANGED", function()
-  Kit.refreshAll()
-end)
-
+do
 local function problemsChanged(event, addon)
   for view, kind in pairs(problemViews) do
     if kind == "band" then
@@ -5965,12 +6559,36 @@ end
 
 EbonAPI:On("PROBLEM", problemsChanged)
 EbonAPI:On("PROBLEM_CLOSED", problemsChanged)
+end
 
+do
 local RESCALE = "EbonAPI.Kit.rescale"
 
 local function remeasure()
   Bus.tick(RESCALE, S("kit.rescale.delay"), function()
     Bus.untick(RESCALE)
+
+    local now = {
+      UIParent:GetEffectiveScale(), GetScreenWidth(), GetScreenHeight(),
+      Parameters.value(nil, "scale"), GetCVar("uiScale"), GetCVar("useUiScale"),
+    }
+    local was = Kit.rescaleSeen
+
+    if was then
+      local same = true
+
+      for index = 1, 6 do
+        if now[index] ~= was[index] then
+          same = false
+        end
+      end
+
+      if same then
+        return
+      end
+    end
+
+    Kit.rescaleSeen = now
     Kit.refreshAll()
   end)
 end
@@ -5984,6 +6602,7 @@ EbonAPI:On("PARAMETER_CHANGED", function(_, name)
     remeasure()
   end
 end)
+end
 
 EbonAPI:On("READY", function()
   Kit.refreshAll()

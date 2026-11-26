@@ -4,19 +4,13 @@ AutoCallboardCore = Core
 local type, tonumber, tostring, ipairs, pcall, error = type, tonumber, tostring, ipairs, pcall, error
 local string, table, math = string, table, math
 
-local RT = AutoCallboardRuntime
-
-local function Problem(name, facts, cause)
-  return RT.api:Problem(name, facts, cause)
-end
-
-local function Report(name, facts, cause)
-  return RT.api:Report(RT.api:Problem(name, facts, cause))
-end
-
 Core.ROUTE_CODE_PREFIX = "ACB1"
 Core.ROUTE_CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789()"
 Core.ROUTE_HASH_LENGTH = 12
+
+local function Report(name, facts, cause)
+  return Core.report(Core.problem(name, facts, cause))
+end
 
 local PREFIX = Core.ROUTE_CODE_PREFIX
 local ALPHABET = Core.ROUTE_CODE_ALPHABET
@@ -185,9 +179,9 @@ local function Writer()
 
     if #(text) > limit then
       Report("ROUTECODE.TEXT_TRUNCATED", { bytes = #(text), limit = limit })
-      text = string.sub(text, 1, limit)
     end
 
+    text = string.sub(text, 1, limit)
     writer.var(#(text), group)
 
     for i = 1, #(text) do
@@ -218,7 +212,7 @@ local function Reader(body)
         local digit = DIGIT[string.sub(body, position, position)]
 
         if not digit then
-          error({ reason = "truncated" })
+          error("truncated")
         end
 
         acc, left = digit, 6
@@ -245,12 +239,12 @@ local function Reader(body)
       rounds = rounds + 1
 
       if rounds > MAX_VAR_ROUNDS then
-        error({ reason = "overlong" })
+        error("overlong")
       end
     until reader.get(1) == 0
 
     if limit and value > limit then
-      error({ reason = "out_of_range" })
+      error("out of range")
     end
 
     return value
@@ -272,7 +266,7 @@ local function Reader(body)
     local value = reader.get(width)
 
     if value >= math.max(count, 1) then
-      error({ reason = "bad_index" })
+      error("bad index")
     end
 
     return value
@@ -496,9 +490,17 @@ local function WriteStep(w, step, tables, widths, PutQuest, last)
   return last
 end
 
-function Core.encodeRoute(route, stored)
-  if type(route) ~= "table" or not Core.isRouteCategory(route.category) then
-    return nil, Problem("ROUTECODE.CATEGORY_INVALID", { category = tostring(type(route) == "table" and route.category) })
+function Core.encodeRoute(route, stored, quiet)
+  if type(route) ~= "table" then
+    return nil
+  end
+
+  if not Core.isRouteCategory(route.category) then
+    if not quiet then
+      Report("ROUTECODE.CATEGORY_INVALID", { category = tostring(route.category) })
+    end
+
+    return nil, "category"
   end
 
   local steps = stored and type(route.steps) == "table" and route.steps or Core.copyRouteSteps(route.steps)
@@ -534,7 +536,7 @@ end
 local function ReadRouteHeader(r, route)
   route.category = r.var(3, Core.routeCategoryCount() - 1) + 1
   local difficulty = r.var(3, 255)
-  route.difficulty = difficulty ~= 0 and Core.sanitizeDifficulty(difficulty) or nil
+  route.difficulty = difficulty > 0 and Core.sanitizeDifficulty(difficulty) or nil
   route.name = r.bytes(MAX_NAME_BYTES, 5)
 
   local maps = {}
@@ -563,7 +565,7 @@ end
 local function ReadSpot(r, step, maps, last)
   if r.get(1) == 1 then
     if not last then
-      error({ reason = "no_previous_spot" })
+      error("no previous spot")
     end
 
     step.map, step.x, step.y = last.map, last.x, last.y
@@ -587,7 +589,7 @@ local function ReadActions(r, step, GetQuest)
     local actionKind = ACTION_KINDS[r.get(3) + 1]
 
     if not actionKind then
-      error({ reason = "bad_action" })
+      error("bad action")
     end
 
     local action = { kind = actionKind }
@@ -685,59 +687,59 @@ local function DecodeBody(body)
   return route
 end
 
+local DECODE_REASONS = {
+  overlong = true,
+  ["out of range"] = true,
+  ["bad index"] = true,
+  ["no previous spot"] = true,
+  ["bad action"] = true,
+}
+
 function Core.decodeRoute(code)
   if type(code) ~= "string" then
-    return nil, Problem("ROUTECODE.NOT_TEXT", { type = type(code) })
+    Report("ROUTECODE.NOT_TEXT", { type = type(code) })
+
+    return nil, "format"
   end
 
   code = string.gsub(code, "%s", "")
 
-  local length = #(code)
-
-  if length == 0 then
-    return nil, Problem("ROUTECODE.NOT_TEXT", { type = "empty" })
-  end
-
   if string.sub(code, 1, #(PREFIX)) ~= PREFIX then
-    if length < #(PREFIX) and string.sub(PREFIX, 1, length) == code then
-      return nil, Problem("ROUTECODE.TRUNCATED", { length = length })
-    end
+    Report("ROUTECODE.PREFIX", { prefix = string.sub(code, 1, #(PREFIX)), length = #(code) })
 
-    return nil, Problem("ROUTECODE.PREFIX", { prefix = string.sub(code, 1, #(PREFIX)), length = length })
+    return nil, "format"
   end
 
-  if length < #(PREFIX) + 4 then
-    return nil, Problem("ROUTECODE.TRUNCATED", { length = length })
+  if #(code) < #(PREFIX) + 4 then
+    Report("ROUTECODE.TRUNCATED", { length = #(code) })
+
+    return nil, "format"
   end
 
   local body = string.sub(code, #(PREFIX) + 1, -4)
 
   if Checksum(body) ~= string.sub(code, -3) then
-    return nil, Problem("ROUTECODE.CHECKSUM", { length = length })
+    Report("ROUTECODE.CHECKSUM", { length = #(code) })
+
+    return nil, "checksum"
   end
 
   local ok, route = pcall(DecodeBody, body)
 
-  if not ok then
-    if type(route) == "table" and route.reason == "truncated" then
-      return nil, Problem("ROUTECODE.TRUNCATED", { length = length })
-    end
+  local reason = not ok and type(route) == "string" and (string.match(route, ":%d+: (.*)$") or route) or nil
 
-    if type(route) == "table" then
-      return nil, Problem("ROUTECODE.CORRUPT", { reason = tostring(route.reason), length = length })
-    end
-
-    local problem = Problem("ROUTECODE.DECODE_BUG", { message = tostring(route), length = length })
-    RT.api:Report(problem)
-
-    return nil, problem
+  if reason == "truncated" then
+    Report("ROUTECODE.TRUNCATED", { length = #(code) })
+  elseif reason and DECODE_REASONS[reason] then
+    Report("ROUTECODE.CORRUPT", { reason = reason, length = #(code) })
+  elseif not ok and type(route) ~= "table" then
+    Report("ROUTECODE.DECODE_BUG", { message = tostring(route), length = #(code) })
+  elseif ok and type(route) ~= "table" then
+    Report("ROUTECODE.DECODE_BUG", { message = "result is " .. type(route), length = #(code) })
   end
 
-  if type(route) ~= "table" then
-    local problem = Problem("ROUTECODE.DECODE_BUG", { message = "result is " .. type(route), length = length })
-    RT.api:Report(problem)
-
-    return nil, problem
+  if not ok or type(route) ~= "table" then
+    return nil, "format"
   end
 
   return route
@@ -757,7 +759,7 @@ function Core.routeHash(route)
     return cached.hash
   end
 
-  local hash = Core.codeHash(Core.encodeRoute(route, true))
+  local hash = Core.codeHash((Core.encodeRoute(route, true)))
 
   hashCache[route] = {
     hash = hash,
@@ -808,7 +810,7 @@ function Core.setRouteShared(profile, id, shared)
   end
 
   if shared and not Core.routeHash(route) then
-    local _, cause = Core.encodeRoute(route, true)
+    local _, cause = Core.encodeRoute(route, true, true)
     Report("ROUTECODE.SHARE_NO_CODE", { title = tostring(route.name or "") }, cause)
 
     return Core.copyAccountProfile(profile), false

@@ -96,6 +96,16 @@ function Lib.bool(value)
   return value and true or false
 end
 
+function Lib.errorsShown()
+  local frame = rawget(_G, "UIErrorsFrame")
+
+  if not frame then
+    return true
+  end
+
+  return frame:IsEventRegistered("UI_ERROR_MESSAGE") and true or false
+end
+
 function Lib.setShown(widget, shown)
   if shown then
     widget:Show()

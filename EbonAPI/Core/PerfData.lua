@@ -3,7 +3,7 @@ EbonAPI.PerfData = {}
 
 local PerfData = EbonAPI.PerfData
 
-local type, tostring, tonumber, pairs, ipairs = type, tostring, tonumber, pairs, ipairs
+local type, tostring, tonumber, pairs = type, tostring, tonumber, pairs
 local lower, find, format, floor = string.lower, string.find, string.format, math.floor
 local tsort = table.sort
 
@@ -83,6 +83,8 @@ local function clear(t)
     t[k] = nil
   end
 end
+
+PerfData.clear = clear
 
 -- Scratch tables reused by every call (never returned nor kept).
 local walkBuf, seenBuf = {}, {}
@@ -890,10 +892,15 @@ end
 PerfData.PIECE_CODES = {
   rest = "PERFPAGE_PIECE_REST", scanning = "PERFPAGE_RUN_SCANNING", instrument = "PERFPAGE_PIECE_INSTRUMENT",
   refresh = "PERFPAGE_PIECE_REFRESH", channel = "PERFPAGE_PIECE_CHANNEL", channelOther = "PERFPAGE_PIECE_CHANNEL_OTHER",
+  tickLoop = "PERFPAGE_PIECE_TICKLOOP", unknown = "PERFPAGE_PIECE_UNKNOWN",
 }
 
 local function clean(text)
   return (string.gsub(tostring(text or ""), "[;|,\r\n]", " "))
+end
+
+local function cleanLabel(text)
+  return (string.gsub(clean(text), ":", " "))
 end
 
 local function scaled(v, unit)
@@ -921,7 +928,7 @@ local function encodePieces(list)
     local p = list[i]
 
     out[i] = format("%s:%s:%d:%d:%s", clean(p.kind), scaled(p.ms, 100) == "" and "0" or scaled(p.ms, 100),
-      p.calls or 0, p.count or 1, clean(p.label))
+      p.calls or 0, p.count or 1, cleanLabel(p.label))
   end
 
   return table.concat(out, ",")
@@ -956,6 +963,99 @@ end
 
 function PerfData.encodePieces(list)
   return encodePieces(list)
+end
+
+local function encodeFreeze(g)
+  local flags = (g.combat and "c" or "") .. (g.loading and "l" or "") .. (g.overflow and "o" or "") .. (g.reset and "r" or "")
+  local addons = {}
+
+  for i = 1, #(g.addons or {}) do
+    addons[i] = clean(g.addons[i].id) .. ":" .. scaled(g.addons[i].ms, 10)
+  end
+
+  local fields = {
+    scaled(num(g.t) and g.t * 1000, 1), scaled(g.d, 10), scaled(g.lua, 10), scaled(g.sc, 10), scaled(g.hd, 10), flags,
+    g.zone and clean(g.zone) or "", g.wins and clean(g.wins) or "", g.page and clean(g.page) or "",
+    encodePieces(g.top), encodePieces(g.inside), table.concat(addons, ","), scaled(g.addonsMs, 10),
+    scaled(g.addonsWindow, 1), scaled(g.ev, 1), g.evTop and string.gsub(g.evTop, "[;|\r\n]", " ") or "", scaled(g.plates, 1),
+    scaled(g.raid, 1), scaled(g.fps, 10), type(g.pcs) == "string" and string.gsub(g.pcs, "[;|\r\n]", " ") or "",
+  }
+  local count = 14
+
+  for i = 15, 20 do
+    if fields[i] ~= "" then
+      count = 20
+    end
+  end
+
+  return table.concat(fields, "|", 1, count)
+end
+
+local function statsList(stats)
+  local list = {}
+
+  for name, st in pairs(stats or {}) do
+    if type(st) == "table" then
+      list[#list + 1] = { label = name, calls = st.calls, total = st.total, net = st.net, ev = st.ev }
+    end
+  end
+
+  table.sort(list, function(a, b)
+    local x, y = num(a.net) or 0, num(b.net) or 0
+
+    if x ~= y then
+      return x > y
+    end
+
+    return tostring(a.label) < tostring(b.label)
+  end)
+
+  return list
+end
+
+function PerfData.encodePieceStats(stats)
+  local out = {}
+  local list = statsList(stats)
+
+  for i = 1, #list do
+    local p = list[i]
+    local events = {}
+
+    for name, e in pairs(type(p.ev) == "table" and p.ev or {}) do
+      if type(e) == "table" then
+        events[#events + 1] = format("%s=%d=%s=%s", (string.gsub(cleanLabel(name), "[=/]", " ")), num(e.calls) or 0,
+          scaled(e.total, 100) == "" and "0" or scaled(e.total, 100), scaled(e.net, 100) == "" and "0" or scaled(e.net, 100))
+      end
+    end
+
+    table.sort(events)
+    out[i] = format("%s:%d:%s:%s:%s", cleanLabel(p.label), num(p.calls) or 0, scaled(p.total, 100) == "" and "0" or scaled(p.total, 100),
+      scaled(p.net, 100) == "" and "0" or scaled(p.net, 100), table.concat(events, "/"))
+  end
+
+  return table.concat(out, ",")
+end
+
+function PerfData.encodeFreeze(freeze)
+  return encodeFreeze(freeze)
+end
+
+function PerfData.encodeFreezes(list)
+  local sorted, out = {}, {}
+
+  for i = 1, #(list or {}) do
+    sorted[i] = list[i]
+  end
+
+  table.sort(sorted, function(a, b)
+    return (num(a.t) or 0) < (num(b.t) or 0)
+  end)
+
+  for i = 1, #sorted do
+    out[i] = encodeFreeze(sorted[i])
+  end
+
+  return table.concat(out, ";")
 end
 
 local function label(raw)
@@ -1050,6 +1150,87 @@ function PerfData.decodePieces(text, window)
   return decodePieces(text, window or 0)
 end
 
+local function decodeStats(text)
+  local list = {}
+
+  for item in string.gmatch(text or "", "[^,]+") do
+    local name, calls, total, net, events = string.match(item, "^(.*):(%d+):(%-?%d+):(%-?%d+):(.*)$")
+
+    if name then
+      local ev = {}
+
+      for ename, ecalls, etotal, enet in string.gmatch(events, "([^/=]+)=(%d+)=(%-?%d+)=(%-?%d+)") do
+        ev[ename] = { calls = tonumber(ecalls), total = tonumber(etotal) / 100, net = tonumber(enet) / 100 }
+      end
+
+      list[#list + 1] = { label = name, calls = tonumber(calls), total = tonumber(total) / 100, net = tonumber(net) / 100, ev = ev }
+    end
+  end
+
+  return list
+end
+
+function PerfData.decodePieceStats(text)
+  return decodeStats(text)
+end
+
+local function decodeFreezePieces(text)
+  local out = {}
+
+  for item in string.gmatch(text or "", "[^,]+") do
+    local name, calls, net = string.match(item, "^(.*):(%d+):(%-?[%d%.]+)$")
+
+    if name then
+      out[#out + 1] = { label = name, calls = tonumber(calls), net = tonumber(net) }
+    end
+  end
+
+  return out
+end
+
+local function decodeFreeze(line)
+  local f = {}
+
+  for field in string.gmatch(line .. "|", "([^|]*)|") do
+    f[#f + 1] = field
+  end
+
+  local flags = f[6] or ""
+  local addons = {}
+
+  for item in string.gmatch(f[12] or "", "[^,]+") do
+    local id, ms = string.match(item, "^(.-):([^:]*)$")
+
+    if id then
+      addons[#addons + 1] = { id = id, ms = unit(ms, 10) }
+    end
+  end
+
+  local t = unit(f[1], 1000)
+
+  return {
+    t = t, d = unit(f[2], 10), lua = unit(f[3], 10), sc = unit(f[4], 10), hd = unit(f[5], 10),
+    combat = string.find(flags, "c", 1, true) ~= nil, loading = string.find(flags, "l", 1, true) ~= nil,
+    overflow = string.find(flags, "o", 1, true) ~= nil, reset = string.find(flags, "r", 1, true) ~= nil,
+    zone = (f[7] or "") ~= "" and f[7] or nil, wins = (f[8] or "") ~= "" and f[8] or nil,
+    page = (f[9] or "") ~= "" and f[9] or nil,
+    top = decodePieces(f[10], 0), inside = decodePieces(f[11], 0), addons = addons,
+    addonsMs = unit(f[13], 10), addonsWindow = unit(f[14], 1),
+    ev = unit(f[15], 1), evTop = (f[16] or "") ~= "" and f[16] or nil, plates = unit(f[17], 1), raid = unit(f[18], 1),
+    fps = unit(f[19], 10), pcs = decodeFreezePieces(f[20]),
+  }
+end
+
+function PerfData.decodeFreezes(text)
+  local out = {}
+
+  for line in string.gmatch(text or "", "[^;]+") do
+    out[#out + 1] = decodeFreeze(line)
+  end
+
+  return out
+end
+
 -- Rows of an entry of perfRuns, decoded only when asked (the page, for the session it shows). An entry that still holds
 -- a rows table is returned as is. The result is cached per entry (weak keys: freed with the entry).
 local decoded = setmetatable({}, { __mode = "k" })
@@ -1091,6 +1272,38 @@ function PerfData.entryUnattributed(entry)
 
   return cached(entry, "ua", function()
     return type(entry.ua) == "string" and PerfData.decodePieces(entry.ua, (entry.win or 0) / 1000) or nil
+  end)
+end
+
+function PerfData.entryFreezes(entry)
+  return cached(entry, "fz", function()
+    local fz = entry.fz
+
+    if type(fz) ~= "table" then
+      return nil
+    end
+
+    local text = type(fz.list) == "table" and table.concat(fz.list, ";") or fz.list
+
+    if type(text) ~= "string" then
+      return nil
+    end
+
+    return PerfData.decodeFreezes(text)
+  end)
+end
+
+function PerfData.entryPieceStats(entry)
+  if type(entry) ~= "table" then
+    return nil
+  end
+
+  if type(entry.pp) == "table" then
+    return statsList(entry.pp)
+  end
+
+  return cached(entry, "pp", function()
+    return type(entry.pp) == "string" and decodeStats(entry.pp) or nil
   end)
 end
 

@@ -2,16 +2,8 @@ AutoCallboardLocales = AutoCallboardLocales or {}
 AutoCallboardRuntime = AutoCallboardRuntime or {}
 local RT = AutoCallboardRuntime
 
-AutoCallboardLocale = EbonAPI.Locale.register("AutoCallboard", AutoCallboardLocales)
-
-function RT.GetLanguage()
-  return EbonAPI:GetLanguage()
-end
-
-function RT.IsLanguageAvailable(code)
-  return EbonAPI.Locale.isAvailable(code)
-end
-
-function RT.SetLanguage(code)
-  return EbonAPI:SetLanguage(code)
-end
+RT.api = EbonAPI:NewAddon("AutoCallboard", 2, 1, {
+  icon = "Achievement_Quests_Completed_08",
+  url = "https://github.com/Siphelis/EbonAPI/releases/latest",
+})
+AutoCallboardLocale = RT.api:Locale(AutoCallboardLocales)

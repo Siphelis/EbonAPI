@@ -2,15 +2,13 @@ local _, ns = ...
 
 local L = ns.L
 
-local KeyOf = ns.Catalog.Key
-
-local database = nil
+local KeyOf = EbonBuilds.Matrix.Key
 
 local databaseMissing = false
 
 local function Database()
-  if database then return database end
-  database = EbonAPI.Ebonhold.PerkDatabase()
+  local E = EbonAPI and EbonAPI.EchoCatalog
+  local database = E and E.Database()
   if database then
     if databaseMissing then
       databaseMissing = false
@@ -37,6 +35,7 @@ end
 local wanted     = {}
 local count      = 0
 local generation = 0
+local shown      = true
 
 local Wishlist = {}
 ns.Wishlist = Wishlist
@@ -51,8 +50,42 @@ end
 
 function Wishlist.Count() return count end
 
+function Wishlist.Shown(spellId)
+  return shown and Wishlist.Has(spellId)
+end
+
+function Wishlist.SetShown(on)
+  on = on and true or false
+  if shown == on then return end
+  shown = on
+  generation = generation + 1
+end
+
+local loaded = false
+
+local function Persist()
+  local db = EbonAPIEbonBuildsCharDB
+  if not db or not loaded then return end
+  local saved = db.huntSelection or {}
+  local same, n = true, 0
+  for key, floor in pairs(saved) do
+    n = n + 1
+    if wanted[key] ~= floor then same = false end
+  end
+  if same and n == count then return end
+  if count == 0 then
+    db.huntSelection = nil
+    return
+  end
+  local copy = {}
+  for key, floor in pairs(wanted) do copy[key] = floor end
+  db.huntSelection = copy
+end
+
 local function Touch()
   generation = generation + 1
+  if not loaded then Wishlist.Load() end
+  Persist()
   local notify = ns.OnWishlistChanged
   if notify then notify() end
 end
@@ -113,6 +146,32 @@ function Wishlist.SetFloor(key, quality)
   return true
 end
 
+function Wishlist.Remove(spellId)
+  if not spellId then return false end
+  local key = KeyOf(spellId)
+  if wanted[key] == nil then return false end
+  wanted[key] = nil
+  count = count - 1
+  Touch()
+  return true
+end
+
+function Wishlist.Load()
+  local db = EbonAPIEbonBuildsCharDB
+  if not db or not Database() then return end
+  local saved = db.huntSelection or {}
+  local known = Survey(saved)
+  for key, floor in pairs(saved) do
+    if known[key] and type(floor) == "number" and wanted[key] == nil then
+      wanted[key] = floor
+      count = count + 1
+    end
+  end
+  generation = generation + 1
+  loaded = true
+  Persist()
+end
+
 function Wishlist.Armed()
   local rows = {}
   local survey = Survey(wanted)
@@ -138,14 +197,6 @@ function Wishlist.CommonFloor()
     elseif common ~= floor then return nil end
   end
   return common
-end
-
-function Wishlist.Clear()
-  if count == 0 then return false end
-  for key in pairs(wanted) do wanted[key] = nil end
-  count = 0
-  Touch()
-  return true
 end
 
 local SCROLL_NAMES = {
@@ -178,15 +229,19 @@ function Wishlist.Hint(button)
   return wanted[KeyOf(id)] and L.HUNT_UNMARK or L.HUNT_MARK
 end
 
+function Wishlist.StyleMark(mark)
+  mark:SetTexture(MARK_TEXTURE)
+  mark:SetBlendMode("ADD")
+  mark:SetVertexColor(1, 0.82, 0, 0.9)
+end
+
 local function EnsureMark(button)
   local mark = button._eorMark
   if mark then return mark end
 
   local anchor = button.icon or button
   mark = button:CreateTexture(nil, "OVERLAY")
-  mark:SetTexture(MARK_TEXTURE)
-  mark:SetBlendMode("ADD")
-  mark:SetVertexColor(1, 0.82, 0, 0.9)
+  Wishlist.StyleMark(mark)
   mark:SetPoint("TOPLEFT", anchor, "TOPLEFT", -2, 2)
   mark:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", 2, -2)
   mark:Hide()
@@ -272,7 +327,7 @@ local function Paint(grid)
     end
     if b._eorGen ~= generation then
       b._eorGen = generation
-      if id and Wishlist.Has(id) then
+      if id and Wishlist.Shown(id) then
         EnsureMark(b):Show()
       elseif b._eorMark then
         b._eorMark:Hide()
@@ -310,6 +365,19 @@ local function AttachSweeper(grid)
   grid.sweeper = f
 end
 
+local function EchoesVisible()
+  for i = 1, #grids do
+    local scroll = grids[i].scroll
+    if scroll and scroll:IsVisible() then return true end
+  end
+  return false
+end
+
+local function NotifyEchoes()
+  local f = ns.OnEchoesVisible
+  if f then f(EchoesVisible()) end
+end
+
 local function Discover()
   local wired = 0
   for i = 1, #grids do
@@ -321,6 +389,9 @@ local function Discover()
         AttachSweeper(grid)
         local found = ns.OnJournalFound
         if found then found(JournalRoot(scroll)) end
+        scroll:HookScript("OnShow", NotifyEchoes)
+        scroll:HookScript("OnHide", NotifyEchoes)
+        NotifyEchoes()
       end
     end
     if grid.sweeper then wired = wired + 1 end

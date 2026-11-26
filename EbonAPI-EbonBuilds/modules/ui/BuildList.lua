@@ -18,12 +18,12 @@ end
 local CARD_STYLE = { small = true, onOpen = Open }
 
 local function Entry(build, activeId)
-    local specs = EbonBuilds.SpecData and EbonBuilds.SpecData[build.class]
+    local spec = EbonAPI.ClientData.Spec(build.class, build.spec or 1)
     return {
         build     = build,
         class     = build.class,
         title     = build.title or L.UNTITLED,
-        spec      = specs and specs[build.spec or 1],
+        spec      = spec,
         lockedIds = build.lockedEchoes or {},
         active    = build.id == activeId,
     }

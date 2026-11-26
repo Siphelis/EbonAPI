@@ -1,11 +1,11 @@
 <Bindings>
 	<Binding name="AUTOCALLBOARD_ECHO1" header="AutoCallboard">
-		AutoCallboardRuntime.TriggerEchoSlot(1)
+		if AutoCallboardRuntime then AutoCallboardRuntime.TriggerEchoSlot(1) end
 	</Binding>
 	<Binding name="AUTOCALLBOARD_ECHO2">
-		AutoCallboardRuntime.TriggerEchoSlot(2)
+		if AutoCallboardRuntime then AutoCallboardRuntime.TriggerEchoSlot(2) end
 	</Binding>
 	<Binding name="AUTOCALLBOARD_ECHO3">
-		AutoCallboardRuntime.TriggerEchoSlot(3)
+		if AutoCallboardRuntime then AutoCallboardRuntime.TriggerEchoSlot(3) end
 	</Binding>
 </Bindings>

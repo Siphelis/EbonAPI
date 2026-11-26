@@ -1,0 +1,24 @@
+## Interface: 30300
+## Title: EbonAPI - |cffb048f8ActionBars|r
+## X-Part-Of: EbonAPI
+## Notes: Up to ten action bars of twelve buttons each, placed where you want and bound to your own keys.
+## Notes-frFR: Jusqu'à dix barres d'action de douze boutons chacune, placées où vous voulez et liées à vos propres touches.
+## Notes-deDE: Bis zu zehn Aktionsleisten mit je zwölf Tasten, frei platzierbar und mit Ihren eigenen Tasten belegbar.
+## Notes-esES: Hasta diez barras de acción de doce botones cada una, colocadas donde quiera y asignadas a sus propias teclas.
+## Dependencies: EbonAPI
+## OptionalDeps: ProjectEbonhold
+## LoadOnDemand: 1
+## X-EbonAPI-Module: 1
+## X-EbonAPI-Name: ActionBars
+## SavedVariables: EbonAPIActionBarsDB
+
+Locales\Locale.lua
+Locales\enUS.lua
+Locales\frFR.lua
+Locales\deDE.lua
+Locales\esES.lua
+Core.lua
+Buttons.lua
+Editor.lua
+Init.lua
+Bindings.xml

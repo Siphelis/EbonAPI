@@ -98,34 +98,6 @@ function Core.buildContainer(spec)
     return string.format(L[spec.groupNameKey], tostring(number))
   end
 
-  local function indexOf(rows, id)
-    if not rows or id == nil then
-      return nil
-    end
-
-    for i = 1, #(rows) do
-      if rows[i].id == id then
-        return i
-      end
-    end
-
-    return nil
-  end
-
-  local function renameIn(profile, key, finder, id, newName)
-    local nextProfile = copy(profile)
-    local index = finder(nextProfile, id)
-
-    if not index then
-      return nextProfile, false, "not_found", Core.problem("CONTAINER.NOT_FOUND", { number = id })
-    end
-
-    local entry = own(nextProfile[key], index)
-    entry.name = Core.sanitizeSelectionName(newName, entry.name)
-
-    return nextProfile, true
-  end
-
   function C.itemsIn(profile, groupId)
     local entries = {}
     local rows = list(profile)
@@ -171,7 +143,19 @@ function Core.buildContainer(spec)
   end
 
   function C.findIndex(profile, id)
-    return indexOf(list(profile), id)
+    local rows = list(profile)
+
+    if not rows or id == nil then
+      return nil
+    end
+
+    for i = 1, #(rows) do
+      if rows[i].id == id then
+        return i
+      end
+    end
+
+    return nil
   end
 
   function C.find(profile, id)
@@ -211,7 +195,17 @@ function Core.buildContainer(spec)
   end
 
   function C.rename(profile, id, newName)
-    return renameIn(profile, ITEMS, C.findIndex, id, newName)
+    local nextProfile = copy(profile)
+    local index = C.findIndex(nextProfile, id)
+
+    if not index then
+      return nextProfile, false, "not_found", Core.problem("CONTAINER.NOT_FOUND", { number = id })
+    end
+
+    local entry = own(nextProfile[ITEMS], index)
+    entry.name = Core.sanitizeSelectionName(newName, entry.name)
+
+    return nextProfile, true
   end
 
   function C.update(profile, id, fields)
@@ -304,7 +298,9 @@ function Core.buildContainer(spec)
     table.remove(rows, index)
     entry[GROUP_KEY] = groupId
 
-    local target, missing
+    local target
+
+    local missing
 
     if beforeId ~= nil then
       target = C.findIndex(nextProfile, beforeId)
@@ -331,7 +327,19 @@ function Core.buildContainer(spec)
   end
 
   function C.findGroupIndex(profile, id)
-    return indexOf(groupList(profile), id)
+    local rows = groupList(profile)
+
+    if not rows or id == nil then
+      return nil
+    end
+
+    for i = 1, #(rows) do
+      if rows[i].id == id then
+        return i
+      end
+    end
+
+    return nil
   end
 
   function C.hasGroup(profile, id)
@@ -421,7 +429,17 @@ function Core.buildContainer(spec)
   end
 
   function C.renameGroup(profile, id, newName)
-    return renameIn(profile, GROUPS, C.findGroupIndex, id, newName)
+    local nextProfile = copy(profile)
+    local index = C.findGroupIndex(nextProfile, id)
+
+    if not index then
+      return nextProfile, false
+    end
+
+    local entry = own(nextProfile[GROUPS], index)
+    entry.name = Core.sanitizeSelectionName(newName, entry.name)
+
+    return nextProfile, true
   end
 
   function C.groupItemNames(profile, groupId, limit)

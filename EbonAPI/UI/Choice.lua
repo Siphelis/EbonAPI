@@ -152,7 +152,7 @@ function BOX:Fill()
     chip.label:SetText(item.text)
 
     if chip.count then
-      chip.count:SetText(item.count ~= nil and tostring(item.count) or "")
+      chip.count:SetText(item.count ~= nil and EbonAPI.Format.number(item.count) or "")
     end
 
     chip:Show()
@@ -287,12 +287,7 @@ function BOX:Relayout()
   return self
 end
 
-function BOX:SetWidth(width)
-  self.boxWidth = width
-  self.nativeSetWidth(self, width)
-
-  return self:Relayout()
-end
+BOX.SetWidth = EbonAPI.Saves.setBoxWidth
 
 function BOX:SetItems(items)
   validItems(self.owner or "EbonAPI", items, 2)
@@ -336,7 +331,7 @@ function BOX:SetCount(id, count)
       local chip = self.chips[index]
 
       if chip.count then
-        chip.count:SetText(count ~= nil and tostring(count) or "")
+        chip.count:SetText(count ~= nil and EbonAPI.Format.number(count) or "")
       end
 
       return self:Relayout()

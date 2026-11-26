@@ -4,7 +4,7 @@ local L = AutoCallboardLocale
 local RT = AutoCallboardRuntime
 
 local CONTENT_WIDTH = 300
-local ROW_GAP = 2
+local ROW_GAP = RT.ROW_GAP
 local VISIBLE_ROWS = 16
 local TOOLBAR_GAP = 6
 local GROUP_GAP = 8
@@ -40,42 +40,6 @@ local entries = {}
 
 local function AccountProfile()
   return RT.GetAccountProfile()
-end
-
-local function Report(code, facts)
-  RT.api:Report(RT.api:Problem(code, facts or {}))
-end
-
-local function Reject(action, route, facts, stepIndex, result)
-  if type(result) == "table" and result.code then
-    RT.api:Report(result)
-  else
-    local found = Core.findRoute(AccountProfile(), route.id)
-    local missing = not found or (stepIndex ~= nil and not (found.steps and found.steps[stepIndex]))
-    local data = facts or {}
-
-    data.route = route.name
-    data.action = action
-    Report(missing and "ROUTEWINDOW.ROUTE_MISSING" or "ROUTEWINDOW.CHANGE_REFUSED", data)
-  end
-
-  RT.RefreshRouteWindow()
-end
-
-local function RunDraftChange(action, route, change)
-  if not RT.CanEditRoutes() then
-    Report("ROUTEWINDOW.EDIT_LOCKED", { route = route.name })
-  elseif #(RT.GetRouteDraft()) == 0 then
-    Report("ROUTEWINDOW.DRAFT_EMPTY")
-  else
-    local ok, problem = change(route.id)
-
-    if not ok then
-      Reject(action, route, nil, nil, problem)
-    end
-  end
-
-  RT.RefreshRouteWindow()
 end
 
 local function ExpansionKey(kind, id)
@@ -186,6 +150,20 @@ end
 
 local RequestSaveDraft
 
+local function Report(code, facts)
+  RT.api:Report(RT.api:Problem(code, facts or {}))
+end
+
+local function ReportChangeFailed(route, action)
+  local name = route and route.name or ""
+
+  if Core.findRoute(AccountProfile(), route and route.id) then
+    Report("ROUTEWINDOW.CHANGE_REFUSED", { route = name, action = action })
+  else
+    Report("ROUTEWINDOW.ROUTE_MISSING", { route = name })
+  end
+end
+
 local function RequestSaveCategory(name, onCancel)
   local profile = AccountProfile()
   local choices = {}
@@ -210,15 +188,7 @@ local function RequestSaveCategory(name, onCancel)
       elseif Core.routesFull(AccountProfile(), category) then
         Report("ROUTEWINDOW.ROUTES_FULL", { category = Core.routeCategoryName(category), limit = Core.MAX_SAVED_ROUTES })
       else
-        local saved, problem = RT.SaveRouteDraftAs(name, category)
-
-        if not saved then
-          if type(problem) == "table" and problem.code then
-            RT.api:Report(problem)
-          else
-            Report("ROUTEWINDOW.CHANGE_REFUSED", { route = tostring(name), action = "save" })
-          end
-        end
+        RT.SaveRouteDraftAs(name, category)
       end
 
       RT.RefreshRouteWindow()
@@ -293,7 +263,7 @@ local function RequestRenameRoute(route)
       local nextProfile, ok = Core.renameRoute(AccountProfile(), route.id, text)
 
       if not ok then
-        Reject("rename", route, nil, nil, ok)
+        ReportChangeFailed(route, "rename")
         return
       end
 
@@ -313,7 +283,7 @@ local function RequestDeleteRoute(route)
       local nextProfile, ok = Core.deleteRoute(AccountProfile(), route.id)
 
       if not ok then
-        Reject("delete", route)
+        ReportChangeFailed(route, "delete")
         return
       end
 
@@ -335,7 +305,8 @@ local function RequestOverwriteRoute(route)
     acceptText = L.BUTTON_OKAY,
     cancelText = L.BUTTON_CANCEL,
     onAccept = function()
-      RunDraftChange("overwrite", route, RT.OverwriteRouteFromDraft)
+      RT.OverwriteRouteFromDraft(route.id)
+      RT.RefreshRouteWindow()
       end,
   })
 end
@@ -382,14 +353,15 @@ local function BuildCategoryMenu(menu, route)
       onClick = function()
         local nextProfile, ok, err = Core.setRouteCategory(AccountProfile(), route.id, category)
 
+        if err == "full" then
+          Report("ROUTEWINDOW.ROUTES_FULL", { category = Core.routeCategoryName(category), limit = Core.MAX_SAVED_ROUTES })
+        end
+
         if ok then
           RT.SaveAccountProfile(nextProfile)
           RT.RefreshRouteWindow()
-        elseif err == "full" then
-          Report("ROUTEWINDOW.ROUTES_FULL", { category = Core.routeCategoryName(category), limit = Core.MAX_SAVED_ROUTES })
-          RT.RefreshRouteWindow()
-        else
-          Reject("category", route, { category = Core.routeCategoryName(category) }, nil, err)
+        elseif err ~= "full" then
+          ReportChangeFailed(route, "category")
         end
         end,
     })
@@ -413,7 +385,7 @@ BuildRouteDifficultyMenu = function(menu, route)
       RT.SaveAccountProfile(nextProfile)
       RT.RefreshRouteWindow()
     else
-      Reject("difficulty", route)
+      ReportChangeFailed(route, "difficulty")
     end
     end)
 
@@ -455,7 +427,8 @@ BuildRouteMenu = function(menu, route)
   menu:AddItem(L.ROUTE_MENU_APPEND, {
     disabled = locked or not hasDraft,
     onClick = function()
-      RunDraftChange("append", route, RT.AppendRouteFromDraft)
+      RT.AppendRouteFromDraft(route.id)
+      RT.RefreshRouteWindow()
       end,
   })
   menu:AddItem(L.ROUTE_MENU_OVERWRITE, {
@@ -508,7 +481,7 @@ local function BuildStepMenu(menu, entry)
             RT.SaveAccountProfile(nextProfile)
             RT.RefreshRouteWindow()
           else
-            Reject("step_difficulty", entry.route, { step = entry.stepIndex }, entry.stepIndex)
+            ReportChangeFailed(entry.route, "step_difficulty")
           end
           end)
 
@@ -541,7 +514,7 @@ local function BuildStepMenu(menu, entry)
         RT.SaveAccountProfile(nextProfile)
         RT.RefreshRouteWindow()
       else
-        Reject("delete_line", entry.route, { step = entry.stepIndex }, entry.stepIndex)
+        ReportChangeFailed(entry.route, "delete_line")
       end
       end,
   })
@@ -572,17 +545,7 @@ local function OnRowClick(row, mouseButton)
   end
 
   if entry.kind == "step" or entry.kind == "action" then
-    if RT.IsRecordingRoute() then
-      Report("ROUTEWINDOW.PLAYBACK_REFUSED", { route = entry.route.name })
-      return
-    end
-
-    local started, problem = RT.StartRoutePlayback("row", entry.route.id, entry.stepIndex)
-
-    if not started and type(problem) == "table" and problem.code then
-      RT.api:Report(problem)
-    end
-
+    RT.StartRoutePlayback("row", entry.route.id, entry.stepIndex)
     return
   end
 

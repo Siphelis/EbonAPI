@@ -222,15 +222,6 @@ function Share.ShowExportSave(saveId)
     ShowExport(NS.Data.GetSave(saveId) and { saveId } or {})
 end
 
-function Share.ShowExportAll()
-    local ids = {}
-    for _, saveId in ipairs(NS.Data.GetSortedSaveIdsInGroup(nil)) do ids[#ids + 1] = saveId end
-    for _, groupId in ipairs(NS.Data.GetSortedGroupIds()) do
-        for _, saveId in ipairs(NS.Data.GetSortedSaveIdsInGroup(groupId)) do ids[#ids + 1] = saveId end
-    end
-    ShowExport(ids)
-end
-
 function Share.ShowImport()
     NS.api:Dialog({
         title = L.IMPORT_TITLE,

@@ -4,10 +4,18 @@ AutoCallboardCore = Core
 local type, tonumber, tostring, pairs, ipairs = type, tonumber, tostring, pairs, ipairs
 local string, table, math = string, table, math
 
-local RT = AutoCallboardRuntime
+local function Api()
+  local runtime = AutoCallboardRuntime
 
-local function Problem(name, facts, cause)
-  return RT.api:Problem(name, facts, cause)
+  return Core.reportReady and runtime and runtime.api or nil
+end
+
+local function Reject(name, facts)
+  local api = Api()
+
+  if api then
+    api:Reject(name, facts)
+  end
 end
 
 local function Sample(value)
@@ -109,7 +117,11 @@ function Core.copyRouteLibrary(library)
   end
 
   if count < before then
-    RT.api:Repaired("LIBRARY.REPAIRED", { field = "entries", before = before, after = count })
+    local api = Api()
+
+    if api then
+      api:Repaired("LIBRARY.REPAIRED", { field = "entries", before = before, after = count })
+    end
   end
 
   Shelf(copy.entries).total = count
@@ -157,13 +169,13 @@ local function MergeInto(library, hash, entry, today, count)
   entry = Core.copyLibraryEntry(entry)
 
   if not hash then
-    RT.api:Reject("LIBRARY.REJECTED", { reason = "hash", sample = Sample(rawHash) })
+    Reject("LIBRARY.REJECTED", { reason = "hash", sample = Sample(rawHash) })
 
     return nil, count
   end
 
   if not entry then
-    RT.api:Reject("LIBRARY.REJECTED", { reason = "entry", sample = Sample(rawHash) .. " " .. Sample(rawEntry) })
+    Reject("LIBRARY.REJECTED", { reason = "entry", sample = Sample(rawHash) .. " " .. Sample(rawEntry) })
 
     return nil, count
   end
@@ -192,7 +204,7 @@ local function MergeInto(library, hash, entry, today, count)
   count = count or CountEntries(library.entries)
 
   if count >= Core.MAX_LIBRARY_ENTRIES then
-    return nil, count, Problem("LIBRARY.FULL", { entries = count, limit = Core.MAX_LIBRARY_ENTRIES })
+    return nil, count, Core.problem("LIBRARY.FULL", { entries = count, limit = Core.MAX_LIBRARY_ENTRIES })
   end
 
   library.entries[hash] = entry
@@ -205,7 +217,7 @@ function Core.mergeLibraryEntry(library, hash, entry, today)
   local result, _, problem = MergeInto(library, hash, entry, today)
 
   if problem then
-    RT.api:Report(problem)
+    Core.report(problem)
   end
 
   return result
@@ -226,7 +238,7 @@ function Core.mergeLibraryEntries(library, items, today)
   end
 
   if full then
-    RT.api:Report(full)
+    Core.report(full)
   end
 
   return changed
@@ -431,12 +443,12 @@ function Core.serializeLibraryEntry(hash, entry)
   hash = Core.sanitizeRouteHash(hash)
 
   if not hash then
-    RT.api:Reject("LIBRARY.REJECTED", { reason = "hash", sample = Sample(rawHash) })
+    Reject("LIBRARY.REJECTED", { reason = "hash", sample = Sample(rawHash) })
     return nil
   end
 
   if not entry then
-    RT.api:Reject("LIBRARY.REJECTED", { reason = "entry", sample = Sample(rawHash) })
+    Reject("LIBRARY.REJECTED", { reason = "entry", sample = Sample(rawHash) })
     return nil
   end
 
@@ -452,21 +464,21 @@ end
 
 function Core.parseLibraryEntry(text)
   if type(text) ~= "string" then
-    RT.api:Reject("LIBRARY.REJECTED", { reason = "format", sample = Sample(text) })
+    Reject("LIBRARY.REJECTED", { reason = "format", sample = Sample(text) })
     return nil
   end
 
   local hash, category, faction, steps, day, name = string.match(text, "^([^,]+),(%d+),([HA%-]),(%d+),(%d+),(.*)$")
 
   if not hash then
-    RT.api:Reject("LIBRARY.REJECTED", { reason = "format", sample = Sample(text) })
+    Reject("LIBRARY.REJECTED", { reason = "format", sample = Sample(text) })
     return nil
   end
 
   hash = Core.sanitizeRouteHash(hash)
 
   if not hash then
-    RT.api:Reject("LIBRARY.REJECTED", { reason = "hash", sample = Sample(text) })
+    Reject("LIBRARY.REJECTED", { reason = "hash", sample = Sample(text) })
     return nil
   end
 
@@ -479,7 +491,7 @@ function Core.parseLibraryEntry(text)
   })
 
   if not entry then
-    RT.api:Reject("LIBRARY.REJECTED", { reason = "category", sample = Sample(text) })
+    Reject("LIBRARY.REJECTED", { reason = "category", sample = Sample(text) })
     return nil
   end
 

@@ -3,11 +3,8 @@ local NS = SkillTreeAutoLoad
 local View = {}
 NS.View = View
 
-local SAFETY_MIN_ZOOM = 0.1
-
 local HOVER_DELAY = 0.3
 local TRANSITION = 0.25
-local FRAME_MARGIN = 24
 local ARROW_SIZE = 28
 local ARROW_INSET = 6
 
@@ -25,18 +22,13 @@ local COUNT_ANCHORS = {
     BOTTOM = { "BOTTOM", "TOP", 0, 2 },
 }
 
-local panel, driver
-local covered, coveredSide = 0, "RIGHT"
-local viewShift, draggingTree, driving = 0, false, false
-
-local base
-local padX, padY = 0, 0
+local zone, driver, flow
 
 local origin, target, pending, anim
+local kept
 local hovering, flaggedKey, flaggedCount = false, nil, nil
 local arrows = {}
-local faultArrows, faults, faultSets = {}, {}, {}
-local RefreshFaults
+local marked = false
 
 local function Clamp(value, low, high)
     if value < low then return low end
@@ -44,269 +36,49 @@ local function Clamp(value, low, high)
     return value
 end
 
-local function TreeVisible()
-    return _G.skillTreeScroll and _G.skillTreeCanvas and skillTreeScroll:IsVisible()
-end
-
-local function CaptureBase(view)
-    if view:GetNumPoints() ~= 2 then return nil end
-
-    local anchors = {}
-    for i = 1, 2 do
-        local point, relativeTo, relativePoint, x, y = view:GetPoint(i)
-        anchors[point] = {
-            relativeTo = relativeTo or view:GetParent(),
-            relativePoint = relativePoint, x = x, y = y,
-        }
-    end
-
-    local topLeft, bottomRight = anchors.TOPLEFT, anchors.BOTTOMRIGHT
-    if not (topLeft and bottomRight and topLeft.relativeTo == bottomRight.relativeTo
-        and topLeft.relativePoint == "TOPLEFT" and bottomRight.relativePoint == "BOTTOMRIGHT") then
-        return nil
-    end
-
-    return {
-        frame = topLeft.relativeTo,
-        left = topLeft.x, top = topLeft.y, right = bottomRight.x, bottom = bottomRight.y,
-    }
-end
-
-local function SetPadding(x, y)
-    if not base or (x == padX and y == padY) then return end
-    padX, padY = x, y
-    skillTreeScroll:SetPoint("TOPLEFT", base.frame, "TOPLEFT", base.left + x, base.top - y)
-end
-
-local function ViewSize()
-    if not base then return skillTreeScroll:GetWidth(), skillTreeScroll:GetHeight() end
-    return base.frame:GetWidth() - base.left + base.right,
-        base.frame:GetHeight() + base.top - base.bottom
-end
-
-local function ViewTop()
-    if not base then return skillTreeScroll:GetTop() end
-    local frameTop = base.frame:GetTop()
-    return frameTop and (frameTop + base.top)
-end
-
-local function FreeRect()
-    local width, height = ViewSize()
-    local left, right = 0, width
-    if coveredSide == "LEFT" then left = covered else right = width - covered end
-
-    local top = 0
-    local bar = skillTreeFrame.progressBar
-    local viewTop = ViewTop()
-    if bar and bar:IsShown() and bar:GetBottom() and viewTop then
-        top = math.max(0, viewTop - bar:GetBottom())
-    end
-
-    return left, top, right, height
-end
-
-local function WantedShift()
-    if covered == 0 then return 0 end
-    return (coveredSide == "LEFT") and -covered / 2 or covered / 2
-end
-
-local function MoveHorizontally(delta)
-    local view = _G.skillTreeScroll
-    if not view or delta == 0 then return 0 end
-
-    local current = view:GetHorizontalScroll()
-    local wanted = Clamp(current + delta, 0, view:GetHorizontalScrollRange())
-
-    driving = true
-    view:SetHorizontalScroll(wanted)
-    driving = false
-
-    return wanted - current
-end
-
-local function SyncShift()
-    viewShift = viewShift + MoveHorizontally(WantedShift() - viewShift)
-end
-
-local ICON_HIDE_ZOOM = 0.50
-local iconButtons, iconsHidden = nil, false
-
-local function CollectIcons()
-    if iconButtons then return iconButtons end
-
-    local defs = NS.Core.GetNodeDefs()
-    if not defs then return nil end
-
-    local list = {}
-    for nodeId in pairs(defs) do
-        local btn = _G["skillTreeNode" .. nodeId]
-        if btn and btn.icon then list[#list + 1] = btn end
-    end
-
-    if #list == 0 then return nil end
-
-    iconButtons = list
-    return list
-end
-
-local function SetIconsShown(shown)
-    if iconsHidden == not shown then return end
-
-    local buttons = CollectIcons()
-    if not buttons then return end
-
-    iconsHidden = not shown
-    for i = 1, #buttons do
-        local btn = buttons[i]
-        if shown then
-            btn.icon:Show()
-            if btn.rankText then btn.rankText:Show() end
-        else
-            btn.icon:Hide()
-            if btn.rankText then btn.rankText:Hide() end
-        end
-    end
-end
-
-local function SetZoom(zoom)
-    local canvas = skillTreeCanvas
-    local current = canvas:GetScale()
-    if math.abs(zoom - current) < 0.0001 then return end
-
-    local width, height = canvas:GetWidth() * current, canvas:GetHeight() * current
-    canvas:SetScale(zoom)
-    canvas:SetSize(width / zoom, height / zoom)
-
-    SetIconsShown(zoom >= ICON_HIDE_ZOOM)
-    NS.Overlay.Rescale()
-    RefreshFaults()
-end
-
-local function ViewCenter()
-    local view, zoom = skillTreeScroll, skillTreeCanvas:GetScale()
-    local left, top, right, bottom = FreeRect()
-    return (view:GetHorizontalScroll() - padX + (left + right) / 2) / zoom,
-        (view:GetVerticalScroll() - padY + (top + bottom) / 2) / zoom
-end
-
-local function ScrollTarget(cx, cy, zoom)
-    local left, top, right, bottom = FreeRect()
-    return cx * zoom - (left + right) / 2, cy * zoom - (top + bottom) / 2
-end
-
-local function PlaceView(cx, cy)
-    local view = skillTreeScroll
-    local scrollX, scrollY = ScrollTarget(cx, cy, skillTreeCanvas:GetScale())
-
-    driving = true
-    view:SetHorizontalScroll(Clamp(scrollX + padX, 0, math.max(0, view:GetHorizontalScrollRange())))
-    view:SetVerticalScroll(Clamp(scrollY + padY, 0, math.max(0, view:GetVerticalScrollRange())))
-    driving = false
-end
-
-local nodeRects = {}
-
-local function NodeRect(nodeId)
-    local rect = nodeRects[nodeId]
-    if rect then return rect[1], rect[2], rect[3], rect[4] end
-
-    local button = _G["skillTreeNode" .. nodeId]
-    if not button then return nil end
-
-    local _, _, _, x, y = button:GetPoint(1)
-    if not x then return nil end
-
-    rect = { x, -y, x + button:GetWidth(), -y + button:GetHeight() }
-    nodeRects[nodeId] = rect
-    return rect[1], rect[2], rect[3], rect[4]
-end
-
-local function Bounds(set)
-    local minX, minY, maxX, maxY
-    for nodeId in pairs(set) do
-        local left, top, right, bottom = NodeRect(nodeId)
-        if left then
-            if not minX then
-                minX, minY, maxX, maxY = left, top, right, bottom
-            else
-                minX, minY = math.min(minX, left), math.min(minY, top)
-                maxX, maxY = math.max(maxX, right), math.max(maxY, bottom)
-            end
-        end
-    end
-    return minX, minY, maxX, maxY
-end
-
-local function FitZoom(minX, minY, maxX, maxY)
-    local left, top, right, bottom = FreeRect()
-    local width = right - left - 2 * FRAME_MARGIN
-    local height = bottom - top - 2 * FRAME_MARGIN
-    return math.min(width / math.max(maxX - minX, 1), height / math.max(maxY - minY, 1))
-end
-
-local function ComputeFraming(missing, affordable)
-    local minX, minY, maxX, maxY = Bounds(missing)
-    if not minX then
-        return nil
-    end
-
-    local fit = FitZoom(minX, minY, maxX, maxY)
-    if fit < SAFETY_MIN_ZOOM then
-        local focusMinX, focusMinY, focusMaxX, focusMaxY
-        if affordable and next(affordable) then
-            focusMinX, focusMinY, focusMaxX, focusMaxY = Bounds(affordable)
-        end
-        if not focusMinX then
-            focusMinX, focusMinY, focusMaxX, focusMaxY = Bounds(NS.Plan.LargestGroup(missing))
-        end
-        if focusMinX then
-            minX, minY, maxX, maxY = focusMinX, focusMinY, focusMaxX, focusMaxY
-            fit = FitZoom(minX, minY, maxX, maxY)
-        end
-    end
-
-    local zoom = math.max(SAFETY_MIN_ZOOM, math.min(origin.zoom, fit))
-
-    return zoom, (minX + maxX) / 2, (minY + maxY) / 2
+function View.FitBox(boxW, boxH, availW, availH, margin)
+    return math.min((availW - 2 * margin) / boxW, (availH - 2 * margin) / boxH)
 end
 
 local function HideArrows()
     for _, arrow in pairs(arrows) do arrow:Hide() end
 end
 
-local function GetArrow(store, side, fault)
-    local arrow = store[side]
-    if arrow then return arrow end
+local function GetArrow(side, parent)
+    local arrow = arrows[side]
+    if arrow then
+        if arrow.owner ~= parent then arrow.owner = parent; arrow:SetParent(parent) end
+        return arrow
+    end
 
-    arrow = CreateFrame("Frame", nil, skillTreeFrame)
+    arrow = CreateFrame("Frame", nil, parent)
+    arrow.owner = parent
     arrow:SetSize(ARROW_SIZE, ARROW_SIZE)
 
     arrow.icon = arrow:CreateTexture(nil, "ARTWORK")
     arrow.icon:SetAllPoints(arrow)
     arrow.icon:SetTexture(ARROW_TEXTURES[side])
-    if fault then EbonAPI.Palette.paint(arrow.icon, "SetVertexColor", "danger") end
 
     local anchor = COUNT_ANCHORS[side]
     arrow.count = arrow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     arrow.count:SetPoint(anchor[1], arrow, anchor[2], anchor[3], anchor[4])
 
-    store[side] = arrow
+    arrows[side] = arrow
     return arrow
 end
 
-local function PlaceArrows(missing, store, fault)
-    if not (missing and TreeVisible()) then return end
+local function ShowArrows(missing)
+    HideArrows()
+    local geo = flow and flow.geometry
+    if not (missing and geo) then return end
 
-    local view, zoom = skillTreeScroll, skillTreeCanvas:GetScale()
-    local scrollX, scrollY = view:GetHorizontalScroll(), view:GetVerticalScroll()
-    local left, top, right, bottom = FreeRect()
+    local parent = geo.frame()
+    local left, top, right, bottom = geo.rect()
 
     local counts, sums = {}, {}
     for nodeId in pairs(missing) do
-        local nodeLeft, nodeTop, nodeRight, nodeBottom = NodeRect(nodeId)
-        if nodeLeft then
-            local x = (nodeLeft + nodeRight) / 2 * zoom - scrollX + padX
-            local y = (nodeTop + nodeBottom) / 2 * zoom - scrollY + padY
+        local x, y = geo.point(nodeId)
+        if x then
             local dx = (x < left) and (left - x) or ((x > right) and (x - right) or 0)
             local dy = (y < top) and (top - y) or ((y > bottom) and (y - bottom) or 0)
 
@@ -323,7 +95,7 @@ local function PlaceArrows(missing, store, fault)
         end
     end
 
-    local level = skillTreeCanvas:GetFrameLevel() + 2 + NS.Overlay.MARK_LEVEL + (fault and 1 or 0)
+    local level = parent:GetFrameLevel() + 7
     local edge = ARROW_INSET + ARROW_SIZE / 2
 
     for side, count in pairs(counts) do
@@ -337,102 +109,20 @@ local function PlaceArrows(missing, store, fault)
             y = (side == "TOP") and (top + edge) or (bottom - edge)
         end
 
-        local arrow = GetArrow(store, side, fault)
+        local arrow = GetArrow(side, parent)
         arrow:ClearAllPoints()
-        if base then
-            arrow:SetPoint("CENTER", base.frame, "TOPLEFT", base.left + x, base.top - y)
-        else
-            arrow:SetPoint("CENTER", view, "TOPLEFT", x, -y)
-        end
+        arrow:SetPoint("CENTER", parent, "TOPLEFT", x, -y)
         arrow:SetFrameLevel(level)
-        arrow.count:SetText(count)
+        arrow.count:SetText(EbonAPI.Format.number(count))
         arrow:Show()
     end
 end
 
-local function ShowArrows(missing)
-    HideArrows()
-    PlaceArrows(missing, arrows, false)
-end
-
-function RefreshFaults()
-    local any = next(faults) ~= nil
-    NS.Overlay.Fault(any and faults or nil)
-    for _, arrow in pairs(faultArrows) do arrow:Hide() end
-    if any then PlaceArrows(faults, faultArrows, true) end
-end
-
-local function ReadRankNode(set, facts)
-    local node = facts and facts.node
-    local id = tonumber(node)
-    if not id and node then
-        local defs = NS.Core.GetNodeDefs()
-        for nodeId, def in pairs(defs or {}) do
-            if def.name == node and (not id or nodeId < id) then id = nodeId end
-        end
-    end
-    if id then set[id] = true end
-end
-
-local function ReadWantedNodes(set, facts)
-    for id in tostring(facts and facts.wanted or ""):gmatch("(%d+):%d+") do set[tonumber(id)] = true end
-end
-
-local FAULT_READERS = {
-    ["STAL.IMPORT.NODES_NOT_APPLIED"] = ReadWantedNodes,
-    ["STAL.IMPORT.RANK_TOO_HIGH"] = ReadRankNode,
-}
-
-local function RebuildFaults()
-    for id in pairs(faults) do faults[id] = nil end
-    for _, set in pairs(faultSets) do
-        for id in pairs(set) do faults[id] = true end
-    end
-    RefreshFaults()
-end
-
-local function OnProblem(_, addon, problem)
-    local read = addon == "SkillTreeAutoLoad" and FAULT_READERS[problem.code]
-    if not read then return end
-
-    local set = faultSets[problem.code] or {}
-    faultSets[problem.code] = set
-    for id in pairs(set) do set[id] = nil end
-    read(set, problem.facts)
-    RebuildFaults()
-end
-
-local function OnProblemClosed(_, addon, code)
-    local set = addon == "SkillTreeAutoLoad" and faultSets[code]
-    if not (set and next(set)) then return end
-
-    for id in pairs(set) do set[id] = nil end
-    RebuildFaults()
-end
-
-function View.ClearFaults()
-    local had = next(faults) ~= nil
-    for _, set in pairs(faultSets) do
-        for id in pairs(set) do set[id] = nil end
-    end
-    if had then RebuildFaults() end
-end
-
 local ZOOM_MIN, ZOOM_MAX, ZOOM_STEP_RATIO = 0.10, 2.50, 1.12
-local ZOOM_LABEL_HOLD = 1
 
-local ladder, ladderLabels, ladderCount
-local wheelNotches = 0
-local nativeWheel, wheelBroken
-local zoomLabelUntil
+local ladder, ladderCount
 
-local floor, log, GetCursorPosition = math.floor, math.log, GetCursorPosition
-
-local function LabelLadder()
-    for i = 1, ladderCount do
-        ladderLabels[i] = string.format(NS.L.LABEL_ZOOM, floor(ladder[i] * 100 + 0.5))
-    end
-end
+local floor, log = math.floor, math.log
 
 local function BuildLadder()
     if ladder then return end
@@ -440,18 +130,12 @@ local function BuildLadder()
     local steps = math.ceil(log(ZOOM_MAX / ZOOM_MIN) / log(ZOOM_STEP_RATIO))
     local ratio = (ZOOM_MAX / ZOOM_MIN) ^ (1 / steps)
 
-    ladder, ladderLabels, ladderCount = {}, {}, steps + 1
+    ladder, ladderCount = {}, steps + 1
     for i = 1, ladderCount do
         ladder[i] = ZOOM_MIN * ratio ^ (i - 1)
     end
 
     ladder[1], ladder[ladderCount] = ZOOM_MIN, ZOOM_MAX
-
-    LabelLadder()
-end
-
-function View.Localize()
-    if ladder then LabelLadder() end
 end
 
 local function NearestIndex(zoom)
@@ -465,54 +149,8 @@ local function NearestIndex(zoom)
     return lo
 end
 
-local function AnchorScroll(scroll, offset, ratio)
-    return (scroll + offset) * ratio - offset
-end
-
-local function CursorOffsets(view)
-    local left, top = view:GetLeft(), view:GetTop()
-    if not (left and top) then return nil end
-
-    local scale = view:GetEffectiveScale()
-    local x, y = GetCursorPosition()
-    return x / scale - left, top - y / scale
-end
-
-local function AbandonPreview()
-    if not origin then return end
-
-    origin, target, pending, anim = nil, nil, nil, nil
-    HideArrows()
-    NS.Overlay.Rescale()
-    SetPadding(0, 0)
-end
-
-local function ShowZoomLabel(index)
-    local fs = skillTreeFrame.zoomText
-    if not fs then
-        fs = skillTreeFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        fs:SetPoint("TOP", skillTreeFrame, "TOP", 0, -10)
-        skillTreeFrame.zoomText = fs
-    end
-
-    local label = ladderLabels[index]
-    if fs.stalLabel ~= label then
-        fs.stalLabel = label
-        fs:SetText(label)
-    end
-
-    zoomLabelUntil = GetTime() + ZOOM_LABEL_HOLD
-end
-
-local function ApplyWheel(notches)
-    if not TreeVisible() then return end
-
+function View.WheelZoom(from, notches)
     BuildLadder()
-
-    AbandonPreview()
-
-    local view = skillTreeScroll
-    local from = skillTreeCanvas:GetScale()
 
     local index = NearestIndex(from) + notches
     if index < 1 then
@@ -521,49 +159,19 @@ local function ApplyWheel(notches)
         index = ladderCount
     end
 
-    local to = ladder[index]
-    if to == from then return end
-
-    local offsetX, offsetY = CursorOffsets(view)
-    if not offsetX then return end
-
-    local ratio = to / from
-    local h = AnchorScroll(view:GetHorizontalScroll(), offsetX, ratio)
-    local v = AnchorScroll(view:GetVerticalScroll(), offsetY, ratio)
-
-    SetZoom(to)
-
-    driving = true
-    view:SetHorizontalScroll(Clamp(h, 0, math.max(0, view:GetHorizontalScrollRange())))
-    view:SetVerticalScroll(Clamp(v, 0, math.max(0, view:GetVerticalScrollRange())))
-    driving = false
-
-    ShowZoomLabel(index)
+    return ladder[index], index
 end
 
-local function RestoreNativeWheel(err)
-    if wheelBroken then return end
-    wheelBroken = true
-
-    if nativeWheel and _G.skillTreeScroll then
-        skillTreeScroll:SetScript("OnMouseWheel", nativeWheel)
-    end
-    NS.api:Degrade(NS.api:Problem("VIEW.ZOOM_DISABLED", { detail = tostring(err) }))
+function View.ZoomLimits()
+    BuildLadder()
+    return ladder[1], ladder[ladderCount], ladder[2] / ladder[1]
 end
 
-local function OnTreeWheel(_, delta)
-    wheelNotches = wheelNotches + delta
-    if driver then driver:Show() end
-end
+local function AbandonPreview()
+    if not origin then return end
 
-local function ClearZoomLabel()
-    zoomLabelUntil = nil
-
-    local fs = skillTreeFrame and skillTreeFrame.zoomText
-    if fs and fs.stalLabel then
-        fs.stalLabel = nil
-        fs:SetText("")
-    end
+    origin, target, pending, anim = nil, nil, nil, nil
+    HideArrows()
 end
 
 local function Smooth(t)
@@ -573,8 +181,7 @@ end
 local function ShowMarks()
     if not (target and target.missing) then return end
 
-    local skipped = NS.Overlay.Show(target.missing, target.affordable)
-    ShowArrows(target.missing)
+    local skipped = flow.mark(target.missing, target.affordable)
 
     skipped = skipped or 0
     if skipped > 0 then
@@ -590,197 +197,57 @@ local function ShowMarks()
     end
 end
 
-local function StartAnimation(zoom, cx, cy, restore)
-    local fromZoom = skillTreeCanvas:GetScale()
-    local fromX, fromY = ViewCenter()
-
-    local zoomedOut = zoom < fromZoom
-    if zoomedOut then SetZoom(zoom) end
-
-    local panZoom = zoomedOut and zoom or fromZoom
-    local startX, startY = ScrollTarget(fromX, fromY, panZoom)
-    local endX, endY = ScrollTarget(cx, cy, panZoom)
-    SetPadding(math.max(0, -startX, -endX), math.max(0, -startY, -endY))
-
-    anim = {
-        startedAt = GetTime(), restore = restore, zoomedOut = zoomedOut,
-        fromX = fromX, fromY = fromY, toZoom = zoom, toX = cx, toY = cy,
-    }
-
-    HideArrows()
-    NS.Overlay.Hide()
-    driver:Show()
+local function EraseMarks()
+    NS.Dense.ClearPresetMarks()
+    marked = false
 end
 
-local function StartRestore()
-    local left, top, right, bottom = FreeRect()
-    StartAnimation(origin.zoom,
-        (origin.scrollX + (left + right) / 2) / origin.zoom,
-        (origin.scrollY + (top + bottom) / 2) / origin.zoom, true)
+local function HideMarks()
+    if marked then EraseMarks() end
 end
 
-local function FinishRestore()
-    local canvas = skillTreeCanvas
-    canvas:SetScale(origin.zoom)
-    canvas:SetSize(origin.width, origin.height)
-    SetIconsShown(origin.zoom >= ICON_HIDE_ZOOM)
-    NS.Overlay.Rescale()
-    SetPadding(0, 0)
+View.ClearMarks = EraseMarks
 
-    local view = skillTreeScroll
-    driving = true
-    view:SetHorizontalScroll(origin.scrollX)
-    view:SetVerticalScroll(origin.scrollY)
-    driving = false
-
-    origin, target = nil, nil
-    RefreshFaults()
-end
-
-local function FrameTarget()
-    if not origin then
-        local view, canvas = skillTreeScroll, skillTreeCanvas
-        origin = {
-            zoom = canvas:GetScale(),
-            width = canvas:GetWidth(),
-            height = canvas:GetHeight(),
-            scrollX = view:GetHorizontalScroll(),
-            scrollY = view:GetVerticalScroll(),
-        }
-    end
-
-    local zoom, cx, cy = ComputeFraming(target.missing, target.affordable)
-    if not zoom then
-        ShowMarks()
-        return
-    end
-
-    local fromX, fromY = ViewCenter()
-    local current = skillTreeCanvas:GetScale()
-    if math.abs(zoom - current) < 0.001
-        and math.abs(cx - fromX) * zoom < 1 and math.abs(cy - fromY) * zoom < 1 then
-        anim = nil
-        ShowMarks()
-        return
-    end
-
-    StartAnimation(zoom, cx, cy, false)
-end
+local function FinishRestore() flow.finish() end
 
 local function OnUpdate()
     local now = GetTime()
 
-    if wheelNotches ~= 0 then
-        local notches = wheelNotches
-        wheelNotches = 0
-
-        local ok, err = pcall(ApplyWheel, notches)
-        if not ok then RestoreNativeWheel(err) end
-    end
-
-    if zoomLabelUntil and now >= zoomLabelUntil then ClearZoomLabel() end
-
     if pending and now >= pending.due then
-        if hovering and TreeVisible() then
+        if hovering and flow and flow.visible() then
             target = pending
-            FrameTarget()
+            flow.frame()
         end
         pending = nil
     end
 
-    if anim then
-        local progress = math.min(1, (now - anim.startedAt) / TRANSITION)
-        local eased = Smooth(progress)
+    if flow and anim then flow.advance(now) end
 
-        if progress >= 1 and not anim.zoomedOut and not anim.restore then
-            SetZoom(anim.toZoom)
-            local endX, endY = ScrollTarget(anim.toX, anim.toY, anim.toZoom)
-            SetPadding(math.max(0, -endX), math.max(0, -endY))
-        end
-
-        PlaceView(anim.fromX + (anim.toX - anim.fromX) * eased,
-            anim.fromY + (anim.toY - anim.fromY) * eased)
-
-        if progress >= 1 then
-            local restore = anim.restore
-            anim = nil
-            if restore then
-                FinishRestore()
-            elseif hovering and target then
-                ShowMarks()
-            end
-        end
+    if flow and origin and not hovering and not (anim and anim.restore)
+        and not (zone and zone()) then
+        flow.restore()
     end
 
-    if origin and not hovering and not (anim and anim.restore)
-        and not (panel and panel:IsMouseOver()) then
-        StartRestore()
-    end
-
-    if not (pending or anim or origin or zoomLabelUntil) then driver:Hide() end
+    if not (pending or anim or origin) then driver:Hide() end
 end
 
 function View.Init()
-    local view = _G.skillTreeScroll
-    if not view then return end
-
-    base = CaptureBase(view)
-
     driver = CreateFrame("Frame")
     driver:Hide()
     driver:SetScript("OnUpdate", OnUpdate)
-
-    nativeWheel = view:GetScript("OnMouseWheel")
-    view:SetScript("OnMouseWheel", OnTreeWheel)
-
-    view:HookScript("OnMouseDown", function() draggingTree = true end)
-    view:HookScript("OnMouseUp", function() draggingTree = false end)
-
-    NS.api:On("PROBLEM", OnProblem)
-    NS.api:On("PROBLEM_CLOSED", OnProblemClosed)
-    view:HookScript("OnShow", RefreshFaults)
-    if _G.skillTreeFrame then _G.skillTreeFrame:HookScript("OnHide", View.ClearFaults) end
-    hooksecurefunc(view, "SetVerticalScroll", RefreshFaults)
-
-    hooksecurefunc(view, "SetHorizontalScroll", function()
-        RefreshFaults()
-        if driving or draggingTree then return end
-
-        AbandonPreview()
-
-        viewShift = 0
-        SyncShift()
-    end)
 end
 
-function View.Attach(frame)
-    panel = frame
-end
-
-function View.GetViewInsets()
-    if not base then return nil end
-    return base.frame, base.left, base.top, base.right, base.bottom
-end
-
-function View.SetCovered(side, width)
-    if side ~= coveredSide or width ~= covered then
-        if origin then
-            anim, pending = nil, nil
-            HideArrows()
-            FinishRestore()
-        end
-        coveredSide, covered = side, width
-    end
-    SyncShift()
+function View.Attach(isInZone)
+    zone = isInZone
 end
 
 function View.Preview(key, missing, affordable)
     hovering = true
     HideArrows()
 
-    if not (driver and TreeVisible() and missing and next(missing)) then
+    if not (driver and flow and flow.visible() and missing and next(missing)) then
         pending = nil
-        NS.Overlay.Hide()
+        EraseMarks()
         return
     end
 
@@ -794,14 +261,24 @@ function View.Preview(key, missing, affordable)
 
     if origin and target and target.key == key then
         target, pending = entry, nil
-        FrameTarget()
+        flow.frame()
     else
-        NS.Overlay.Hide()
+        HideMarks()
         entry.due = (pending and pending.key == key) and pending.due or (GetTime() + HOVER_DELAY)
         pending = entry
     end
 
     driver:Show()
+end
+
+function View.Pause()
+    pending = nil
+    kept = origin
+end
+
+function View.Resume()
+    if kept and not origin then origin = kept end
+    kept = nil
 end
 
 function View.Release()
@@ -810,13 +287,109 @@ function View.Release()
 end
 
 function View.Cancel()
-    draggingTree, hovering, pending, anim = false, false, nil, nil
-    wheelNotches = 0
-    ClearZoomLabel()
+    hovering, pending, anim = false, nil, nil
+    kept = nil
     HideArrows()
 
-    if origin and _G.skillTreeScroll and _G.skillTreeCanvas then FinishRestore() end
+    if origin and flow and flow.ready() then FinishRestore() end
     origin, target = nil, nil
 
     if driver then driver:Hide() end
+end
+
+function View.Abandon()
+    AbandonPreview()
+end
+
+local function DenseAnimate(surface, zoom, cx, cy, restore)
+    local fromZoom, fromX, fromY = surface.get()
+    local zoomedOut = zoom < fromZoom
+    if zoomedOut then surface.pan(fromX, fromY, cx, cy, zoom) end
+
+    anim = {
+        startedAt = GetTime(), restore = restore, zoomedOut = zoomedOut,
+        fromX = fromX, fromY = fromY, toZoom = zoom, toX = cx, toY = cy,
+    }
+
+    HideArrows()
+    HideMarks()
+    driver:Show()
+end
+
+local function DenseFrame(surface)
+    return function()
+        if not origin then
+            local zoom, cx, cy = surface.get()
+            origin = { zoom = zoom, cx = cx, cy = cy }
+        end
+
+        local zoom, cx, cy = surface.plan(target.missing, target.affordable, origin.zoom)
+        if not zoom then
+            ShowMarks()
+            return
+        end
+
+        local fromZoom, fromX, fromY = surface.get()
+        if math.abs(zoom - fromZoom) < 0.001 and math.abs(cx - fromX) * zoom < 1 and math.abs(cy - fromY) * zoom < 1 then
+            anim = nil
+            ShowMarks()
+            return
+        end
+
+        DenseAnimate(surface, zoom, cx, cy, false)
+    end
+end
+
+local function DenseFlow(surface)
+    local function advance(now)
+        local progress = math.min(1, (now - anim.startedAt) / TRANSITION)
+        local eased = Smooth(progress)
+
+        local x, y = anim.fromX + (anim.toX - anim.fromX) * eased, anim.fromY + (anim.toY - anim.fromY) * eased
+
+        if progress >= 1 and not anim.zoomedOut and not anim.restore then
+            surface.place(anim.toZoom, x, y, hovering and target and target.missing and true or false)
+        else
+            surface.pan(x, y, anim.toX, anim.toY)
+        end
+
+        if progress >= 1 then
+            local restore = anim.restore
+            anim = nil
+            if restore then
+                FinishRestore()
+            elseif hovering and target then
+                ShowMarks()
+            end
+        end
+    end
+
+    local function finish()
+        local o = origin
+        origin, target = nil, nil
+        if o then surface.place(o.zoom, o.cx, o.cy) end
+    end
+
+    return {
+        visible = surface.visible, ready = surface.ready, frame = DenseFrame(surface), advance = advance,
+        restore = function() DenseAnimate(surface, origin.zoom, origin.cx, origin.cy, true) end,
+        finish = finish,
+        mark = function(missing)
+            marked = true
+            ShowArrows(missing)
+            NS.Dense.ShowPresetMarks(missing)
+        end,
+        geometry = surface.geometry,
+    }
+end
+
+function View.UseSurface(surface)
+    if origin and flow then
+        anim, pending = nil, nil
+        HideArrows()
+        FinishRestore()
+    end
+    kept = nil
+    origin, target, pending, anim = nil, nil, nil, nil
+    flow = surface and DenseFlow(surface) or nil
 end

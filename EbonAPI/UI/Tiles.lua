@@ -1,14 +1,9 @@
 EbonAPI = EbonAPI or {}
-EbonAPI.Tiles = {}
+EbonAPI.Tiles = EbonAPI.Tiles or {}
 
--- The synthesis brick: a row of tiles summarising the connection and the send queue, above the result
--- frame of the Diagnostic page. SetGroups(groups, activeId) takes the result of Synthesis.status();
--- SetWidth(w) lays the tiles out (the height follows); Refresh() reads the same items again.
--- The default implementation is composed of the current skin's keys: no colour or font is fixed here.
 
 local Tiles = EbonAPI.Tiles
 local Bricks = EbonAPI.Bricks
-local Output = EbonAPI.Output
 
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local ipairs = ipairs
@@ -35,11 +30,9 @@ end
 local function lineHeight(fs, role)
   local size = ceil(S("fonts." .. role .. ".size"))
 
-  -- Capped at two lines: a text wrapped in a very narrow field must not inflate the line height.
   return max(size, min(ceil(fs:GetStringHeight() or 0), size * 2))
 end
 
--- Plugs the click, the entry and the exit of the mouse of a tile frame (shared by every look).
 local function wire(box, tile)
   local frame = tile.frame
 
@@ -104,8 +97,16 @@ local function setTip(tile)
   frame.tipBody = body
 end
 
+local MARKERS = {
+  ok = { texture = "Interface\Buttons\UI-CheckBox-Check", color = "success", scale = 1 },
+  warn = { media = "warning", color = "caution", scale = 1 },
+  bad = { media = "error", color = "danger", scale = 1 },
+  info = { media = "circle", color = "muted", scale = 0.5 },
+  net = { media = "arrow", color = "focus", scale = 1 },
+}
+
 local function paintMarker(tile, size)
-  local spec = Output.MARKERS[tile.item.level]
+  local spec = MARKERS[tile.item.level]
   local marker = tile.marker
 
   if not spec then
@@ -177,8 +178,6 @@ local function paintTile(widget, tile, width, height)
   tile.sub:SetHeight(max(small, min(small * 2, height - top - inset)))
 end
 
--- The tile height is the skin's value, raised when the fonts of the skin need more room for a label
--- line, a value line and two lines of sub-text.
 local function tileHeight(box)
   local want = S("widgets.synthesis.tile.height")
   local first = box.tilePool[1]
@@ -199,7 +198,6 @@ local function tileHeight(box)
   return max(want, need)
 end
 
--- The default grid layout. The hooks are read from box.look at each call, so a skin look is really used.
 local function layoutGrid(box)
   local width = max(1, box.boxWidth)
   local gap = S("widgets.synthesis.gap")
@@ -253,8 +251,6 @@ local function layoutGrid(box)
   return y
 end
 
--- The forced-columns layout, used when box.columns is set: that many tiles per row whatever the tile width of
--- the skin, no group label line, and the look's own layout is not called. Other boxes never set box.columns.
 local function layoutColumns(box)
   local width = max(1, box.boxWidth)
   local gap = box.gap or S("widgets.synthesis.gap")
@@ -277,7 +273,6 @@ local function layoutColumns(box)
       tile.frame:SetPoint("TOPLEFT", box, "TOPLEFT", col * (size + gap), -(y + row * (th + gap)))
       tile.frame:Show()
 
-      -- optional hook (box.fixedHeight, box.arrange): only the send-queue band sets it, to lay out its own text lines
       if box.arrange then
         box.arrange(box, tile, size, th)
       end
@@ -298,8 +293,6 @@ local function layoutColumns(box)
   return y
 end
 
--- In-place update of a tile whose shape did not change: texts, marker and border. tile.item is already the
--- new item; old is the previous one.
 local function updateTile(box, tile, old)
   local item = tile.item
   local text = item.label ~= old.label or item.value ~= old.value or item.sub ~= old.sub
@@ -324,13 +317,8 @@ local function updateTile(box, tile, old)
   end
 end
 
--- A look is the presentation of the tiles: new(box) makes one pool element (and wires it), paint(box, tile,
--- width, height) paints and lays out one tile, update(box, tile, old) updates one in place, height(box) gives
--- the tile height, layout(box) (optional) replaces the whole grid layout. A hook missing from a look falls back
--- on the one of the default look.
 local look = { new = newTile, paint = paintTile, update = updateTile, height = tileHeight }
 
--- SetWordWrap is not in every client build: without it the text keeps the client's own wrapping
 function Tiles.wrap(fs, on)
   if fs and fs.SetWordWrap then
     fs:SetWordWrap(on)
@@ -347,8 +335,7 @@ Tiles.paintMarker = paintMarker
 Tiles.layoutGrid = layoutGrid
 Tiles.layoutColumns = layoutColumns
 
--- Builds the synthesis box with the given look (the default look when none).
-function Tiles.build(parent, chosen)
+local function buildLooked(parent, chosen)
   local box = CreateFrame("Frame", nil, parent)
 
   if chosen == nil or chosen == look then
@@ -356,7 +343,6 @@ function Tiles.build(parent, chosen)
   else
     box.look = {}
 
-    -- "card" is the optional hook of the four-line card of the send-queue band (no default: a look without it is left as is)
     for _, name in ipairs({ "new", "paint", "update", "height", "layout", "card" }) do
       box.look[name] = chosen[name] or look[name]
     end
@@ -445,7 +431,6 @@ function Tiles.build(parent, chosen)
     return layout(self)
   end
 
-  -- True when the groups carry the same group ids and the same item ids, in the same order, as the tiles.
   local function sameShape(self, groups)
     if #groups ~= #self.groups then
       return false
@@ -469,8 +454,6 @@ function Tiles.build(parent, chosen)
     return true
   end
 
-  -- Reads the source again: the same shape updates the texts, the markers and the borders in place;
-  -- another shape rebuilds the tiles and keeps the active one if its id still exists.
   function box:Tick()
     local groups = self.source and self.source()
 
@@ -532,4 +515,8 @@ Bricks.register("synthesis", "default", function(parent)
   return Tiles.build(parent, Tiles.looks.default)
 end)
 
-return EbonAPI.Tiles
+function Tiles.build(parent, arg)
+  return buildLooked(parent, arg)
+end
+
+return Tiles

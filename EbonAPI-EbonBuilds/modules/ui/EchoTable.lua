@@ -6,8 +6,6 @@ local NAME_WIDTH   = 120
 local WEIGHT_WIDTH = 60
 local WEIGHT_INSET = 28
 
-local CLASS_BITS = EbonBuilds.Const.CLASS_BITS
-
 local function ApplyClassFilter(list)
     if EbonBuilds.Filters and EbonBuilds.Filters.ShowAllClasses and EbonBuilds.Filters.ShowAllClasses() then
         return list
@@ -20,7 +18,7 @@ local function ApplyClassFilter(list)
         local build = EbonBuilds.Build.GetActive()
         token = build and build.class
     end
-    local bitVal = token and CLASS_BITS[token]
+    local bitVal = token and EbonAPI.EchoCatalog.ClassBit(token)
     if not bitVal then return list end
     local out = {}
     for i = 1, #list do
@@ -88,7 +86,7 @@ local function CreateScroll(parent, width)
 end
 
 function EbonBuilds.EchoTable.Init(parent)
-    echoList     = EbonBuilds.Catalog.SortedList()
+    echoList     = EbonAPI.EchoCatalog.NameList() or {}
     filteredList = ApplyClassFilter(echoList)
 
     local width = parent.spec.width - (parent.spec.padding or 0) * 2

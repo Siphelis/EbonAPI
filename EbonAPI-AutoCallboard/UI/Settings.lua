@@ -1,38 +1,34 @@
 local RT, Core, Skin, L = AutoCallboardRuntime, AutoCallboardCore, AutoCallboardSkin, AutoCallboardLocale
 local buttons
 local ACTIONS = {
-  {"BUTTON_LISTS", "ToggleListsWindow"}, {"BUTTON_BUILDS", "ToggleBuildsWindow"},
-  {"ADDON_NAME_TOOLTIP"}, {"BUTTON_START", "StartRolling"},
-  {"BUTTON_SHARE", "ShareAcceptedQuest"}, {"BUTTON_QUESTS", "ShowQuestWindow"},
-  {"BUTTON_EXPORT", "ShowQuestDataWindow", "export"}, {"BUTTON_IMPORT", "ShowQuestDataWindow", "import"},
-  {"UI_ETERNALS", "ShowSettings", 1}, {"UI_HELP", "ShowAddonHelp", "about"},
-  {"UI_SETTINGS", "ShowSettings"}, {"AUTO_CURRENT_INSTANCE_LABEL", "ToggleInstanceMode"},
-  {"BUTTON_ROUTES", "ToggleRouteWindow"},
+  builds = {"BUTTON_BUILDS", "ToggleBuildsWindow"}, callboard = {"ADDON_NAME_TOOLTIP"}, start = {"BUTTON_START", "Start"},
+  share = {"BUTTON_SHARE", "ShareAcceptedQuest"}, eternals = {"UI_ETERNALS", "ShowSettings", 1},
+  settings = {"UI_SETTINGS", "ShowSettings"}, instance = {"AUTO_CURRENT_INSTANCE_LABEL", "ToggleInstanceMode"},
+  routes = {"BUTTON_ROUTES", "ToggleRouteWindow"},
 }
-local PAGES = {"general", "appearance", "toolbar", "gold"}
+local PAGES = {"general", "appearance", "toolbar"}
 local LOOK = {background = true, accent = true, scale = true, opacity = true, locked = true}
 local ARROW_FIELDS = {"arrowScale", "arrowFont", "arrowSkin"}
-local GOLD_FIELDS = {"goldMain", "goldTotal", "goldLast", "goldCurrent", "goldSession"}
 local layoutWaiter, lookWaiting, setting
 local RUN_SPEED = 7
-local TOOLBAR_WRAP, TOOLBAR_GAP, STATUS_GAP, STATUS_ROOM, QUEST_GAP, QUEST_ROOM, GOLD_ROOM = 620, 5, 5, 20, 28, 528, 22
-local speedText, speedShown
+local TOOLBAR_WRAP, TOOLBAR_GAP, STATUS_GAP, STATUS_ROOM = 620, 5, 5, 20
+local speedText, speedShown, fpsText, fpsShown, fpsDue
+local SPEED_INTERVAL, FPS_INTERVAL, FPS_GATE = 0.2, 0.5, 0.4
 
 local function Config() return RT.state.appearance end
 local function Character()
   local entry = RT.EnsureCharacterState()
-  if not entry.toolbar then entry.toolbar = Core.copyToolbar() end
+  if not entry.mainBar then entry.mainBar = Core.copyToolbar() end
   return entry
 end
-local function Label(id) return id == 3 and "Callboard" or L[ACTIONS[id][1]] end
-local function Invoke(id)
-  local action = ACTIONS[id]
-  if id == 4 and RT.IsRolling() then RT.StopRolling(L.ROLL_STOPPED)
+local function Label(key) return key == "callboard" and "Callboard" or L[ACTIONS[key][1]] end
+local function Invoke(key)
+  local action = ACTIONS[key]
+  if key == "start" and RT.IsStarted() then RT.Stop()
   elseif action[2] then RT[action[2]](action[3]) end
 end
 function RT.ToggleInstanceMode()
   RT.SetField("autoCurrentInstanceQuest", not RT.state.autoCurrentInstanceQuest)
-  if RT.state.autoCurrentInstanceQuest then RT.ShowAutoCurrentInstanceWarning() end
 end
 
 function RT.InterfaceParameter(name)
@@ -42,26 +38,32 @@ function RT.IsInterfaceLocked()
   return RT.InterfaceParameter("locked") and true or false
 end
 
-local goldTotal, goldLast, goldCurrent, goldSession, goldConfig
-function RT.RefreshGoldDisplay()
-  local text = RT.questGoldText
-  if not text then return end
-  local config, tracker = Config(), RT.GetGoldTrackerState()
-  local current, session = RT.trackedQuestSpend or 0, RT.sessionGoldSpent or 0
-  if goldTotal == tracker.totalSpent and goldLast == tracker.lastQuestSpent and goldCurrent == current
-      and goldSession == session and goldConfig == config then return end
-  goldTotal, goldLast, goldCurrent, goldSession, goldConfig = tracker.totalSpent, tracker.lastQuestSpent, current, session, config
-  local parts = {}
-  for _, item in ipairs({{"goldTotal", "UI_TOTAL", tracker.totalSpent}, {"goldLast", "UI_LAST", tracker.lastQuestSpent},
-    {"goldCurrent", "UI_CURRENT", RT.trackedQuestSpend or 0}, {"goldSession", "UI_SESSION", RT.sessionGoldSpent or 0}}) do
-    if config[item[1]] then parts[#parts + 1] = L[item[2]] .. ": " .. RT.FormatMoney(item[3]) end
-  end
-  text:SetText(table.concat(parts, "  |  "))
+local function SpeedOn() return EbonAPI.Parameters.statusShown("showSpeed") end
+local function FpsOn() return EbonAPI.Parameters.statusShown("showFps") end
+
+local function SyncStatusTask()
+  local frame = RT.controlFrame
+  local interval = frame and frame:IsVisible() and (SpeedOn() and SPEED_INTERVAL or (FpsOn() and FPS_INTERVAL))
+  if interval then RT.api:Tick("speed", interval, RT.RefreshSpeedDisplay) else RT.api:Untick("speed") end
+end
+
+local function RefreshFpsDisplay()
+  if not FpsOn() then fpsText:Hide(); fpsDue = nil; return end
+  fpsText:Show()
+  if not fpsText:IsVisible() then return end
+  local now = GetTime()
+  if fpsDue and now < fpsDue then return end
+  fpsDue = now + FPS_GATE
+  local value = math.floor(GetFramerate() + 0.5)
+  if value == fpsShown then return end
+  fpsShown = value
+  fpsText:SetText(string.format(L.FPS_VALUE, value))
 end
 
 function RT.RefreshSpeedDisplay()
   if not speedText then return end
-  if not RT.state.showSpeed then speedText:Hide(); return end
+  RefreshFpsDisplay()
+  if not SpeedOn() then speedText:Hide(); return end
   speedText:Show()
   if not speedText:IsVisible() then return end
   local percent = math.floor(GetUnitSpeed("player") / RUN_SPEED * 100 + 0.5)
@@ -70,41 +72,19 @@ function RT.RefreshSpeedDisplay()
   speedText:SetText(string.format(L.SPEED_VALUE, percent))
 end
 
-local function PlaceGold()
-  if Config().goldMain and not RT.questWindow then RT.CreateQuestWindow() end
-  local text, frame = RT.questGoldText, RT.controlFrame
-  if not text then return end
-  text:SetParent(Config().goldMain and frame.content or RT.questWindow)
-  text:ClearAllPoints()
-  text:SetPoint("BOTTOMLEFT", text:GetParent(), "BOTTOMLEFT", Config().goldMain and 0 or 24, Config().goldMain and -1 or 32)
-  text:SetWidth(Config().goldMain and Skin.WindowSize(frame) or 540)
-  RT.RefreshGoldDisplay()
-end
-
 local function WidestText(fontString, ...)
   if not fontString then return 0 end
-  local previous, widest = fontString:GetText(), 0
+  local widest = 0
   for index = 1, select("#", ...) do
-    fontString:SetText((select(index, ...)))
-    widest = math.max(widest, fontString:GetStringWidth() or 0)
+    widest = math.max(widest, Skin.TextWidth(fontString, (select(index, ...))))
   end
-  fontString:SetText(previous)
   return widest
 end
 
-local function CollapsedFloor()
-  local status = WidestText(RT.summonStatusText,
-    string.format(L.SUMMON_STATUS_ACTIVE, "0000s", "0000s"),
-    string.format(L.SUMMON_STATUS_COOLDOWN, "0000s"),
-    L.SUMMON_STATUS_READY)
-  local speed = RT.state.showSpeed and WidestText(speedText, string.format(L.SPEED_VALUE, 888)) or 0
-  local floor = status + (speed > 0 and speed + 12 or 0)
-
-  if Config().goldMain and RT.questGoldText then
-    floor = math.max(floor, RT.questGoldText:GetStringWidth() or 0)
-  end
-
-  return floor
+local function StatusLineWidth()
+  local speedWidth = SpeedOn() and WidestText(speedText, string.format(L.SPEED_VALUE, 888)) or 0
+  local fpsWidth = FpsOn() and WidestText(fpsText, string.format(L.FPS_VALUE, 888)) or 0
+  return speedWidth + fpsWidth + ((speedWidth > 0 and fpsWidth > 0) and TOOLBAR_GAP or 0)
 end
 
 function RT.LayoutMainToolbar()
@@ -120,8 +100,8 @@ function RT.LayoutMainToolbar()
     end
     return
   end
-  local order = Character().toolbar
-  local width, x, y, rowHeight = CollapsedFloor(), 0, 0, 0
+  local order = Character().mainBar
+  local width, x, y, rowHeight = 0, 0, 0, 0
   local content = frame.content
   local function PlaceButton(button)
     local size = button:GetWidth()
@@ -134,38 +114,39 @@ function RT.LayoutMainToolbar()
     width = math.max(width, x - TOOLBAR_GAP)
   end
   for _, button in pairs(buttons) do button:Hide() end
-  for _, id in ipairs(order) do
-    local button = buttons[id]
+  for _, key in ipairs(order) do
+    local button = buttons[key]
     if not button then
-      button = Skin.MakeButton(content, {textKey = ACTIONS[id][1], onClick = function() Invoke(id) end})
-      buttons[id] = button
+      button = Skin.MakeButton(content, {textKey = ACTIONS[key][1], onClick = function() Invoke(key) end})
+      buttons[key] = button
     end
     PlaceButton(button)
   end
-  if RT.GetAvailableUpdate() then
-    PlaceButton(frame.updateButton)
-  else
-    frame.updateButton:Hide()
+  if frame.updateButton then
+    if RT.GetAvailableUpdate() then
+      PlaceButton(frame.updateButton)
+    else
+      frame.updateButton:Hide()
+    end
+  end
+  local counter = RT.PortalCountButton(content)
+  if counter then
+    PlaceButton(counter)
   end
   local bottom = y + rowHeight
-  local gold = Config().goldMain and GOLD_ROOM or 0
-  RT.controlCollapsedWidth, RT.controlCollapsedHeight = width, bottom + STATUS_ROOM + gold
-  RT.controlExpandedHeight = bottom + QUEST_GAP + QUEST_ROOM + gold
-  RT.summonStatusText:ClearAllPoints()
-  RT.summonStatusText:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(bottom + STATUS_GAP))
-  RT.summonStatusText:SetWidth(Skin.WindowSize(frame))
+  local statusRoom = (SpeedOn() or FpsOn()) and STATUS_ROOM or 0
+  RT.SetControlFrameSize(width, bottom + statusRoom)
+  local room = math.max(width, Skin.WindowSize(frame), StatusLineWidth())
+  RT.controlCollapsedWidth = room
+  RT.controlCollapsedHeight = bottom + statusRoom
   speedText:ClearAllPoints()
   speedText:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(bottom + STATUS_GAP))
+  fpsText:ClearAllPoints()
+  fpsText:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(bottom + STATUS_GAP))
+  RT.SetControlFrameSize(room, RT.controlCollapsedHeight)
+  SyncStatusTask()
   RT.RefreshSpeedDisplay()
-  if RT.questWindow then
-    RT.questWindow:ClearAllPoints()
-    RT.questWindow:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(bottom + QUEST_GAP))
-  end
-  if not RT.questPanelChanging then
-    local expanded = RT.IsQuestWindowShown() and not RT.questWindowCreating
-    RT.SetControlFrameSize(expanded and RT.controlExpandedWidth or width, expanded and RT.controlExpandedHeight or RT.controlCollapsedHeight)
-  end
-  PlaceGold()
+  RT.RefreshSpeedDisplay()
 end
 
 function RT.RefreshOptions()
@@ -192,30 +173,15 @@ local function Defaults(set)
   return {type = "execute", order = 1000, name = T("UI_DEFAULTS"), func = Setter(set)}
 end
 
-local function RollSpeedValues()
-  local values = {}
-  for _, preset in ipairs(Core.rollSpeedPresetList()) do
-    values[preset.index] = string.format("%s  -  %s", L.ROLL_SPEED_PRESET_NAMES[preset.key] or preset.key,
-      string.format(L.ROLL_SPEED_FORMAT, tostring(preset.delay), tostring(preset.timeout)))
-  end
-  return values
-end
-local function RollSpeedOrder()
-  local order = {}
-  for index in ipairs(Core.rollSpeedPresetList()) do order[index] = index end
-  return order
-end
-
 local function GeneralPage()
-  local instanceGet = Field("autoCurrentInstanceQuest")
-  local remoteGet, remoteSet = Field("remoteRoll")
-  local acceptGet, acceptSet = Field("autoAccept")
-  local speedGet, speedSet = Field("showSpeed")
+  local instanceGet, instanceSet = Field("autoCurrentInstanceQuest")
+  local claimGet, claimSet = Field("autoClaim")
+  local questArrowGet, questArrowSet = Field("questArrow")
+  local portalFollowGet, portalFollowSet = Field("portalFollow")
+  local portalAutoGet, portalAutoSet = Field("portalAuto")
+  local portalCountGet, portalCountSet = Field("portalCount")
   return {type = "group", order = 1, name = T("UI_GENERAL"), args = {
-    instance = Toggle(1, "AUTO_CURRENT_INSTANCE_LABEL", "AUTO_CURRENT_INSTANCE_TOOLTIP", instanceGet, function(value)
-      RT.SetField("autoCurrentInstanceQuest", value)
-      if value then RT.ShowAutoCurrentInstanceWarning() end
-    end),
+    instance = Toggle(1, "AUTO_CURRENT_INSTANCE_LABEL", "AUTO_CURRENT_INSTANCE_TOOLTIP", instanceGet, instanceSet),
     echoBar = Toggle(2, "ECHO_BAR_LABEL", "ECHO_BAR_TOOLTIP", function() return RT.IsEchoBarEnabled() end, RT.SetEchoBarEnabled),
     echoOrientation = {type = "select", order = 3, name = T("ECHO_BAR_ORIENTATION_LABEL"), desc = T("ECHO_BAR_ORIENTATION_TOOLTIP"),
       values = function() return {H = L.ECHO_BAR_HORIZONTAL, V = L.ECHO_BAR_VERTICAL} end, sorting = {"H", "V"},
@@ -227,18 +193,18 @@ local function GeneralPage()
     travel = Toggle(5, "TRAVEL_LABEL", "TRAVEL_TOOLTIP", function() return RT.state.travelEnabled and true or false end, RT.SetTravelEnabled),
     travelAuto = Toggle(6, "TRAVEL_AUTO_LABEL", "TRAVEL_AUTO_TOOLTIP", function() return RT.state.travelAuto and true or false end,
       RT.SetTravelAutoEnabled, function() return not RT.state.travelEnabled end),
-    remote = Toggle(7, "REMOTE_ROLL_LABEL", "REMOTE_ROLL_TOOLTIP", remoteGet, remoteSet),
-    accept = Toggle(8, "UI_AUTO_ACCEPT", nil, acceptGet, acceptSet),
+    portalFollow = Toggle(10, "PORTAL_FOLLOW_LABEL", "PORTAL_FOLLOW_TOOLTIP", portalFollowGet, portalFollowSet, function() return not RT.state.travelEnabled end),
+    portalAuto = Toggle(12, "PORTAL_AUTO_LABEL", "PORTAL_AUTO_TOOLTIP", portalAutoGet, portalAutoSet),
+    portalCount = Toggle(13, "PORTAL_COUNT_LABEL", "PORTAL_COUNT_TOOLTIP", portalCountGet, portalCountSet),
+    travelDefault = {type = "select", order = 7, name = T("TRAVEL_DEFAULT_LABEL"), desc = T("TRAVEL_DEFAULT_TOOLTIP"),
+      values = function() local values = RT.TravelDefaultChoices() return values end,
+      sorting = select(2, RT.TravelDefaultChoices()),
+      get = function() return RT.state.travelDefault or Core.TRAVEL_DEFAULT_AUTO end,
+      set = Setter(function(_, value) RT.SetTravelDefault(value) end),
+      disabled = function() return not RT.state.travelEnabled end},
+    claim = Toggle(8, "UI_AUTO_CLAIM", "UI_AUTO_CLAIM_TOOLTIP", claimGet, claimSet),
     eternals = Toggle(9, "UI_ETERNALS", nil, function() return RT.IsEternalsEnabled() end, RT.SetEternalsEnabled),
-    speed = Toggle(10, "UI_SHOW_SPEED", nil, speedGet, speedSet),
-    rollSpeed = {type = "select", order = 11, width = "double", name = T("ROLL_SPEED_LABEL"), desc = T("ROLL_SPEED_TOOLTIP"),
-      values = RollSpeedValues, sorting = RollSpeedOrder,
-      get = function() local preset = Core.nearestRollSpeedPreset(RT.state.rerollDelay) return preset and preset.index or 1 end,
-      set = Setter(function(_, index)
-        local preset = Core.rollSpeedPresetList()[index]
-        if not preset or (RT.state.rerollDelay == preset.delay and RT.state.rerollTimeout == preset.timeout) then return end
-        RT.SetRollSpeed(preset.delay, preset.timeout, preset.key)
-      end)},
+    questArrow = Toggle(11, "QUEST_ARROW_LABEL", "QUEST_ARROW_TOOLTIP", questArrowGet, questArrowSet),
   }}
 end
 
@@ -271,19 +237,19 @@ end
 
 local function Sequence()
   local sequence, selected, position = {}, {}, {}
-  for _, id in ipairs(Character().toolbar) do sequence[#sequence + 1], selected[id] = id, true end
-  for id = 1, #ACTIONS do if not selected[id] then sequence[#sequence + 1] = id end end
-  for index, id in ipairs(sequence) do position[id] = index end
+  for _, key in ipairs(Character().mainBar) do sequence[#sequence + 1], selected[key] = key, true end
+  for _, key in ipairs(Core.TOOLBAR_ACTIONS) do if not selected[key] then sequence[#sequence + 1] = key end end
+  for index, key in ipairs(sequence) do position[key] = index end
   return sequence, selected, position
 end
 local function SaveToolbar(list)
-  Character().toolbar = Core.copyToolbar(list)
+  Character().mainBar = Core.copyToolbar(list)
   RT.LayoutMainToolbar()
 end
-local function Move(id, delta)
-  local list = Core.copyToolbar(Character().toolbar)
+local function Move(key, delta)
+  local list = Core.copyToolbar(Character().mainBar)
   for index, value in ipairs(list) do
-    if value == id and list[index + delta] then
+    if value == key and list[index + delta] then
       list[index], list[index + delta] = list[index + delta], list[index]
       SaveToolbar(list)
       return
@@ -298,17 +264,23 @@ local function ToolbarPage()
   local function Stuck(delta)
     return function(info)
       local _, selected = Sequence()
-      local list = Character().toolbar
+      local list = Character().mainBar
       if not selected[info.arg] then return true end
       return (delta < 0 and list[1] == info.arg) or (delta > 0 and list[#list] == info.arg)
     end
   end
-  for id = 1, #ACTIONS do
-    args["action" .. id] = {type = "toggle", arg = id, width = "double", order = Order(0),
+  local function Alone(info)
+    local list = Character().mainBar
+    return #list == 1 and list[1] == info.arg
+  end
+  for _, key in ipairs(Core.TOOLBAR_ACTIONS) do
+    args["action_" .. key] = {type = "toggle", arg = key, order = Order(0),
       name = function(info) return Label(info.arg) end,
+      desc = function(info) return Alone(info) and L.TOOLBAR_KEEP_ONE or nil end,
+      disabled = Alone,
       get = function(info) local _, selected = Sequence() return selected[info.arg] == true end,
       set = Setter(function(info, value)
-        local list = Core.copyToolbar(Character().toolbar)
+        local list = Core.copyToolbar(Character().mainBar)
         if value then
           list[#list + 1] = info.arg
         else
@@ -316,31 +288,12 @@ local function ToolbarPage()
         end
         SaveToolbar(list)
       end)}
-    args["up" .. id] = {type = "execute", arg = id, width = "half", order = Order(1), name = T("UI_UP"),
+    args["up_" .. key] = {type = "execute", arg = key, arrow = "UP", order = Order(1), name = T("UI_UP"),
       disabled = Stuck(-1), func = Setter(function(info) Move(info.arg, -1) end)}
-    args["down" .. id] = {type = "execute", arg = id, width = "half", order = Order(2), name = T("UI_DOWN"),
+    args["down_" .. key] = {type = "execute", arg = key, arrow = "DOWN", order = Order(2), name = T("UI_DOWN"),
       disabled = Stuck(1), func = Setter(function(info) Move(info.arg, 1) end)}
   end
-  return {type = "group", order = 3, name = T("UI_TOOLBAR"), args = args}
-end
-
-local function GoldPage()
-  local args = {defaults = Defaults(function()
-    local fresh = Core.copyAppearance()
-    for _, key in ipairs(GOLD_FIELDS) do Config()[key] = fresh[key] end
-    goldConfig = nil
-    RT.LayoutMainToolbar()
-  end)}
-  for index, spec in ipairs({{"goldMain", "UI_GOLD_MAIN"}, {"goldTotal", "UI_TOTAL"}, {"goldLast", "UI_LAST"},
-    {"goldCurrent", "UI_CURRENT"}, {"goldSession", "UI_SESSION"}}) do
-    local key = spec[1]
-    args[key] = Toggle(index, spec[2], nil, function() return Config()[key] and true or false end, function(value)
-      Config()[key] = value
-      goldConfig = nil
-      RT.LayoutMainToolbar()
-    end)
-  end
-  return {type = "group", order = 4, name = T("UI_GOLD"), args = args}
+  return {type = "group", order = 3, name = T("UI_TOOLBAR"), columns = 3, align = "CENTER", args = args}
 end
 
 function RT.RegisterOptions()
@@ -348,8 +301,7 @@ function RT.RegisterOptions()
     general = GeneralPage(),
     appearance = AppearancePage(),
     toolbar = ToolbarPage(),
-    gold = GoldPage(),
-    help = {type = "group", order = 5, name = T("UI_HELP"), args = RT.HelpOptions()},
+    help = {type = "group", order = 4, name = T("UI_HELP"), args = RT.HelpOptions()},
   }})
 end
 
@@ -375,33 +327,33 @@ function RT.ApplyLook()
 end
 function RT.InitAppearance()
   RT.state.appearance = Core.copyAppearance(RT.state.appearance)
-  RT.api:On("PARAMETER_CHANGED", function(_, name) if LOOK[name] then RT.ApplyLook() end end)
+  RT.api:On("PARAMETER_CHANGED", function(_, name)
+    if LOOK[name] then RT.ApplyLook() end
+    if name == "showSpeed" or name == "showFps" then
+      SyncStatusTask()
+      RT.RefreshSpeedDisplay()
+      RT.LayoutMainToolbar()
+    end
+  end)
   RT.api:On("READY", function() RT.ApplyLook() end)
 end
 function RT.InitSettingsAccess()
   local frame = RT.controlFrame
-  buttons = {frame.listsButton, frame.buildsButton, AutoCallboardButton, frame.startButton, frame.shareButton, frame.questButton}
-  RT.PositionControlHeader = function()
-    RT.summonStatusText:SetWidth(Skin.WindowSize(frame))
-    if RT.questGoldText and Config().goldMain then RT.questGoldText:SetWidth(Skin.WindowSize(frame)) end
-  end
+  buttons = {builds = frame.buildsButton, callboard = AutoCallboardButton, start = frame.startButton,
+    share = frame.shareButton}
   speedText = frame.content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   speedText:SetJustifyH("RIGHT")
   Skin.MutedText(speedText)
+  fpsText = frame.content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  fpsText:SetJustifyH("LEFT")
+  Skin.MutedText(fpsText)
+  local function SyncVisibility()
+    SyncStatusTask()
+    RT.RefreshSpeedDisplay()
+  end
+  frame:HookScript("OnShow", SyncVisibility)
+  frame:HookScript("OnHide", SyncVisibility)
+  RT.api:On("READY", function() RT.LayoutMainToolbar() end)
   RT.LayoutMainToolbar()
   RT.RegisterOptions()
-end
-
-function RT.RefreshSettingsLanguage()
-  goldConfig = nil
-  RT.RefreshGoldDisplay()
-  speedShown = nil
-  RT.RefreshSpeedDisplay()
-  RT.RegisterOptions()
-  if buttons then
-    for id, button in pairs(buttons) do
-      if id ~= 3 and id ~= 4 and id ~= 6 then button:SetText(Label(id)) end
-    end
-    if not InCombatLockdown() then RT.LayoutMainToolbar() end
-  end
 end

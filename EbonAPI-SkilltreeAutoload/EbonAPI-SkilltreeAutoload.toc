@@ -1,5 +1,6 @@
 ## Interface: 30300
 ## Title: EbonAPI - SkillTreeAutoLoad
+## X-Part-Of: EbonAPI
 ## Notes: Save and restore Skill Tree configurations (ProjectEbonhold)
 ## Dependencies: EbonAPI
 ## OptionalDeps: ProjectEbonhold
@@ -22,14 +23,24 @@ locales\deDE.lua
 locales\esES.lua
 
 modules\problems.lua
+modules\cost.lua
 modules\core.lua
 modules\plan.lua
 modules\overlay.lua
 modules\view.lua
+modules\nav.lua
 modules\data.lua
+modules\presetsdata.lua
+modules\presets.lua
 modules\share.lua
 modules\bridge.lua
 modules\menus.lua
+modules\dense_data.lua
+modules\dense_state.lua
+modules\dense_map.lua
+modules\dense_minimap.lua
+modules\dense_chrome.lua
+modules\dense.lua
 modules\ui.lua
 modules\update.lua
 modules\main.lua

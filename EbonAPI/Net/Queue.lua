@@ -8,20 +8,15 @@ local Bus = EbonAPI.Bus
 local Problems = EbonAPI.Problems
 
 local type, pairs, error, tostring, pcall = type, pairs, error, tostring, pcall
-local match, gsub, find, lower, upper, char = string.match, string.gsub, string.find, string.lower, string.upper, string.char
-local concat = table.concat
-local floor, sort, sub = math.floor, table.sort, string.sub
+local match = string.match
+local floor, sub = math.floor, string.sub
 
 local SEND_INTERVAL = 0.15
 local PEER_CAP = 500
 local LANE_CAP = 250
 local RESERVE = 50
-local OFFLINE_HOLD = 60
-local MASK_WINDOW = 300
-local ANSWER_WINDOW = 5
 local CHAT_PAUSE = 1
 local PROBE_WAIT = 1.5
-local ALIVE_TTL = 120
 
 Queue.SEND_INTERVAL = SEND_INTERVAL
 Queue.DEFAULT_INTERVAL = SEND_INTERVAL
@@ -62,44 +57,31 @@ function Queue.slideBins(item, current)
   return bins
 end
 Queue.PROBE_WAIT = PROBE_WAIT
-Queue.ALIVE_TTL = ALIVE_TTL
+Queue.ALIVE_TTL = 120
 Queue.PEER_CAP = PEER_CAP
 Queue.LANE_CAP = LANE_CAP
 Queue.RESERVE = RESERVE
-Queue.OFFLINE_HOLD = OFFLINE_HOLD
-Queue.MASK_WINDOW = MASK_WINDOW
-Queue.ANSWER_WINDOW = ANSWER_WINDOW
+Queue.OFFLINE_HOLD = 60
+Queue.MASK_WINDOW = 300
+Queue.ANSWER_WINDOW = 5
 Queue.CHAT_PAUSE = CHAT_PAUSE
 
 local senders = {}
 local gates = {}
-local gateOpen = {}
 local merges = {}
 local holdUntil = {}
-local pauseSeen = false
-local afterSmall = false
-local tookSmall = false
-local aliveAt, aliveSwept = {}, 0
 local dProbe = {}
 
 local mAt, sAt = {}, {}
-local HISTORY, RECENT, DEST_STATS = 360, 200, 300
-local STEPS = { 1, 5, 15, 30, 60, 120 }
-local hSec, hIn, hOut, hLen, hWaitSum, hWaitMax = {}, {}, {}, {}, {}, {}
 local hDrop = {}
-local lastSec, secondOf
-local laneStat, destStat = {}, {}
-local destCount = 0
-local rAt, rWho, rKind, rLane, rOp, rDetail, rWait, rOk = {}, {}, {}, {}, {}, {}, {}, {}
-local rNext, rCount = 1, 0
-local statsSince
+local secondOf
 
 local sPayload = {}
 local sFirst, sLast = 1, 0
 
 local mA, mB, mC, mDone, mNext = {}, {}, {}, {}, {}
 local mSeq, mCount, mKey, mBody = {}, {}, {}, {}
-local mTop, mFree = 0, 0
+local mFree = 0
 
 local laneOf = {}
 local laneName = {}
@@ -124,14 +106,7 @@ local pLive = 0
 
 local offlineUntil = {}
 local recentWhisper = {}
-local foreignWhisper = {}
-local foreignLeft = {}
-local addonWhisper = {}
-local foreignSwept = 0
-local lastText, lastAt, lastMasked
-local judged = {}
 local sending = false
-local watching = false
 
 Queue.sent = { server = 0, channel = 0, whisper = 0 }
 Queue.dropped = { offline = 0, full = 0, failed = 0 }
@@ -176,6 +151,10 @@ end
 
 Queue.baseName = baseName
 
+local fold
+do
+local lower, find, gsub, char = string.lower, string.find, string.gsub, string.char
+
 local ACCENTED = {}
 
 for code = 128, 158 do
@@ -184,7 +163,7 @@ for code = 128, 158 do
   end
 end
 
-local function fold(name)
+fold = function(name)
   name = lower(name)
 
   if find(name, "\195", 1, true) then
@@ -193,6 +172,8 @@ local function fold(name)
 
   return name
 end
+end
+
 
 function Queue.register(kind, fn, ready, merge)
   if type(kind) ~= "string" or type(fn) ~= "function" then
@@ -226,6 +207,60 @@ local function rawWhisper(prefix, target, text)
   return ok, not ok and err or nil
 end
 
+local noteForeign, watch
+
+local function settle(dones, count)
+  for index = 1, count do
+    Lib.safeCall(dones[index], false)
+  end
+end
+
+local function release(slot, cell)
+  local a, b, c, done = mA[slot], mB[slot], mC[slot], mDone[slot]
+  local lane, dest = cLane[cell], cDest[cell]
+
+  mA[slot], mB[slot], mC[slot], mDone[slot], mKey[slot], mBody[slot] = nil, nil, nil, nil, nil, nil
+  mAt[slot] = nil
+  mNext[slot] = mFree
+  mFree = slot
+  laneLive[lane] = laneLive[lane] - 1
+  dLive[dest] = dLive[dest] - 1
+  pLive = pLive - 1
+
+  return a, b, c, done
+end
+
+local function heldOffline(key)
+  local until_ = offlineUntil[key]
+
+  if not until_ then
+    return false
+  end
+
+  if now() >= until_ then
+    offlineUntil[key] = nil
+    return false
+  end
+
+  return true
+end
+
+function Queue.isOffline(target)
+  return heldOffline(fold(target))
+end
+
+do
+local upper, find, gsub, concat = string.upper, string.find, string.gsub, table.concat
+local OFFLINE_HOLD, MASK_WINDOW, ANSWER_WINDOW = Queue.OFFLINE_HOLD, Queue.MASK_WINDOW, Queue.ANSWER_WINDOW
+
+local foreignWhisper = {}
+local foreignLeft = {}
+local addonWhisper = {}
+local foreignSwept = 0
+local lastText, lastAt, lastMasked
+local judged = {}
+local watching = false
+
 local function sweep(list, current)
   for other, at in pairs(list) do
     if current - at > ANSWER_WINDOW then
@@ -238,7 +273,7 @@ end
 -- addon) shows its "not found" line: one line per whisper the game could not deliver, counted.
 -- An addon message, which the player never sees, hides it, whoever sends it: the server requests
 -- of the Bridge and of ProjectEbonhold, and the whispers of any other addon.
-local function noteForeign(kind, target, visible)
+noteForeign = function(kind, target, visible)
   if sending or (kind ~= "WHISPER" and (type(kind) ~= "string" or upper(kind) ~= "WHISPER")) then
     return
   end
@@ -319,32 +354,11 @@ local function unwatch()
   end
 end
 
-local function watch()
+watch = function()
   if not watching then
     watching = true
     Bus.onCore("CHAT_MSG_SYSTEM", onSystem)
   end
-end
-
-local function settle(dones, count)
-  for index = 1, count do
-    Lib.safeCall(dones[index], false)
-  end
-end
-
-local function release(slot, cell)
-  local a, b, c, done = mA[slot], mB[slot], mC[slot], mDone[slot]
-  local lane, dest = cLane[cell], cDest[cell]
-
-  mA[slot], mB[slot], mC[slot], mDone[slot], mKey[slot], mBody[slot] = nil, nil, nil, nil, nil, nil
-  mAt[slot] = nil
-  mNext[slot] = mFree
-  mFree = slot
-  laneLive[lane] = laneLive[lane] - 1
-  dLive[dest] = dLive[dest] - 1
-  pLive = pLive - 1
-
-  return a, b, c, done
 end
 
 local function strip(heads, tails, cell, dones)
@@ -407,25 +421,6 @@ local function purgeWhispers(target, lanes)
   return removed
 end
 
-local function heldOffline(key)
-  local until_ = offlineUntil[key]
-
-  if not until_ then
-    return false
-  end
-
-  if now() >= until_ then
-    offlineUntil[key] = nil
-    return false
-  end
-
-  return true
-end
-
-function Queue.isOffline(target)
-  return heldOffline(fold(target))
-end
-
 onSystem = function(message)
   local current = now()
   local alive = false
@@ -467,6 +462,97 @@ onSystem = function(message)
 
   EbonAPI:Emit("PEER_OFFLINE", name, removed)
 end
+
+-- Whether the line stays out of the chat, and why: "own" EbonAPI whispered the player,
+-- "addon" another addon did, "unknown" nobody here did. Only a chat whisper the player (or a
+-- reply addon) sent keeps its line, once per whisper.
+local function masked(key, current)
+  local at = foreignWhisper[key]
+
+  if at and current - at <= ANSWER_WINDOW and foreignLeft[key] > 0 then
+    foreignLeft[key] = foreignLeft[key] - 1
+    return false
+  end
+
+  at = recentWhisper[key]
+
+  if at and current - at <= MASK_WINDOW then
+    return true, "own"
+  end
+
+  at = offlineUntil[key]
+
+  if at and current < at then
+    return true, "own"
+  end
+
+  at = addonWhisper[key]
+
+  if at and current - at <= ANSWER_WINDOW then
+    return true, "addon"
+  end
+
+  return true, "unknown"
+end
+
+-- Every chat frame that shows system lines runs the filter on the same line: the line is judged
+-- once, and the other frames get the same answer. A frame that asks again holds a new line.
+function Queue.ownOffline(message, frame)
+  local name = offlinePlayer(message)
+
+  if not name then
+    return false
+  end
+
+  local current = now()
+
+  if frame and message == lastText and current == lastAt and not judged[frame] then
+    judged[frame] = true
+    return lastMasked
+  end
+
+  for other in pairs(judged) do
+    judged[other] = nil
+  end
+
+  if frame then
+    judged[frame] = true
+  end
+
+  local hide, cause = masked(fold(name), current)
+
+  if hide then
+    local hidden = Queue.hidden
+
+    hidden[cause] = hidden[cause] + 1
+    Problems.reject("EbonAPI", "QUEUE.LINE_HIDDEN", { player = name, reason = cause })
+  end
+
+  lastText, lastAt, lastMasked = message, current, hide
+
+  return hide
+end
+
+function Queue.foreignCount()
+  local count = 0
+
+  for _ in pairs(foreignWhisper) do
+    count = count + 1
+  end
+
+  return count
+end
+end
+
+local forget, total, laneEntry, destEntry, describe, recordArrival, recordSend
+do
+local aliveAt, aliveSwept = {}, 0
+local ALIVE_TTL = Queue.ALIVE_TTL
+local gateOpen = {}
+local pauseSeen = false
+local afterSmall = false
+local tookSmall = false
+local extraSlot, extraCell = {}, {}
 
 local function dispatch(kind, a, b, c, lane)
   local fn = senders[kind]
@@ -533,14 +619,16 @@ local function paused(kind)
   return false
 end
 
-local function open(kind)
-  return ready(kind) and not paused(kind)
-end
-
 local function aliveNow(key)
   local at = aliveAt[key]
 
   return at ~= nil and now() - at <= ALIVE_TTL
+end
+
+local takePeer, gather
+do
+local function open(kind)
+  return ready(kind) and not paused(kind)
 end
 
 -- A player who wrote to us lately is online. Called for every line that comes from a player.
@@ -635,6 +723,7 @@ local function popSmall(dest, take)
   return nil
 end
 
+do
 local function takeSmall()
   local dest = smallTurn
 
@@ -772,7 +861,7 @@ local function bigReady()
   return false
 end
 
-local function takePeer()
+takePeer = function()
   for kind in pairs(gateOpen) do
     gateOpen[kind] = nil
   end
@@ -841,7 +930,7 @@ local function takePeer()
   return takeSmall()
 end
 
-local function forget()
+forget = function()
   for name in pairs(laneOf) do
     laneName[laneOf[name]] = nil
     laneOf[name] = nil
@@ -863,10 +952,11 @@ local function forget()
   bigLive = 0
   afterSmall = false
 end
+end
 
-local texts, extraSlot, extraCell, usedLane = {}, {}, {}, {}
+local texts, usedLane = {}, {}
 
-local function gather(kind, dest, first, firstCell)
+gather = function(kind, dest, first, firstCell)
   local merge = merges[kind]
   local count = 0
 
@@ -913,177 +1003,10 @@ local function gather(kind, dest, first, firstCell)
 
   return count, line
 end
+end
 
-local function total()
+total = function()
   return pLive + (sLast >= sFirst and sLast - sFirst + 1 or 0)
-end
-
--- The history keeps one cell per second: what came in, what went out, how long the sent messages
--- waited and how long the queue was at the end of the second. A second nobody touched is closed
--- the next time something asks, with the length it had.
-secondOf = function(current)
-  local sec = floor(current)
-
-  if sec ~= lastSec then
-    local from = lastSec and lastSec + 1 or sec
-
-    if sec - from >= HISTORY then
-      from = sec - HISTORY + 1
-    end
-
-    for at = from, sec do
-      local i = at % HISTORY + 1
-
-      hSec[i], hIn[i], hOut[i], hWaitSum[i], hWaitMax[i], hLen[i] = at, 0, 0, 0, 0, total()
-      hDrop[i] = 0
-      Queue.hSmall[i], Queue.hParts[i] = 0, 0
-    end
-
-    lastSec = sec
-  end
-
-  return sec % HISTORY + 1
-end
-
-local function laneEntry(lane)
-  local item = laneStat[lane]
-
-  if not item then
-    item = { sent = 0, queued = 0, failed = 0, wait = 0, max = 0, last = 0, buckets = { 0, 0, 0, 0, 0, 0, 0 } }
-    laneStat[lane] = item
-  end
-
-  return item
-end
-
-local function destEntry(key, name, kind)
-  local item = destStat[key]
-
-  if not item then
-    if destCount >= DEST_STATS then
-      local oldest, oldestAt
-
-      for other, entry in pairs(destStat) do
-        if not oldestAt or entry.last < oldestAt then
-          oldest, oldestAt = other, entry.last
-        end
-      end
-
-      if oldest then
-        destStat[oldest] = nil
-        destCount = destCount - 1
-      end
-    end
-
-    item = { name = name, kind = kind, queued = 0, sent = 0, failed = 0, wait = 0, max = 0, last = 0, lane = "", binAt = 0, bins = {} }
-
-    for index = 1, Queue.BIN_COUNT do
-      item.bins[index] = 0
-    end
-
-    destStat[key] = item
-    destCount = destCount + 1
-  end
-
-  return item
-end
-
--- What a message is, for the eye: its operation and a short detail.
-local function describe(kind, a, b, c)
-  if kind == "whisper" then
-    local text = c or ""
-    local op, id, k, n = match(text, "^EAS:(%w+):([^:]+):(%d+)/(%d+):")
-
-    if op then
-      return op, id, tonumber(k), tonumber(n)
-    end
-
-    local head, rest = match(text, "^(%a):(.*)")
-
-    if head then
-      return head, sub(rest, 1, 40)
-    end
-
-    return "?", sub(text, 1, 40)
-  elseif kind == "channel" then
-    local text = a or ""
-
-    return match(text, "^EA%d:[%w_]+:(%w+)") or "line", sub(text, 1, 40)
-  end
-
-  return "server", ""
-end
-
-local function recordArrival(lane, kind, key, who, count)
-  local current = now()
-  local i = secondOf(current)
-  local item = laneEntry(lane)
-  local dest = destEntry(key, who, kind)
-
-  statsSince = statsSince or current
-  hIn[i] = hIn[i] + count
-  hLen[i] = total()
-  item.queued = item.queued + count
-  dest.queued = dest.queued + count
-end
-
-local function recordSend(kind, lane, key, who, op, detail, queuedAt, ok, ring, part)
-  local current = now()
-  local wait = queuedAt and current - queuedAt or 0
-  local i = secondOf(current)
-  local item = laneEntry(lane)
-  local dest = destEntry(key, who, kind)
-  local step = 1
-
-  statsSince = statsSince or current
-  Queue.slideBins(dest, current)[Queue.BIN_COUNT] = dest.bins[Queue.BIN_COUNT] + 1
-  hOut[i] = hOut[i] + 1
-  hWaitSum[i] = hWaitSum[i] + wait
-  hLen[i] = total()
-
-  if wait > hWaitMax[i] then
-    hWaitMax[i] = wait
-  end
-
-  local peaks = part and Queue.hParts or Queue.hSmall
-
-  if wait > peaks[i] then
-    peaks[i] = wait
-  end
-
-  while step <= #STEPS and wait > STEPS[step] do
-    step = step + 1
-  end
-
-  item.last, dest.last, dest.lane = current, current, lane
-  item.wait, dest.wait = item.wait + wait, dest.wait + wait
-  item.buckets[step] = item.buckets[step] + 1
-
-  if wait > item.max then
-    item.max = wait
-  end
-
-  if wait > dest.max then
-    dest.max = wait
-  end
-
-  if ok then
-    item.sent, dest.sent = item.sent + 1, dest.sent + 1
-  else
-    item.failed, dest.failed = item.failed + 1, dest.failed + 1
-  end
-
-  if ring then
-    local n = rNext
-
-    rAt[n], rWho[n], rKind[n], rLane[n], rOp[n], rDetail[n], rWait[n], rOk[n] =
-      current, who, kind, lane, op, detail, wait, ok and true or false
-    rNext = n % RECENT + 1
-
-    if rCount < RECENT then
-      rCount = rCount + 1
-    end
-  end
 end
 
 function Queue.sendOne()
@@ -1170,6 +1093,188 @@ function Queue.sendOne()
 
   return true
 end
+end
+
+local HISTORY, RECENT, DEST_STATS = 360, 200, 300
+local STEPS = { 1, 5, 15, 30, 60, 120 }
+local hSec, hIn, hOut, hLen, hWaitSum, hWaitMax = {}, {}, {}, {}, {}, {}
+local lastSec
+local laneStat, destStat = {}, {}
+local destCount = 0
+local rAt, rWho, rKind, rLane, rOp, rDetail, rWait, rOk = {}, {}, {}, {}, {}, {}, {}, {}
+local rNext, rCount = 1, 0
+local statsSince
+
+-- The history keeps one cell per second: what came in, what went out, how long the sent messages
+-- waited and how long the queue was at the end of the second. A second nobody touched is closed
+-- the next time something asks, with the length it had.
+secondOf = function(current)
+  local sec = floor(current)
+
+  if sec ~= lastSec then
+    local from = lastSec and lastSec + 1 or sec
+
+    if sec - from >= HISTORY then
+      from = sec - HISTORY + 1
+    end
+
+    for at = from, sec do
+      local i = at % HISTORY + 1
+
+      hSec[i], hIn[i], hOut[i], hWaitSum[i], hWaitMax[i], hLen[i] = at, 0, 0, 0, 0, total()
+      hDrop[i] = 0
+      Queue.hSmall[i], Queue.hParts[i] = 0, 0
+    end
+
+    lastSec = sec
+  end
+
+  return sec % HISTORY + 1
+end
+
+laneEntry = function(lane)
+  local item = laneStat[lane]
+
+  if not item then
+    item = { sent = 0, queued = 0, failed = 0, wait = 0, max = 0, last = 0, buckets = { 0, 0, 0, 0, 0, 0, 0 } }
+    laneStat[lane] = item
+  end
+
+  return item
+end
+
+destEntry = function(key, name, kind)
+  local item = destStat[key]
+
+  if not item then
+    if destCount >= DEST_STATS then
+      local oldest, oldestAt
+
+      for other, entry in pairs(destStat) do
+        if not oldestAt or entry.last < oldestAt then
+          oldest, oldestAt = other, entry.last
+        end
+      end
+
+      if oldest then
+        destStat[oldest] = nil
+        destCount = destCount - 1
+      end
+    end
+
+    item = { name = name, kind = kind, queued = 0, sent = 0, failed = 0, wait = 0, max = 0, last = 0, lane = "", binAt = 0, bins = {} }
+
+    for index = 1, Queue.BIN_COUNT do
+      item.bins[index] = 0
+    end
+
+    destStat[key] = item
+    destCount = destCount + 1
+  end
+
+  return item
+end
+
+-- What a message is, for the eye: its operation and a short detail.
+describe = function(kind, a, b, c)
+  if kind == "whisper" then
+    local text = c or ""
+    local op, id, k, n = match(text, "^EAS:(%w+):([^:]+):(%d+)/(%d+):")
+
+    if op then
+      return op, id, tonumber(k), tonumber(n)
+    end
+
+    local head, rest = match(text, "^(%a):(.*)")
+
+    if head then
+      return head, sub(rest, 1, 40)
+    end
+
+    return "?", sub(text, 1, 40)
+  elseif kind == "channel" then
+    local text = a or ""
+
+    return match(text, "^EA%d:[%w_]+:(%w+)") or "line", sub(text, 1, 40)
+  end
+
+  return "server", ""
+end
+
+recordArrival = function(lane, kind, key, who, count)
+  local current = now()
+  local i = secondOf(current)
+  local item = laneEntry(lane)
+  local dest = destEntry(key, who, kind)
+
+  statsSince = statsSince or current
+  hIn[i] = hIn[i] + count
+  hLen[i] = total()
+  item.queued = item.queued + count
+  dest.queued = dest.queued + count
+end
+
+recordSend = function(kind, lane, key, who, op, detail, queuedAt, ok, ring, part)
+  local current = now()
+  local wait = queuedAt and current - queuedAt or 0
+  local i = secondOf(current)
+  local item = laneEntry(lane)
+  local dest = destEntry(key, who, kind)
+  local step = 1
+
+  statsSince = statsSince or current
+  Queue.slideBins(dest, current)[Queue.BIN_COUNT] = dest.bins[Queue.BIN_COUNT] + 1
+  hOut[i] = hOut[i] + 1
+  hWaitSum[i] = hWaitSum[i] + wait
+  hLen[i] = total()
+
+  if wait > hWaitMax[i] then
+    hWaitMax[i] = wait
+  end
+
+  local peaks = part and Queue.hParts or Queue.hSmall
+
+  if wait > peaks[i] then
+    peaks[i] = wait
+  end
+
+  while step <= #STEPS and wait > STEPS[step] do
+    step = step + 1
+  end
+
+  item.last, dest.last, dest.lane = current, current, lane
+  item.wait, dest.wait = item.wait + wait, dest.wait + wait
+  item.buckets[step] = item.buckets[step] + 1
+
+  if wait > item.max then
+    item.max = wait
+  end
+
+  if wait > dest.max then
+    dest.max = wait
+  end
+
+  if ok then
+    item.sent, dest.sent = item.sent + 1, dest.sent + 1
+  else
+    item.failed, dest.failed = item.failed + 1, dest.failed + 1
+  end
+
+  if ring then
+    local n = rNext
+
+    rAt[n], rWho[n], rKind[n], rLane[n], rOp[n], rDetail[n], rWait[n], rOk[n] =
+      current, who, kind, lane, op, detail, wait, ok and true or false
+    rNext = n % RECENT + 1
+
+    if rCount < RECENT then
+      rCount = rCount + 1
+    end
+  end
+end
+
+local sort = table.sort
+local mTop = 0
 
 -- Up to 20 messages per second the ticker of the bus gives one message per tick. Above that, one frame
 -- of the game lasts longer than the interval: the time elapsed since the last tick says how many
@@ -1341,6 +1446,8 @@ function Queue.room(lane)
   return own < free and own or free
 end
 
+local add, waiting, submit
+do
 -- Which cap a batch of count messages for a lane would break ("peers" or "lane"), nil when it fits,
 -- then the messages the lane has waiting. The one test behind both the refusal of a submit and
 -- Queue.fits.
@@ -1430,7 +1537,7 @@ local function cellFor(dest, lane)
   return cell
 end
 
-local function add(heads, tails, cell, a, b, c, done)
+add = function(heads, tails, cell, a, b, c, done)
   local slot = mFree
 
   if slot ~= 0 then
@@ -1476,7 +1583,7 @@ local function listed(slot, a, key, body, single)
   return false
 end
 
-local function waiting(dest, a, key, body, single)
+waiting = function(dest, a, key, body, single)
   local cell = dLast[dest]
 
   for _ = 1, dCells[dest] do
@@ -1490,7 +1597,7 @@ local function waiting(dest, a, key, body, single)
   return false
 end
 
-local function submit(kind, a, b, c, parts, count, lane, done, key, body, single)
+submit = function(kind, a, b, c, parts, count, lane, done, key, body, single)
   local plain = kind == "whisper"
 
   if lane == nil then
@@ -1578,6 +1685,8 @@ local function submit(kind, a, b, c, parts, count, lane, done, key, body, single
   arm()
 
   return true
+end
+
 end
 
 function Queue.push(kind, a, b, c, done, lane)
@@ -2176,86 +2285,6 @@ function Queue.clear()
 end
 
 Queue.register("whisper", rawWhisper)
-
--- Whether the line stays out of the chat, and why: "own" EbonAPI whispered the player,
--- "addon" another addon did, "unknown" nobody here did. Only a chat whisper the player (or a
--- reply addon) sent keeps its line, once per whisper.
-local function masked(key, current)
-  local at = foreignWhisper[key]
-
-  if at and current - at <= ANSWER_WINDOW and foreignLeft[key] > 0 then
-    foreignLeft[key] = foreignLeft[key] - 1
-    return false
-  end
-
-  at = recentWhisper[key]
-
-  if at and current - at <= MASK_WINDOW then
-    return true, "own"
-  end
-
-  at = offlineUntil[key]
-
-  if at and current < at then
-    return true, "own"
-  end
-
-  at = addonWhisper[key]
-
-  if at and current - at <= ANSWER_WINDOW then
-    return true, "addon"
-  end
-
-  return true, "unknown"
-end
-
--- Every chat frame that shows system lines runs the filter on the same line: the line is judged
--- once, and the other frames get the same answer. A frame that asks again holds a new line.
-function Queue.ownOffline(message, frame)
-  local name = offlinePlayer(message)
-
-  if not name then
-    return false
-  end
-
-  local current = now()
-
-  if frame and message == lastText and current == lastAt and not judged[frame] then
-    judged[frame] = true
-    return lastMasked
-  end
-
-  for other in pairs(judged) do
-    judged[other] = nil
-  end
-
-  if frame then
-    judged[frame] = true
-  end
-
-  local hide, cause = masked(fold(name), current)
-
-  if hide then
-    local hidden = Queue.hidden
-
-    hidden[cause] = hidden[cause] + 1
-    Problems.reject("EbonAPI", "QUEUE.LINE_HIDDEN", { player = name, reason = cause })
-  end
-
-  lastText, lastAt, lastMasked = message, current, hide
-
-  return hide
-end
-
-function Queue.foreignCount()
-  local count = 0
-
-  for _ in pairs(foreignWhisper) do
-    count = count + 1
-  end
-
-  return count
-end
 
 -- Keeping the follow-up data across a disconnection (option stored in the account data).
 -- No file-level local is added here: the file is at the limit of Lua 5.1.

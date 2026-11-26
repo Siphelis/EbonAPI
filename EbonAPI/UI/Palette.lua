@@ -12,7 +12,7 @@ local format = string.format
 
 local KEYS = Catalog.PALETTE
 local CLASSES = {
-  background = { "bg", "bgSoft", "card", "checkbox", "headerBg", "navBg", "pageBg", "footerBg", "well" },
+  background = { "bg", "bgSoft", "card", "checkbox", "headerBg", "navBg", "pageBg", "footerBg", "well", "menuBg" },
   foreground = { "text", "muted", "title" },
   fixed = { "buttonText", "buttonDisabledText", "selectedText", "shadow", "success", "danger", "caution" },
   accent = {
@@ -20,7 +20,7 @@ local CLASSES = {
     "checked", "thumb", "selected", "heading", "menu", "focus", "buttonHoverFill", "rowHover",
   },
 }
-local SCALED = { bg = true, bgSoft = true, card = true, headerBg = true, navBg = true, pageBg = true, footerBg = true }
+local SCALED = { bg = true, bgSoft = true, card = true, headerBg = true, navBg = true, pageBg = true, footerBg = true, menuBg = true }
 local AGAINST_BACKGROUND = { "heading", "buttonHover", "checked", "thumb", "focus", "success", "danger", "caution" }
 local WHITE = { 1, 1, 1 }
 local BLACK = { 0, 0, 0 }
@@ -48,6 +48,7 @@ Palette.KEYS = KEYS
 Palette.CLASS = CLASS
 
 local painted = {}
+local alphas = setmetatable({}, WEAK)
 
 function Palette.unpackColor(value)
   return floor(value / 65536) / 255, floor(value / 256) % 256 / 255, value % 256 / 255
@@ -246,6 +247,22 @@ function Palette.paint(target, method, key)
   local color = THEME[key]
 
   target[method](target, color[1], color[2], color[3], color[4])
+
+  if method == "SetVertexColor" then
+    local a = alphas[target]
+
+    if a then target:SetAlpha(a) end
+  end
+end
+
+-- region alpha that survives a later SetVertexColor with alpha (the client lets the vertex alpha override SetAlpha)
+function Palette.alpha(target, a)
+  target:SetAlpha(a)
+  alphas[target] = a
+end
+
+function Palette.unalpha(target)
+  alphas[target] = nil
 end
 
 function Palette.unpaint(target, method)
@@ -262,6 +279,12 @@ function Palette.repaint()
       local color = THEME[key]
 
       target[method](target, color[1], color[2], color[3], color[4])
+
+      if method == "SetVertexColor" then
+        local a = alphas[target]
+
+        if a then target:SetAlpha(a) end
+      end
     end
   end
 end

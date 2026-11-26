@@ -12,7 +12,7 @@ local MENU_MIN_WIDTH = 170
 local MENU_TEXT_PAD = 48
 local REFUSED = { 1, 0.25, 0.25, 0.45 }
 local SELECTION_ALPHA = 0.28
-local WEAK = { __mode = "k" }
+local WEAK = AutoCallboardCore.WEAK
 
 local keyOf = {}
 for key, color in pairs(THEME) do
@@ -771,6 +771,46 @@ local function SkinMutedText(target)
   ApplyColor(target, "SetTextColor", "muted")
 end
 
+local measure
+
+local function TextWidth(fs, text)
+  measure = measure or UIParent:CreateFontString(nil, "OVERLAY")
+
+  local file, size, flags = fs:GetFont()
+
+  if file then
+    measure:SetFont(file, size, flags)
+  end
+
+  measure:SetText(text)
+
+  local width = measure:GetStringWidth() or 0
+
+  measure:SetText("")
+
+  return width
+end
+
+local function FitText(fs, text, width)
+  if TextWidth(fs, text) <= width then
+    return text, false
+  end
+
+  local low, high = 0, string.len(text)
+
+  while low < high do
+    local middle = math.ceil((low + high) / 2)
+
+    if TextWidth(fs, AutoCallboardCore.truncateLetters(text, middle) .. "...") <= width then
+      low = middle
+    else
+      high = middle - 1
+    end
+  end
+
+  return AutoCallboardCore.truncateLetters(text, low) .. "...", true
+end
+
 AutoCallboardSkin.THEME = THEME
 AutoCallboardSkin.CHECK_MARK = CHECK_MARK
 AutoCallboardSkin.ApplyColor = ApplyColor
@@ -783,6 +823,8 @@ AutoCallboardSkin.Root = Root
 AutoCallboardSkin.Window = BuildWindow
 AutoCallboardSkin.SizeWindow = SizeWindow
 AutoCallboardSkin.WindowSize = WindowSize
+AutoCallboardSkin.TextWidth = TextWidth
+AutoCallboardSkin.FitText = FitText
 AutoCallboardSkin.Box = BuildBox
 AutoCallboardSkin.Backdrop = Backdrop
 AutoCallboardSkin.ButtonRow = BuildButtonRow

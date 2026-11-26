@@ -141,6 +141,12 @@ function Modules.isEnabled(name)
     return false
   end
 
+  local _, _, _, active = GetAddOnInfo(name)
+
+  if not active then
+    return false
+  end
+
   if type(saved[name]) == "boolean" then
     return saved[name]
   end
@@ -206,11 +212,6 @@ end
 
 local function load(module)
   local name = module.name
-  local _, _, _, active = GetAddOnInfo(name)
-
-  if not active then
-    EnableAddOn(name)
-  end
 
   Migration.adopt(module)
 

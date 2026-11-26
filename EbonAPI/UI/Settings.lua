@@ -28,6 +28,7 @@ local L = EbonAPI.L
 
 local ipairs = ipairs
 local format, concat = string.format, table.concat
+local max = math.max
 
 local ALL = "*"
 local NAME = EbonAPI.name
@@ -67,25 +68,12 @@ function Settings.status()
     say(L.STATUS_BRIDGE_IDLE)
   end
 
-  say(format(L.STATUS_BRIDGE_COUNTS, Bridge.sent, Bridge.queueLength(), Bridge.streamCount()))
-
   if Channel.isJoined() then
     say(format(L.STATUS_CHANNEL_UP, Channel.NAME, Channel.index() or 0, Channel.joinedFor() or 0))
   elseif Channel.isWanted() then
     say(format(L.STATUS_CHANNEL_DOWN, Channel.NAME, Channel.requests()))
   else
     say(format(L.STATUS_CHANNEL_OFF, Channel.NAME))
-  end
-
-  local qs, qd = Queue.sent, Queue.dropped
-
-  say(format(L.STATUS_QUEUE, Queue.serverLength(), Queue.peerLength(), qs.channel, qs.whisper))
-
-  local queueDrops = qd.offline + qd.full + qd.failed
-  local channelDrops = Channel.droppedTotal()
-
-  if queueDrops > 0 or channelDrops > 0 then
-    say(format(L.STATUS_QUEUE_DROPS, qd.offline, qd.full, qd.failed, channelDrops))
   end
 
   say(format(L.STATUS_PROFILE, Profile.sent.P, Profile.sent.D, Profile.sent.X,
@@ -183,7 +171,7 @@ function Settings.statusRows()
   add(srv, "compteurs", L.UI_FICHE_COUNTS, function()
     local B = E.Bridge
 
-    return { value = format("%d \194\183 %d \194\183 %d", B.sent, B.queueLength(), B.streamCount()) }
+    return { value = format("%s \194\183 %s \194\183 %s", Format.number(B.sent), Format.number(B.queueLength()), Format.number(B.streamCount())) }
   end)
   add(srv, "canal", L.UI_SYNTH_CHANNEL, function()
     local C = E.Channel
@@ -196,38 +184,6 @@ function Settings.statusRows()
 
     return { value = format(L.STATUS_CHANNEL_OFF, C.NAME), level = "info" }
   end)
-
-  -- file
-  local file = section("file", L.UI_SYNTH_GROUP_QUEUE)
-
-  add(file, "file", L.UI_FICHE_QUEUE, function()
-    local Q = E.Queue
-
-    return { value = format(L.UI_FICHE_QUEUE_VALUE, Q.serverLength(), Q.peerLength()) }
-  end)
-  add(file, "envoyes", L.UI_FICHE_SENT, function()
-    local qs = E.Queue.sent
-
-    return { value = format(L.UI_FICHE_SENT_VALUE, qs.channel, qs.whisper) }
-  end)
-
-  local okDrops, queueDrops, channelDrops = pcall(function()
-    local qd = E.Queue.dropped
-
-    return qd.offline + qd.full + qd.failed, E.Channel.droppedTotal()
-  end)
-
-  if okDrops and (queueDrops > 0 or channelDrops > 0) then
-    add(file, "refuses", L.UI_FICHE_DROPS, function()
-      local qd = E.Queue.dropped
-
-      return {
-        value = format(L.UI_FICHE_DROPS_VALUE, qd.offline, qd.full, qd.failed, channelDrops),
-        level = "warn",
-        tag = format(L.UI_FICHE_DROPS_TAG, queueDrops + channelDrops),
-      }
-    end)
-  end
 
   -- ech
   local ech = section("ech", L.UI_FICHE_SEC_ECH)
@@ -320,7 +276,7 @@ function Settings.statusRows()
       }
     end)
     add(ech, "corps", L.UI_FICHE_BODIES, function()
-      return { value = format("%d \194\183 %d", E.State.rejected, E.DB.repaired), level = "warn" }
+      return { value = format("%s \194\183 %s", Format.number(E.State.rejected), Format.number(E.DB.repaired)), level = "warn" }
     end)
   end
 
@@ -468,7 +424,6 @@ function Settings.resultModel()
   if shown and shown.report == "status" then
     return {
       kind = "rows", sections = Settings.statusRows(), text = Settings.output(),
-      groups = EbonAPI.Synthesis and EbonAPI.Synthesis.status() or nil,
     }
   end
 
@@ -487,7 +442,6 @@ function Settings.resultModel()
     return {
       kind = "log", report = "trace", rows = rows, total = total, text = Settings.logText(rows), counts = counts,
       filter = logState.filter, query = logState.query, reverse = logState.reverse,
-      groups = EbonAPI.Synthesis and EbonAPI.Synthesis.forReport and EbonAPI.Synthesis.forReport("trace") or nil,
     }
   end
 
@@ -701,15 +655,9 @@ function Settings.opsModel()
     end
   end
 
-  local groups
-
-  if EbonAPI.Synthesis and EbonAPI.Synthesis.forReport then
-    groups = EbonAPI.Synthesis.forReport("opcodes")
-  end
-
   return {
     kind = "ops", report = "opcodes", rows = rows, total = total, text = Settings.opsText(rows), counts = counts,
-    filter = opsState.filter, query = opsState.query, sort = opsState.sort, desc = opsState.desc, groups = groups,
+    filter = opsState.filter, query = opsState.query, sort = opsState.sort, desc = opsState.desc,
   }
 end
 
@@ -725,29 +673,6 @@ end
 
 function Settings.setDebugTarget(name)
   debugTarget = name or NAME
-end
-
-local function addonValues(withAll)
-  local values = {}
-
-  if withAll then
-    values[ALL] = L.UI_ALL_ADDONS
-  end
-
-  for _, owner in ipairs(Perf.owners()) do
-    values[owner] = owner
-  end
-
-  return values
-end
-
-local function report(order, key, name)
-  return {
-    type = "execute", order = order, name = T(key),
-    func = function()
-      Settings.show(name)
-    end,
-  }
 end
 
 local function range(order, key, name, desc)
@@ -849,24 +774,6 @@ Settings.tree = {
     general = {
       type = "group", order = 1, name = T("UI_GENERAL"),
       args = {
-        language = {
-          type = "select", order = 1, name = T("UI_LANGUAGE"), desc = T("UI_LANGUAGE_DESC"),
-          values = function()
-            local values = {}
-
-            for _, entry in ipairs(EbonAPI:GetAvailableLanguages()) do
-              values[entry.code] = entry.name
-            end
-
-            return values
-          end,
-          get = function()
-            return EbonAPI:GetLanguage()
-          end,
-          set = function(_, code)
-            EbonAPI:SetLanguage(code)
-          end,
-        },
         minimap = {
           type = "group", inline = true, order = 2, name = T("UI_MINIMAP"),
           args = {
@@ -892,6 +799,43 @@ Settings.tree = {
               type = "execute", order = 3, name = T("UI_MINIMAP_RESET"),
               func = function()
                 Buttons.reset(NAME)
+              end,
+            },
+          },
+        },
+        journal = {
+          type = "group", inline = true, order = 3, name = T("UI_JOURNAL"),
+          args = {
+            prestigeAlert = {
+              type = "toggle", order = 1, name = T("UI_PRESTIGE_ALERT"), desc = T("UI_PRESTIGE_ALERT_DESC"),
+              get = function()
+                return EbonAPI.PrestigeAlert.isHidden()
+              end,
+              set = function(_, value)
+                EbonAPI.PrestigeAlert.setHidden(value)
+              end,
+            },
+          },
+        },
+        statusLine = {
+          type = "group", inline = true, order = 4, name = T("UI_STATUS_LINE"),
+          args = {
+            showSpeed = {
+              type = "toggle", order = 1, name = T("UI_SHOW_SPEED"), desc = T("UI_SHOW_SPEED_DESC"),
+              get = function()
+                return Parameters.statusShown("showSpeed")
+              end,
+              set = function(_, value)
+                Parameters.setStatusShown("showSpeed", value)
+              end,
+            },
+            showFps = {
+              type = "toggle", order = 2, name = T("UI_SHOW_FPS"), desc = T("UI_SHOW_FPS_DESC"),
+              get = function()
+                return Parameters.statusShown("showFps")
+              end,
+              set = function(_, value)
+                Parameters.setStatusShown("showFps", value)
               end,
             },
           },
@@ -931,8 +875,35 @@ Settings.tree = {
                 Skins.choose(name)
               end,
             },
+            huntAnimation = {
+              type = "toggle", order = 2, name = T("UI_SKIN_HUNT_ANIMATION"), desc = T("UI_SKIN_HUNT_ANIMATION_DESC"),
+              get = function()
+                return Parameters.huntAnimation()
+              end,
+              set = function(_, value)
+                Parameters.setHuntAnimation(value)
+              end,
+            },
+            prestigeAnimation = {
+              type = "toggle", order = 3, name = T("UI_SKIN_PRESTIGE_ANIMATION"), desc = T("UI_SKIN_PRESTIGE_ANIMATION_DESC"),
+              get = function()
+                return Parameters.prestigeAnimation()
+              end,
+              set = function(_, value)
+                Parameters.setPrestigeAnimation(value)
+              end,
+            },
+            backgroundAnimations = {
+              type = "toggle", order = 4, name = T("UI_SKIN_ANIMATIONS"), desc = T("UI_SKIN_ANIMATIONS_DESC"),
+              get = function()
+                return Parameters.backgroundAnimations()
+              end,
+              set = function(_, value)
+                Parameters.setBackgroundAnimations(value)
+              end,
+            },
             pending = {
-              type = "description", order = 2, fontSize = "medium",
+              type = "description", order = 5, fontSize = "medium",
               name = function()
                 return format(L.UI_SKIN_PENDING, Skins.chosen())
               end,
@@ -941,7 +912,7 @@ Settings.tree = {
               end,
             },
             reload = {
-              type = "execute", order = 3, name = T("UI_RELOAD"),
+              type = "execute", order = 6, name = T("UI_RELOAD"),
               hidden = function()
                 return not Skins.pending()
               end,
@@ -986,8 +957,14 @@ Settings.tree = {
             locked = { type = "toggle", order = 2, name = T("UI_LOCK") },
           },
         },
+        windowsReset = {
+          type = "execute", order = 4, name = T("UI_WINDOWS_RESET"), desc = T("UI_WINDOWS_RESET_DESC"),
+          func = function()
+            EbonAPI.Windows.reset()
+          end,
+        },
         defaults = {
-          type = "execute", order = 4, name = T("UI_DEFAULTS"), desc = T("UI_DEFAULTS_DESC"),
+          type = "execute", order = 5, name = T("UI_DEFAULTS"), desc = T("UI_DEFAULTS_DESC"),
           func = function()
             Parameters.resetPlayer()
           end,
@@ -1033,133 +1010,6 @@ Settings.tree = {
         return false
       end,
       args = {},
-    },
-    diagnostic = {
-      type = "group", order = 8, name = T("UI_DIAGNOSTIC"),
-      args = {
-        errors = {
-          type = "group", inline = true, order = 0, name = T("UI_ERRORS"),
-          args = {
-            network = {
-              type = "toggle", order = 1, name = T("UI_ERRORS_NETWORK"), desc = T("UI_ERRORS_NETWORK_DESC"),
-              get = function()
-                return EbonAPI.Problems.networkShown()
-              end,
-              set = function(_, value)
-                EbonAPI.Problems.setNetworkShown(value)
-              end,
-            },
-          },
-        },
-        reports = {
-          type = "group", inline = true, order = 1, name = T("UI_REPORTS"),
-          args = {
-            status = report(1, "UI_REPORT_STATUS", "status"),
-            trace = report(2, "UI_REPORT_TRACE", "trace"),
-            db = report(3, "UI_REPORT_DB", "db"),
-            opcodes = report(4, "UI_REPORT_OPCODES", "opcodes"),
-            senders = report(5, "UI_REPORT_SENDERS", "senders"),
-            kind = {
-              type = "select", order = 6, name = T("UI_TRACE_KIND"),
-              values = function()
-                local values = { [ALL] = L.UI_TRACE_ALL }
-
-                for _, kind in ipairs(Log.kinds()) do
-                  values[kind] = kind
-                end
-
-                return values
-              end,
-              get = function()
-                return traceKind
-              end,
-              set = function(_, value)
-                Settings.setTraceKind(value)
-              end,
-            },
-          },
-        },
-        debug = {
-          type = "group", inline = true, order = 2, name = T("UI_DEBUG"),
-          args = {
-            all = {
-              type = "toggle", order = 1, name = T("UI_ALL_ADDONS"),
-              get = function()
-                return Log.isDebug(nil)
-              end,
-              set = function(_, value)
-                Log.setDebug(nil, value)
-              end,
-            },
-            target = {
-              type = "select", order = 2, name = T("UI_ADDON"),
-              values = function()
-                return addonValues(false)
-              end,
-              get = function()
-                return debugTarget
-              end,
-              set = function(_, value)
-                Settings.setDebugTarget(value)
-              end,
-            },
-            one = {
-              type = "toggle", order = 3, name = T("UI_DEBUG_ONE"),
-              disabled = function()
-                return Log.isDebug(nil)
-              end,
-              get = function()
-                return Log.isDebug(debugTarget)
-              end,
-              set = function(_, value)
-                Log.setDebug(debugTarget, value)
-              end,
-            },
-          },
-        },
-        queue = {
-          type = "group", inline = true, order = 4, name = T("UI_QUEUEVIEW"),
-          args = {
-            open = {
-              type = "execute", order = 1, name = T("UI_QUEUEVIEW_OPEN"),
-              func = function()
-                EbonAPI.QueueView.open()
-              end,
-            },
-            keep = {
-              type = "toggle", order = 2, name = T("UI_QUEUEVIEW_KEEP"), desc = T("UI_QUEUEVIEW_KEEP_DESC"),
-              get = function()
-                return Queue.keepEnabled()
-              end,
-              set = function(_, value)
-                if not value then
-                  Queue.setKeep(false)
-
-                  return
-                end
-
-                -- The box is read again after each set: it stays unchecked unless the player answers Yes.
-                local api = setmetatable({ addonName = "EbonAPI" }, { __index = EbonAPI.Handle })
-
-                api:Confirm(L.UI_QUEUEVIEW_KEEP_CONFIRM, function()
-                  Queue.setKeep(true)
-
-                  if EbonAPI.Window then
-                    EbonAPI.Window.refresh()
-                  end
-                end)
-              end,
-            },
-          },
-        },
-        result = { type = "header", order = 4, name = T("UI_RESULT") },
-        output = {
-          type = "description", order = 5, fontSize = "medium", view = "result",
-          name = function()
-            return Settings.output() or L.UI_RESULT_EMPTY
-          end,
-        },
-      },
     },
   },
 }

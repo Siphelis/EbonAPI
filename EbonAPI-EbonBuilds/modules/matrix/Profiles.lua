@@ -5,17 +5,13 @@ ns.Profiles = Profiles
 
 local api = ns.api
 local Codec = EbonAPI.Profile
-local Key = ns.Catalog.Key
+local Key = EbonBuilds.Matrix.Key
 
 local db = nil
 local SAVED_SLOTS = ns.Const.SAVED_SLOTS
 
 local find, sub, match, gmatch, concat, byte = string.find, string.sub, string.match, string.gmatch, table.concat, string.byte
 
--- Format A : players[nom] = "c|slot,h,e,l[,k,u];...[|x|xh]". c porte parfois les lettres L, K, U (table l, k ou u
--- vide au niveau du joueur). Dans un slot, l vaut "" quand il est absent et "~" quand il vaut la chaine vide ;
--- k et u ne sont ecrits (les deux champs) que si l'un des deux existe. Les separateurs | , ; sont refuses a la
--- reception (x garde ses ;). Un profil que le format ne sait pas porter sans perte reste une table lisible.
 local KNOWN = { c = true, h = true, e = true, l = true, k = true, u = true, x = true, xh = true, t = true }
 local EMPTY_L = "~"
 local migration = { migrated = 0, failed = 0, reasons = {} }
@@ -134,10 +130,8 @@ local function Decode(value)
     return p
 end
 
--- Lectures partielles, sans decoder le profil entier.
 local function ClassOf(value)
     if type(value) == "string" then
-        -- Encode ecrit toujours tostring(c) en tete : on lit les chiffres sans creer de chaine.
         local c, i = byte(value, 1) - 48, 2
         local b = byte(value, i)
         while b and b >= 48 and b <= 57 do c = c * 10 + b - 48; i = i + 1; b = byte(value, i) end
@@ -146,12 +140,33 @@ local function ClassOf(value)
     return value.c
 end
 
--- Un echo par entree, lu directement dans la chaine (aucune copie, aucune table). Les entrees commencent par
--- | (la 1re) ou ; ; x ne contient jamais de virgule (OnBans la refuse), donc rien n'est lu apres la liste.
-local TEXT = "[|;]%d+,[^,|;]*,([^,|;]*)"
+local TEXTL = "[|;]%d+,[^,|;]*,([^,|;]*),([^,|;]*)"
 local SLOT = "[|;](%d+),([^,|;]*),([^,|;]*),([^,|;]*)"
 
--- Positions des barres du format : la liste des slots est entre la 1re et la 2e, x entre la 2e et la 3e, xh apres.
+local verdicts, verdictStamp = {}, -1
+
+local function Complete(text, locked)
+    local stamp = ns.Matrix.Version()
+    if stamp ~= verdictStamp then
+        verdictStamp = stamp
+        verdicts = {}
+    end
+    if type(text) ~= "string" or type(locked) ~= "string" then return false end
+    local byLocked = verdicts[text]
+    if not byLocked then
+        byLocked = {}
+        verdicts[text] = byLocked
+    end
+    local v = byLocked[locked]
+    if v == nil then
+        v = ns.Const.CompleteBuild(text, locked)
+        byLocked[locked] = v
+    end
+    return v
+end
+
+Profiles.IsComplete = Complete
+
 local function Bars(value)
     local bar = find(value, "|", 1, true)
     local bar2 = bar and find(value, "|", bar + 1, true)
@@ -192,15 +207,17 @@ local function Absorb(text, name, sign, total, hits)
     return total, hits
 end
 
-local function Contribute(fold, name, player, sign) -- player : chaine du format A ou table lisible
+local function Contribute(fold, name, player, sign)
     local total, hits = 0, nil
     if type(player) == "string" then
-        for text in gmatch(player, TEXT) do
-            if text ~= "" then total, hits = Absorb(text, name, sign, total, hits) end
+        for text, locked in gmatch(player, TEXTL) do
+            if text ~= "" and Complete(text, locked) then total, hits = Absorb(text, name, sign, total, hits) end
         end
     else
-        for _, text in pairs(player.e) do
-            if text ~= "" then total, hits = Absorb(text, name, sign, total, hits) end
+        for slot, text in pairs(player.e) do
+            if text ~= "" and Complete(text, player.l and player.l[slot]) then
+                total, hits = Absorb(text, name, sign, total, hits)
+            end
         end
     end
     if total == 0 then return end
@@ -261,7 +278,6 @@ local function Reshape(name, player, class, change)
     ns.Events.Fire("EB_PROFILES_CHANGED")
 end
 
--- Refuse une valeur recue qui porterait un separateur du format ; rien n'est change.
 local function Clean(sender, ...)
     for i = 1, select("#", ...) do
         local v = select(i, ...)
@@ -285,7 +301,6 @@ local function OnSlots(_, sender, class, slots)
     local keep = {}
     for i = 1, #slots do keep[slots[i]] = true end
 
-    -- Profil deja en chaine : "rien n'a change" se lit sur la chaine, sans decoder.
     local value = Players()[sender]
     if type(value) == "string" and ClassOf(value) == class then
         local stale = false
@@ -321,6 +336,7 @@ local function OnBuild(_, sender, class, slot, hash, text, locked)
         return
     end
     if not Clean(sender, class, slot, hash, text, locked) then return end
+    if not Complete(text, locked) then return end
     if locked == EMPTY_L then
         api:Reject("PROFILE.REJECTED", { sender = sender, reason = "reserved", sample = locked })
         return
@@ -385,6 +401,16 @@ function Profiles.Merge(name, class, builds)
             return false
         end
     end
+    local accepted, dropped = {}, false
+    for slot, b in pairs(builds) do
+        if slot > SAVED_SLOTS or Complete(b.echoes, b.locked) then
+            accepted[slot] = b
+        else
+            dropped = true
+        end
+    end
+    if dropped and next(accepted) == nil then return false end
+    builds = accepted
     local stored = players[name]
     local lazy = type(stored) == "string"
     local player = not lazy and Player(name, class) or nil
@@ -404,9 +430,6 @@ function Profiles.Merge(name, class, builds)
         hashes[slot] = Codec.Signature(signed)
     end
     if lazy then
-        -- Profil en chaine : on ecrit la chaine que donnerait Encode pour ces slots et on la compare au debut de la
-        -- chaine stockee (x/xh restent apres). Egale = rien n'a change, sans decoder. Sinon (y compris drapeaux
-        -- L/K/U ou classe differente) on decode et on suit le chemin d'avant.
         local list = {}
         for slot in pairs(kept) do list[#list + 1] = slot end
         table.sort(list)
@@ -469,7 +492,6 @@ function Profiles.Merge(name, class, builds)
     return true
 end
 
--- Un appel par slot, sans table : fn(nom, classe, slot, hash, echos, verrous).
 function Profiles.EachSlot(fn)
     for name, value in pairs(Players()) do
         if type(value) == "string" then
@@ -497,12 +519,12 @@ function Profiles.EachBuild(class, fn)
     for name, value in pairs(Players()) do
         if ClassOf(value) == class then
             if type(value) == "string" then
-                for text in gmatch(value, TEXT) do
-                    if text ~= "" then fn(name, text) end
+                for text, locked in gmatch(value, TEXTL) do
+                    if text ~= "" and Complete(text, locked) then fn(name, text) end
                 end
             else
-                for _, text in pairs(value.e) do
-                    if text ~= "" then fn(name, text) end
+                for slot, text in pairs(value.e) do
+                    if text ~= "" and Complete(text, value.l and value.l[slot]) then fn(name, text) end
                 end
             end
         end
@@ -579,8 +601,6 @@ function Profiles.SendBans()
     return ok
 end
 
--- Migration unique : chaque profil encore sous forme de table passe au format A ; un echec garde la table
--- lisible (jamais supprimee) et est compte avec son motif.
 local function Migrate()
     migration = { migrated = 0, failed = 0, reasons = {} }
     for name, value in pairs(Players()) do

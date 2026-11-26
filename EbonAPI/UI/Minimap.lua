@@ -21,7 +21,7 @@ local format, lower, sort = string.format, string.lower, table.sort
 local S = Skins.value
 local evaluate = Kit.evaluate
 
-local OWNER = "EbonAPI"
+local OWNER = EbonAPI.name
 local DISPLAYS = { BUTTON = true, GROUP = true, HIDDEN = true }
 local UNSUPPORTED = { "width", "height", "point", "disabled" }
 

@@ -2,6 +2,8 @@ local Core = AutoCallboardCore
 local RT = AutoCallboardRuntime
 local state = RT.state
 
+local Log = RT.Log
+
 RT.instanceTargetDirty = true
 
 local MAP_FILE_NAME_MAX_ATTEMPTS = 20
@@ -13,48 +15,6 @@ function RT.InvalidateInstanceTarget()
   RT.instanceTargetRetryAt = nil
 end
 
-local function CurrentInstanceVisit()
-  local ok, inInstance, instanceType = pcall(IsInInstance)
-
-  if not ok then
-    return nil
-  end
-
-  if not inInstance then
-    return "none"
-  end
-
-  local infoOk, instanceName, infoInstanceType = pcall(GetInstanceInfo)
-
-  if not infoOk or type(instanceName) ~= "string" or instanceName == "" then
-    return nil
-  end
-
-  if not instanceType or instanceType == "" then
-    instanceType = infoInstanceType
-  end
-
-  local questType = Core.currentInstanceQuestType(instanceType)
-
-  if questType == 0 then
-    return nil
-  end
-
-  return questType .. ":" .. instanceName
-end
-
-function RT.NoteInstanceVisit()
-  local visit = CurrentInstanceVisit()
-
-  if not visit or visit == RT.instanceVisit then
-    return
-  end
-
-  RT.api:Trace("instance", RT.instanceVisit, visit)
-  RT.instanceVisit = visit
-  RT.ClearVisitExclusions()
-end
-
 local function GetCurrentMapFileName(instanceType)
   local mapIsBrowsed = WorldMapFrame
       and RT.FrameIsVisibleOrShown(WorldMapFrame)
@@ -64,9 +24,9 @@ local function GetCurrentMapFileName(instanceType)
     return nil
   end
 
-  pcall(SetMapToCurrentZone)
+  RT.SafeCall(SetMapToCurrentZone)
 
-  local _, mapFileName = pcall(GetMapInfo)
+  local mapFileName = RT.SafeCall(GetMapInfo)
   if type(mapFileName) ~= "string" or mapFileName == "" then
     local attempts = (RT.instanceTargetMapAttempts or 0) + 1
 
@@ -74,7 +34,7 @@ local function GetCurrentMapFileName(instanceType)
     RT.instanceTargetMapPending = attempts < MAP_FILE_NAME_MAX_ATTEMPTS
 
     if attempts == MAP_FILE_NAME_MAX_ATTEMPTS then
-      return nil, RT.api:Problem("INSTANCE.MAP_UNAVAILABLE", { attempts = attempts, instanceType = instanceType })
+      return nil, Core.problem("INSTANCE.MAP_UNAVAILABLE", { attempts = attempts, instanceType = instanceType })
     end
 
     return nil
@@ -146,7 +106,7 @@ function RT.ComputeCurrentInstanceQuestTarget()
   addName(mapFileName)
 
   if mapProblem then
-    RT.api:Report(mapProblem)
+    Core.report(mapProblem)
   end
 
   local target = Core.buildCurrentInstanceTarget({
@@ -184,7 +144,7 @@ function RT.GetCurrentInstanceQuestTarget()
   end
 
   if target then
-    RT.instanceTargetSignature = tostring(target.questType) .. ":" .. tostring(target.name)
+    RT.instanceTargetSignature = tostring(target.category) .. ":" .. tostring(target.name)
   else
     RT.instanceTargetSignature = "none:" .. tostring(reason)
   end
@@ -203,27 +163,40 @@ function RT.GetCurrentInstanceQuestTarget()
   return target, reason
 end
 
-function RT.SetRequestedInstance(areaId, questType, name)
+local API_INSTANCE_KINDS = { [2] = "party", [3] = "raid" }
+
+function RT.BuildRequestedInstanceTarget(areaId, questType, name)
   areaId = math.floor(tonumber(areaId) or 0)
-  questType = Core.sanitizeQuestType(questType)
 
-  if areaId <= 0 or (questType ~= 2 and questType ~= 3) then
-    RT.requestedInstanceTarget = nil
-  else
-    local label = Core.trim(name)
+  local instanceType = API_INSTANCE_KINDS[tonumber(questType) or 0]
 
-    RT.requestedInstanceTarget = {
-      builtTarget = true,
-      areaId = areaId,
-      questType = questType,
-      name = label ~= "" and label or tostring(areaId),
-      aliases = {},
-    }
+  if areaId <= 0 or not instanceType then
+    return nil
   end
 
+  local areaName = Core.travelAreaNames and Core.travelAreaNames[areaId]
+  local label = Core.trim(name)
+
+  return Core.buildCurrentInstanceTarget({
+    instanceType = instanceType,
+    areaId = areaId,
+    name = label ~= "" and label or areaName,
+    names = { areaName },
+  })
+end
+
+function RT.SetRequestedInstance(areaId, questType, name)
+  local target = RT.BuildRequestedInstanceTarget(areaId, questType, name)
+
+  RT.requestedInstanceTarget = target
+  RT.requestedInstance = target and {
+    areaId = target.areaId,
+    questType = tonumber(questType),
+    name = target.name,
+  } or nil
   RT.InvalidateInstanceTarget()
 
-  return RT.requestedInstanceTarget ~= nil
+  return target ~= nil
 end
 
 function RT.RefreshCurrentInstanceQuestTarget(source)
@@ -234,10 +207,9 @@ function RT.RefreshCurrentInstanceQuestTarget(source)
   if RT.currentInstanceQuestSignature ~= signature then
     RT.currentInstanceQuestSignature = signature
     if target then
-      RT.api:Trace("instance", source, target.name)
-    elseif state and state.autoCurrentInstanceQuest
-        and (reason == "map_unavailable" or reason == "is_in_instance_failed" or reason == "missing_is_in_instance") then
-      RT.api:Trace("instance", source, reason)
+      Log("instance", "target source=", source, " category=", target.category, " name=", target.name, " aliases=", table.concat(target.aliases or {}, ", "))
+    elseif state and state.autoCurrentInstanceQuest then
+      Log("instance", "target unavailable source=", source, " reason=", reason)
     end
   end
 

@@ -22,7 +22,7 @@ local WIDGET_W = 176
 local BASE_FONT = 10
 local LINE_PAD = 6
 local TEXT_GAP = 2
-local REFRESH_INTERVAL = 0.05
+local REFRESH_INTERVAL = RT.REFRESH_INTERVAL
 local ARRIVED_YARDS = 12
 local ARRIVED_FLYING_YARDS = 45
 local TWO_PI = math.pi * 2
@@ -158,7 +158,6 @@ function RT.DressArrowModel(model, skin)
 
   pcall(model.ClearModel, model)
   local loaded, detail = pcall(model.SetModel, model, skin.path)
-
   pcall(model.SetModelScale, model, Core.arrowModelScale(skin))
 
   if not loaded then
@@ -183,9 +182,9 @@ function RT.RouteArrowPreviewAngle()
     return RT.RouteArrowRotation(0, facing)
   end
 
-  local map, x, y = RT.ReadPlayerMapPoint()
-  local here = map and RT.WorldPointFor(map, x, y)
-  local there = RT.WorldPointFor(target.map, target.x, target.y)
+  local map, x, y, areaId = RT.ReadPlayerMapPoint()
+  local here = map and RT.WorldPointFor(map, x, y, areaId)
+  local there = target.point or RT.WorldPointFor(target.map, target.x, target.y)
 
   if not here or not there or here.map ~= there.map then
     return RT.RouteArrowRotation(0, facing)
@@ -198,10 +197,6 @@ function RT.RouteArrowPreviewAngle()
   end
 
   return RT.RouteArrowRotation(bearing, facing)
-end
-
-function RT.RouteArrowTile()
-  return activeTile
 end
 
 function RT.HideRouteArrowShape()
@@ -253,12 +248,55 @@ function RT.GetRouteArrowTarget()
   return target
 end
 
-function RT.ClearRouteArrowTarget()
+local function ClearTarget()
   target = nil
 
   if arrowFrame then
     arrowFrame:Hide()
   end
+end
+
+function RT.ClearRouteArrowTarget()
+  ClearTarget()
+  RT.RefreshQuestArrow("route")
+end
+
+function RT.IsQuestArrowEnabled()
+  return RT.state and RT.state.questArrow and true or false
+end
+
+function RT.RefreshQuestArrow()
+  if target and target.source ~= "quest" then
+    return false
+  end
+
+  local contract, point
+
+  if RT.IsQuestArrowEnabled() then
+    contract, point = RT.NearestContractTarget()
+  end
+
+  if not contract then
+    if target then
+      ClearTarget()
+    end
+
+    return false
+  end
+
+  target = { source = "quest", point = point, title = Core.questTitle(contract), zone = point.zone, contract = contract }
+  RT.CreateRouteArrow()
+  RT.RefreshRouteArrowLabel()
+  RT.UpdateRouteArrow(true)
+  arrowFrame:Show()
+
+  return true
+end
+
+function RT.WatchQuestArrow()
+  RT.RefreshQuestArrow("watch")
+
+  return target and target.source == "quest" and 1 or 5
 end
 
 local function StepFacts(step)
@@ -282,10 +320,7 @@ end
 function RT.SetRouteArrowTarget(step, action)
   if type(step) ~= "table" or not step.map or step.map == "" or not step.x or not step.y then
     RT.ClearRouteArrowTarget()
-
-    local facts = StepFacts(step)
-
-    RT.api:Report(RT.api:Problem("ARROW.NO_COORDINATES", facts))
+    RT.api:Report(RT.api:Problem("ARROW.NO_COORDINATES", StepFacts(step)))
     return false
   end
 
@@ -293,7 +328,6 @@ function RT.SetRouteArrowTarget(step, action)
 
   if not point then
     RT.ClearRouteArrowTarget()
-
     local facts = StepFacts(step)
 
     facts.map = tostring(step.map)
@@ -302,10 +336,30 @@ function RT.SetRouteArrowTarget(step, action)
   end
 
   target = {
+    source = "route",
     map = step.map,
     x = step.x,
     y = step.y,
     step = step,
+    action = action,
+  }
+
+  RT.CreateRouteArrow()
+  RT.RefreshRouteArrowLabel()
+  RT.UpdateRouteArrow(true)
+  arrowFrame:Show()
+
+  return true
+end
+
+function RT.SetRouteArrowWorldTarget(point, action)
+  if type(point) ~= "table" or not point.x or not point.y or not point.map or point.map == "" then
+    return false
+  end
+
+  target = {
+    source = "portal",
+    point = point,
     action = action,
   }
 
@@ -328,7 +382,7 @@ function RT.UpdateRouteArrow(force)
     return
   end
 
-  local map, x, y = RT.ReadPlayerMapPoint()
+  local map, x, y, areaId = RT.ReadPlayerMapPoint()
 
   if not map then
     arrowFrame.status:SetText(L.ROUTE_ARROW_NO_POSITION)
@@ -336,16 +390,10 @@ function RT.UpdateRouteArrow(force)
     return
   end
 
-  local here = RT.WorldPointFor(map, x, y)
-  local there = RT.WorldPointFor(target.map, target.x, target.y)
+  local here = RT.WorldPointFor(map, x, y, areaId)
+  local there = target.point or RT.WorldPointFor(target.map, target.x, target.y)
 
-  if not here or not there then
-    arrowFrame.status:SetText(L.ROUTE_ARROW_UNKNOWN_SPOT)
-    RT.HideRouteArrowShape()
-    return
-  end
-
-  if here.map ~= there.map then
+  if not here or not there or here.map ~= there.map then
     arrowFrame.status:SetText(L.ROUTE_ARROW_FAR)
     RT.HideRouteArrowShape()
     return
@@ -440,6 +488,6 @@ end
 
 function RT.RefreshRouteArrowLabel()
   if arrowFrame and target then
-    arrowFrame.label:SetText(target.action and Core.routeActionLine(target.action) or Core.routeStepLine(target.step))
+    arrowFrame.label:SetText(target.source == "quest" and (target.title .. " - " .. target.zone) or target.action and Core.routeActionLine(target.action) or (target.step and Core.routeStepLine(target.step) or ""))
   end
 end

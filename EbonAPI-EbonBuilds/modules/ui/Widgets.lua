@@ -3,9 +3,8 @@ local _, ns = ...
 local Widgets = {}
 ns.Widgets = Widgets
 
-local CLASS_TEXTURE = ns.Const.CLASS_TEXTURE
-local UNKNOWN_ICON  = "Interface\\Icons\\INV_Misc_QuestionMark"
-local SOLID         = "Interface\\Buttons\\WHITE8X8"
+local UNKNOWN_ICON  = EbonBuilds.Const.UNKNOWN_ICON
+local SOLID         = EbonBuilds.Const.SOLID
 local DIM_ALPHA     = 0.5
 local HOVER_ALPHA   = 0.2
 local HINT_X        = 6
@@ -68,8 +67,9 @@ function Widgets.SetRing(ring, quality)
         ring:Hide()
         return
     end
-    local c = ns.Const.QUALITY_RGB[quality] or ns.Const.QUALITY_RGB[0]
-    ring:SetVertexColor(c[1], c[2], c[3], 1)
+    local data = EbonAPI.ClientData
+    local c = data.Quality(quality) or data.Quality(0)
+    ring:SetVertexColor(c.r, c.g, c.b, 1)
     ring:Show()
 end
 
@@ -147,15 +147,79 @@ function Widgets.SpellTip(element, spellOf, options)
         if not spellId then return false end
         local name = GetSpellInfo(spellId)
         if name and options.colored then
-            add("|cff" .. (ns.Const.QUALITY_HEX[quality or 0] or "ffffff") .. name .. "|r")
+            add("|cff" .. (ns.Const.QualityHex(quality or 0) or "ffffff") .. name .. "|r")
         elseif name then
             add(name, "title")
         end
-        if options.describe and utils and utils.GetSpellDescription then
-            local desc = utils.GetSpellDescription(spellId, 500, stacks or 1)
-            if desc and desc ~= "" then add(desc, "text", true) end
+        if options.describe then
+            local desc = EbonAPI.EchoCatalog.Description(spellId, stacks)
+            if desc then add(desc, "text", true) end
         end
     end, options.anchor or "ANCHOR_RIGHT")
+end
+
+local function ClassColored(card)
+    return string.format("|cff%02x%02x%02x%s|r", floor(card.r * 255 + 0.5), floor(card.g * 255 + 0.5), floor(card.b * 255 + 0.5), card.name)
+end
+
+local function SpecNames(entry)
+    local out = {}
+    for _, family in ipairs(entry.families or {}) do
+        local spec = EbonAPI.ClientData.SpecByKey(family)
+        local card = spec and EbonAPI.ClientData.Class(spec.class)
+        if card then out[#out + 1] = ClassColored(card) .. " - " .. spec.name end
+    end
+    return out
+end
+
+local function ClassNames(entry)
+    local mask = tonumber(entry.classMask) or 0
+    if mask == 0 then return {} end
+    local out, all = {}, EbonAPI.ClientData.Classes()
+    for _, card in ipairs(all) do
+        if card.bit and floor(mask / card.bit) % 2 == 1 then out[#out + 1] = ClassColored(card) end
+    end
+    if #out >= #all then return {} end
+    return out
+end
+
+function Widgets.EchoTip(add, info)
+    local entry = info.entry
+    local L = ns.L
+    local quality = EbonAPI.ClientData.Quality(entry.quality)
+    if quality then add("|cff" .. quality.hex .. quality.name .. "|r") end
+    local desc = EbonAPI.EchoCatalog.Description(entry.spellId, 1)
+    if desc then
+        add(" ")
+        add(desc, "text", true)
+    end
+    add(" ")
+    if info.weight then
+        if info.modified and info.default then
+            add(string.format(L["prio.tip.weight.modified"], info.weight, info.default))
+        else
+            add(string.format(L["prio.tip.weight"], info.weight))
+        end
+    end
+    local scores = info.build and ns.PrioritiesTabWeights.ScoresText(entry, info.build)
+    if scores and scores ~= "" then add(scores) end
+    local specs = SpecNames(entry)
+    if #specs > 0 then
+        add(string.format(L["prio.tip.spec"], table.concat(specs, ", ")))
+    else
+        local classes = ClassNames(entry)
+        if #classes > 0 then add(string.format(L["prio.tip.class"], table.concat(classes, ", "))) end
+    end
+    if #specs == 0 and type(entry.families) == "table" and #entry.families > 0 then
+        local names = {}
+        for i, family in ipairs(entry.families) do names[i] = tostring(ns.FamilyName(family)) end
+        add(string.format(L["prio.tip.family"], table.concat(names, ", ")))
+    end
+    local data = EbonAPI.EchoCatalog.Entry(entry.spellId)
+    local maxStack = data and tonumber(data.maxStack)
+    if maxStack and maxStack > 1 then add(string.format(L["prio.tip.maxstack"], maxStack)) end
+    if info.wanted then add(L["prio.echo.wanted"], "success") end
+    if info.banned then add(L["prio.echo.banned"], "danger") end
 end
 
 function Widgets.Tabs(parent, entries, onSelect)
@@ -177,9 +241,10 @@ function Widgets.ClassIcon(element, classOf)
 end
 
 function Widgets.SetClassIcon(tex, classToken)
-    local coords = classToken and CLASS_ICON_TCOORDS[classToken]
-    if coords then
-        tex:SetTexture(CLASS_TEXTURE)
+    local class = classToken and EbonAPI.ClientData.Class(classToken)
+    if class then
+        local coords = class.coords
+        tex:SetTexture(class.texture)
         tex:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
     else
         tex:SetTexture(UNKNOWN_ICON)
@@ -187,9 +252,11 @@ function Widgets.SetClassIcon(tex, classToken)
     end
 end
 
+local GREY_CLASS = { r = 0.5, g = 0.5, b = 0.5 }
+
 function Widgets.ClassHex(classToken)
-    local c = ns.Const.CLASS_RGB[classToken] or { 0.5, 0.5, 0.5 }
-    return string.format("%02x%02x%02x", floor(c[1] * 255), floor(c[2] * 255), floor(c[3] * 255))
+    local c = classToken and EbonAPI.ClientData.Class(classToken) or GREY_CLASS
+    return string.format("%02x%02x%02x", floor(c.r * 255), floor(c.g * 255), floor(c.b * 255))
 end
 
 local FLAT = { bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 }

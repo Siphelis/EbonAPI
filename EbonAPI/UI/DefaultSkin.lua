@@ -3,6 +3,182 @@ local PANEL = "Interface\\Buttons\\UI-Panel-Button-"
 local SLICES = { { 0, 0.09375 }, { 0.09375, 0.53125 }, { 0.53125, 0.625 } }
 local CAP = 12
 
+local function wirePress(button)
+  button:SetScript("OnMouseDown", function(self)
+    self.pressed = true
+    self:Visual()
+  end)
+  button:SetScript("OnMouseUp", function(self)
+    self.pressed = false
+    self:Visual()
+  end)
+
+  button:Visual()
+end
+
+function EbonAPI.Skins.synthesisCards(parent, B)
+  local Tiles = EbonAPI.Tiles
+  local MARGIN, SPACE = 6, 6
+  local look = {}
+  local LEVEL_KEY = { ok = "success", warn = "caution", bad = "danger", info = "muted", net = "focus" }
+
+  local function mainRole()
+    return B.value("widgets.synthesis.value.font")
+  end
+
+  local function disc()
+    return math.ceil(B.value("fonts." .. mainRole() .. ".size")) + math.ceil(B.value("fonts.small.size"))
+  end
+
+  local function paintRing(tile)
+    tile.ringKey = LEVEL_KEY[tile.item.level] or "muted"
+    B.paint(tile.ring, "SetVertexColor", tile.ringKey)
+  end
+
+  local function paintMarker(tile)
+    Tiles.paintMarker(tile, tile.ring:GetHeight() * 0.6)
+    tile.marker:ClearAllPoints()
+    tile.marker:SetPoint("CENTER", tile.ring, "CENTER", 0, 0)
+  end
+
+  local function paintTexts(tile)
+    local item = tile.item
+    local width = tile.cardWidth or 1
+    local x0 = MARGIN + tile.ring:GetWidth() + SPACE
+    local avail = math.max(1, width - x0 - MARGIN)
+
+    tile.label:SetText(item.label or "")
+    tile.value:SetText(item.value or "")
+    tile.sub:SetText(item.sub or "")
+    Tiles.setTip(tile)
+
+    local first = math.ceil(B.value("fonts." .. mainRole() .. ".size"))
+    tile.label:SetWidth(4096)
+
+    local lw = math.min(math.max(1, math.ceil(tile.label:GetStringWidth() or 0) + 1), math.max(1, avail - SPACE - 1))
+
+    tile.label:ClearAllPoints()
+    tile.label:SetPoint("TOPLEFT", tile.frame, "TOPLEFT", x0, -MARGIN)
+    tile.label:SetWidth(lw)
+    tile.label:SetHeight(first)
+    tile.value:ClearAllPoints()
+    tile.value:SetPoint("TOPLEFT", tile.frame, "TOPLEFT", x0 + lw + SPACE, -MARGIN)
+    tile.value:SetWidth(math.max(1, avail - lw - SPACE))
+    tile.value:SetHeight(first)
+    tile.sub:ClearAllPoints()
+    tile.sub:SetPoint("TOPLEFT", tile.frame, "TOPLEFT", x0, -(MARGIN + first))
+    tile.sub:SetWidth(avail)
+    tile.sub:SetHeight(math.ceil(B.value("fonts.small.size")))
+  end
+
+  function look.new(box)
+    local frame = CreateFrame("Button", nil, box)
+    local tile = { frame = frame, lookName = "cards", discKey = "well" }
+
+    Tiles.wire(box, tile)
+    tile.ring = frame:CreateTexture(nil, "BACKGROUND")
+    tile.disc = frame:CreateTexture(nil, "BORDER")
+    tile.marker = frame:CreateTexture(nil, "OVERLAY")
+    tile.ring:SetTexture(B.media("circle"))
+    tile.disc:SetTexture(B.media("circle"))
+    tile.label = B.text(frame, mainRole(), "text")
+    tile.value = B.text(frame, mainRole(), "muted")
+    tile.sub = B.text(frame, "small", "muted")
+
+    for _, fs in ipairs({ tile.label, tile.value, tile.sub }) do
+      fs:SetJustifyH("LEFT")
+      fs:SetJustifyV("TOP")
+      EbonAPI.Tiles.wrap(fs, false)
+    end
+
+    return tile
+  end
+
+  function look.height(box)
+    return disc() + 2 * MARGIN
+  end
+
+  function look.paint(box, tile, width, height)
+    local frame = tile.frame
+    local key = Tiles.borderKey(box, tile)
+    local size = disc()
+    local ring = 4
+
+    B.frame(frame, "small", B.value("widgets.synthesis.fill"), key)
+    tile.border = key
+    frame:SetWidth(width)
+    frame:SetHeight(height)
+    tile.cardWidth = width
+
+    tile.ring:SetWidth(size)
+    tile.ring:SetHeight(size)
+    tile.ring:ClearAllPoints()
+    tile.ring:SetPoint("TOPLEFT", frame, "TOPLEFT", MARGIN, -MARGIN)
+    tile.disc:SetWidth(size - ring)
+    tile.disc:SetHeight(size - ring)
+    tile.disc:ClearAllPoints()
+    tile.disc:SetPoint("CENTER", tile.ring, "CENTER", 0, 0)
+    B.paint(tile.disc, "SetVertexColor", tile.discKey)
+    paintRing(tile)
+
+    B.font(tile.label, mainRole())
+    B.font(tile.value, mainRole())
+    B.font(tile.sub, "small")
+    B.paint(tile.label, "SetTextColor", "text")
+    B.paint(tile.value, "SetTextColor", "muted")
+    B.paint(tile.sub, "SetTextColor", "muted")
+    paintTexts(tile)
+    paintMarker(tile)
+  end
+
+  function look.update(box, tile, old)
+    local item = tile.item
+
+    if item.label ~= old.label or item.value ~= old.value or item.sub ~= old.sub then
+      paintTexts(tile)
+    end
+
+    if item.level ~= old.level then
+      paintRing(tile)
+      paintMarker(tile)
+    end
+
+    local key = Tiles.borderKey(box, tile)
+
+    if key ~= tile.border then
+      B.frame(tile.frame, "small", B.value("widgets.synthesis.fill"), key)
+      tile.border = key
+    end
+  end
+
+  return Tiles.build(parent, look)
+end
+
+function EbonAPI.Skins.groupLabel(B, box, index, text, role, width, y)
+  local label = box.labelPool[index]
+
+  B.font(label, role)
+  B.paint(label, "SetTextColor", B.value("widgets.synthesis.group.color"))
+  label:SetText(text)
+  label:ClearAllPoints()
+  label:SetPoint("TOPLEFT", box, "TOPLEFT", 0, -y)
+  label:SetWidth(width)
+
+  local lh = EbonAPI.Tiles.lineHeight(label, role)
+
+  label:SetHeight(lh)
+  label:Show()
+
+  return lh
+end
+
+function EbonAPI.Skins.finishLayout(box, y)
+  box:SetHeight(math.max(1, y))
+  box.contentHeight = y
+
+  return y
+end
+
 local function panelButton(parent, B, template, name)
   local button = B.baseButton(parent, function(self)
     local state = "Up"
@@ -59,16 +235,7 @@ local function panelButton(parent, B, template, name)
   glow:SetBlendMode("ADD")
   glow:SetAllPoints(button)
 
-  button:SetScript("OnMouseDown", function(self)
-    self.pressed = true
-    self:Visual()
-  end)
-  button:SetScript("OnMouseUp", function(self)
-    self.pressed = false
-    self:Visual()
-  end)
-
-  button:Visual()
+  wirePress(button)
 
   return button
 end
@@ -85,10 +252,10 @@ EbonAPI:RegisterSkin("Azeroth", {
 
   palette = {
     bg = 0x000000,
-    bgSoft = { 0x0C0C1A, 0.9 },
+    bgSoft = { 0x0C0C1A, 1 },
     well = { 0x0C0C1A, 0.9 },
-    card = { 0x191919, 0.6 },
-    border = 0xFFFFFF,
+    card = { 0x191919, 1 },
+    border = 0x000000, -- S4 (A99.T9): black contour (Azeroth only; the other skins set their own border)
     borderDim = 0x666666,
     button = 0x2A1A0A,
     buttonBorder = 0x8C6E3C,
@@ -115,6 +282,7 @@ EbonAPI:RegisterSkin("Azeroth", {
     navBg = { 0x000000, 0.35 },
     pageBg = { 0x000000, 0 },
     footerBg = { 0x000000, 0 },
+    menuBg = { 0x000000, 0.8 },
     success = 0x40FF40,
     danger = 0xFF4444,
     caution = 0xFF9900,
@@ -139,6 +307,7 @@ EbonAPI:RegisterSkin("Azeroth", {
     circle = "Interface\\AddOns\\EbonAPI\\Media\\Circle",
     chevron = "Interface\\AddOns\\EbonAPI\\Media\\Chevron",
     ring = "Interface\\AddOns\\EbonAPI\\Media\\Ring.tga",
+    rosace = "Interface\\AddOns\\EbonAPI\\Media\\Rosace\\",
     icons = "Interface\\AddOns\\EbonAPI\\Media\\Icons.tga",
     sidebar = "Interface\\AddOns\\EbonAPI\\Media\\Sidebar",
     error = "Interface\\AddOns\\EbonAPI\\Media\\Error",
@@ -170,9 +339,10 @@ EbonAPI:RegisterSkin("Azeroth", {
     card = { border = "border" },
     strata = "HIGH",
     texture = "",
+    textureTile = 0,
     textureAlpha = 1,
     gradient = { orientation = "NONE", color = "text", from = 0, to = 0.06 },
-    shadow = { base = 4, spread = 14, alphaBase = 0.25, alphaSpread = 0.5, x = 0, y = 0, level = -1 },
+    shadow = { base = 4, spread = 14, alphaBase = 0.25, alphaSpread = 0.5, x = 0, y = 0, level = -1, attached = false },
     glass = {
       enabled = false, tint = 0xFFFFFF, darken = 0.35, milk = 0.1, grain = 0.06,
       sheen = 0.08, sheenHeight = 0.4, edge = 0.12, edgeSize = 1,
@@ -182,7 +352,18 @@ EbonAPI:RegisterSkin("Azeroth", {
   },
 
   windows = {
-    detach = { header = false, nav = false, page = false, pages = false, list = {} },
+    detach = { header = false, nav = false, page = false, pages = false, list = {}, footer = false }, -- T14: footer
+    tile = { content = false }, -- R7f
+    -- R7h
+    tilePages = {
+      "skillTreeInset",
+      "ProjectEbonholdEchoJournalMyRunInset+ProjectEbonholdEchoJournalCatalogInset",
+      "WardrobeCollectionFrame",
+      "MountJournal",
+      "PetJournal",
+      "EbonholdPrestigeFrame",
+    },
+    -- R7h end
     gap = 8,
     snap = 12,
     cascade = 24,
@@ -193,9 +374,10 @@ EbonAPI:RegisterSkin("Azeroth", {
     height = 40,
     controls = "RIGHT",
     title = { show = true, x = 2, y = 2, align = "CENTER", color = "heading", font = "normal" },
-    banner = { texture = "Interface\\DialogFrame\\UI-DialogBox-Header", width = 300, height = 64, y = 12 },
+    banner = { texture = "Interface\\DialogFrame\\UI-DialogBox-Header", width = 300, height = 64, y = 12, pad = 16, titleY = 14 },
     version = { show = false, gap = 8, y = 1 },
     search = { show = true, width = 160, height = 20, gap = 10, inset = 6, insetY = 2, position = "CONTROLS" },
+    reset = { brick = "close" },
     close = { brick = "native", show = true, size = 32, width = 32, y = 4, glyph = "", hover = 0xE81123, ink = 0x4D0000 },
     rule = { show = false, size = 1 },
     inset = -14,
@@ -271,14 +453,56 @@ EbonAPI:RegisterSkin("Azeroth", {
     crumbs = { show = false, height = 20, separator = ">", color = "muted", font = "small" },
   },
 
+  -- T16: px added to the common Saves hover margin (Common saves.hoverMargin)
+  saves = { hoverMarginAdd = 0 },
+
+  -- R7a
+  journal = { tab = { seat = { leftAdd = 0, topAdd = 0, rightAdd = 0, bottomAdd = 0 } }, title = { gapAdd = 0 } },
+
   widgets = {
     disabledAlpha = 0.5,
+    checkBox = { fill = 0x0D0D0D },
+    echoTile = {
+      markColor = 0x9A6B33,
+      stacksColor = 0xC8C8C8,
+      missingFill = 0x5A1414,
+      missingBorder = 0xE03A3A,
+      round = true,
+      width = 60,
+      height = 84,
+      nameTop = 58,
+      nameHeight = 24,
+      disc = {
+        ["0"] = "Interface\\AddOns\\ProjectEbonhold\\assets\\perk_quality_0",
+        ["1"] = "Interface\\AddOns\\ProjectEbonhold\\assets\\perk_quality_1",
+        ["2"] = "Interface\\AddOns\\ProjectEbonhold\\assets\\perk_quality_2",
+        ["3"] = "Interface\\AddOns\\ProjectEbonhold\\assets\\perk_quality_3",
+      },
+      ring = {
+        ["0"] = "Interface\\AddOns\\ProjectEbonhold\\assets\\perk_border_quality_0",
+        ["1"] = "Interface\\AddOns\\ProjectEbonhold\\assets\\perk_border_quality_1",
+        ["2"] = "Interface\\AddOns\\ProjectEbonhold\\assets\\perk_border_quality_2",
+        ["3"] = "Interface\\AddOns\\ProjectEbonhold\\assets\\perk_border_quality_3",
+      },
+      discScale = 1.2,
+      iconScale = 0.8,
+      ringScale = 110 / 32,
+      ringShift = 2,
+      markScale = 0.4,
+      book = "Interface\\Icons\\INV_Misc_Book_09",
+      bookScale = 11 / 36,
+      bookCorner = 2,
+      nameQualityColor = true,
+    },
+    buildCard = { selectedFill = 0x0D1A40, empty = 0x666666, avatar = 0x595966, missing = 0xE6594D, back = 0x14141A },
+    buildRow = { neutral = 0x737380, fillNormal = 0x141724, fillSelected = 0x1A295C, edgeNormal = 0x594D1F, hole = 0x0D0D14, missing = 0xE6594D },
+    railDisc = { neutral = 0x808080, empty = 0x0D0D0D },
     tooltip = { anchor = "ANCHOR_RIGHT", skinned = false },
     button = { brick = "native", height = 22, padding = 15 },
     execute = { brick = "native", height = 22 },
     toggle = {
       brick = "native", height = 26, size = 26, mark = 3, gap = 2, margin = 2,
-      markTexture = "", roundKnob = false,
+      markTexture = "", roundKnob = false, knob = "thumb",
       switch = { width = 28, height = 14 },
     },
     range = {
@@ -289,11 +513,12 @@ EbonAPI:RegisterSkin("Azeroth", {
     },
     select = {
       brick = "default", height = 42, top = 16, padding = 8,
-      arrow = { size = 12, right = 22, x = 6, y = 1 },
+      arrow = { size = 12, right = 22, x = 6, y = 1, gray = false },
     },
     menu = {
-      brick = "list", row = 20, gap = 1, padding = 3, inset = 12, offset = 2, strata = "FULLSCREEN_DIALOG",
+      brick = "list", color = "menuBg", row = 20, gap = 1, padding = 3, inset = 12, offset = 2, strata = "FULLSCREEN_DIALOG",
       title = { font = "small", color = "heading", align = "LEFT" },
+      native = { dress = true, border = "buttonBorder", text = "text", dim = "muted", check = "checked", arrow = "text", hover = "rowHover", font = "normal", checkGlyph = "x", arrowGlyph = ">", separator = "borderDim", markX = 0, markY = 0, levelBelow = 1 },
     },
     color = { brick = "default", height = 22, size = 18, gap = 6, margin = 2 },
     input = {
@@ -304,18 +529,6 @@ EbonAPI:RegisterSkin("Azeroth", {
       brick = "default", height = 22, gap = 8, lines = "BOTH", size = 1, upper = false, color = "heading",
     },
     text = { brick = "default", extra = 4 },
-    output = {
-      brick = "stats", height = 300, padding = 8, frame = "SMALL", font = "normal", fill = "well",
-      border = "borderDim",
-      section = { color = "heading", font = "normal" },
-      label = { color = "muted", width = 130 },
-      value = { color = "text" },
-      row = { gap = 4 },
-      marker = { size = 14 },
-      log = { time = 56, owner = 110, tint = 0.12, gap = 2 },
-      toolbar = { gap = 6, search = 160 },
-      ops = { dir = 64, code = 56 },
-    },
     synthesis = {
       brick = "slots", tile = { width = 150, height = 54 }, gap = 6,
       label = { font = "small" }, value = { font = "normal" }, group = { color = "heading" },
@@ -323,8 +536,9 @@ EbonAPI:RegisterSkin("Azeroth", {
     },
     stacked = { brick = "default" },
     saves = {
-      brick = "default", view = "grid", detail = "dock", search = false, width = 240, fold = 0.3,
+      brick = "default", view = "grid", detail = "dock", denseTipAnchor = "ANCHOR_LEFT", denseTipGap = 0, width = 240, fold = 0.3,
       font = "normal", small = { font = "small" },
+      tiled = false, -- read by the STAL module: true = saves laid out as tiles
       row = {
         height = 28, gap = 2, frame = "FLAT", fill = "well", border = "borderDim",
         hover = "rowHover", selected = "selected",
@@ -334,6 +548,11 @@ EbonAPI:RegisterSkin("Azeroth", {
       drawer = { frame = "SMALL", fill = "well", border = "borderDim" },
       owned = "heading", now = "success", later = "caution",
       ring = { size = 18, big = 38 },
+      -- coin.line (true = own line in the sheet) is optional: absent = false.
+      dot = { size = 8, border = "borderDim" },
+      coin = { size = 6, border = "borderDim", line = false },
+      -- metric: sizes, offsets and texts of the saves views (SavesViews.lua); a skin may override any of them.
+      metric = { pad = 4, inset = 1, gap = 4, iconSize = 12, chevronSize = 10, dotsWidth = 16, stateTrim = 4, stateShift = 2, pctWidth = 32, pctGap = 2, menuReserve = 18, checkReserve = 12, slotInset = 3, markLeft = 18, dotTop = 5, coinTop = 6, nameTop = 10, nameLines = 3, miniBar = 3, stripWidth = 3, coinGap = 6, doneWidth = 60, toggleMin = 20, cursorHeight = 16, levelStep = 2, listMargin = 8, doubleClick = 0.4, minBar = 0.01, nodesShare = 0.55, restShare = 0.42, percentSuffix = "%", countSeparator = " · ", unknown = "?" },
     },
     choice = {
       brick = "default", font = "small",
@@ -349,16 +568,29 @@ EbonAPI:RegisterSkin("Azeroth", {
       label = { font = "small" }, value = { font = "large" }, sub = { font = "small" },
       gauge = { height = 6, fill = "checked", back = "bgSoft", warn = "caution", bad = "danger" },
     },
+    bare = { brick = "default", frame = "FLAT", fill = "bg", border = "borderDim", borderSize = 1 },
+    counter = {
+      brick = "default", height = 22, frame = "SMALL", fill = "card", font = "small", text = "text", dot = 10, inset = 3, trim = 0.07, tint = 0xFFFFFF,
+      token = { gold = "caution", silver = "muted", copper = "danger", ash = "muted", shard = "selected", essence = "success", artisan = "caution" },
+    },
+    round = {
+      brick = "default", size = 28, fill = "card", border = "borderDim", activeFill = "selected", activeBorder = "focus",
+      text = "text", activeText = "selectedText", hover = "rowHover",
+    },
+    zoom = { brick = "default", height = 22, gap = 4, fill = "card", border = "borderDim", text = "text", button = "button" },
+    miniview = { brick = "default", width = 190, height = 198, fill = "bg", border = "border", view = "focus", viewAlpha = 0.2, viewBorder = "focus", dot = "heading", showDot = false },
+    tipcard = { brick = "default", frame = "SMALL", fill = "card", border = "borderDim", title = "heading", text = "text", muted = "muted", width = 220, padding = 8 },
     map = {
       brick = "default", gap = 1, frame = "FLAT", border = "borderDim", label = { font = "small", min = 36 },
-      accent = { fill = "focus" }, gray = { low = "bgSoft", high = "border" },
+      accent = { fill = "focus" }, gray = { low = "bgSoft", high = "buttonBorder" }, -- S4 (A99.T9): high end keeps the former gold (border is black now); the 6 other skins set gray.high themselves
     },
     group = {
       brick = "card", padding = 12, title = 18, titleX = 2,
       upper = false, color = "heading", font = "normal", frame = "SMALL",
     },
-    scroll = { brick = "default", width = 6, thumb = 40, step = 40, trackAlpha = 1 },
-    -- Queue window (the derived fallbacks stay in the code: radius, table.style, table.gap, bar.height, group.edgeAlpha, group.guide).
+    -- S2 (A99.T6): rowBrick = brick of the rows that replace the native list rows
+    list = { selected = "selected", selectedAlpha = 0.5, rowBrick = "list" },
+    scroll = { brick = "default", width = 6, thumb = 40, step = 40, trackAlpha = 1, arrowUp = "^", arrowDown = "v", arrowPad = 0 },
     cells = { shape = "bevel" },
     queue = {
       shape = "bevel", gap = 1,
@@ -376,7 +608,61 @@ EbonAPI:RegisterSkin("Azeroth", {
     cards = { shape = "bevel", gap = 6, pad = 8 },
   },
 
+  tree = {
+    -- R7g: compact = frame levels of waste between the lowest and the highest window before the order is packed again
+    stack = { levelStep = 1, compact = 500 },
+    frames = { enabled = false }, -- T10 (A99.T10): no skin turns the frames of the Journal on
+    title = { top = -10, margin = 60, drop = -5 },
+    tab = { trim = 18 },
+    prestige = { animation = "rosace", circleFrame = "FLAT", fill = "bg", border = "buttonBorder", barFill = "buttonBorder", barDesaturate = true, previewFill = "", text = "" },
+    bottom = { frame = "FLAT", height = 40, edge = 0, fill = "bgSoft", border = "borderDim" },
+    search = { hide = false },
+    piece = { frame = "LARGE", panel = "FLAT", bar = "FLAT", scroll = "FLAT", slot = "SMALL", fill = "bg", barBorder = "bg" }, -- S4 (A99.T9): barBorder = same key as the bar back: no frame
+    gauge = { text = 0xFFFFFF, outline = "OUTLINE", shadow = 0x000000, shadowAlpha = 1, shadowX = 1, shadowY = -1 },
+    button = { frame = "SMALL", fill = "button", border = "buttonBorder" },
+    banner = { frame = "FLAT", fill = "bg", border = "danger" },
+    paper = { frame = "FLAT", fill = "bg", border = "border" },
+    journal = {
+      portraitSize = 78, portraitLeft = -14, portraitTop = 11, iconLeft = -6,
+      portraitMargin = 2,
+      ringColor = "", ringInset = 2, fadeAlpha = 0,
+      -- T14: barre du bas posee dans la tuile journal.footer, par onglet
+      height = 608, footerHeight = 36,
+      footer = {
+        SkillTree = { "skillTreeBottomBar" }, Transmog = { "WardrobeTransmogFrame.ApplyButton" },
+        Mounts = { "MountJournal.MountButton" }, Companions = { "PetJournal.SummonButton" },
+      },
+      tabs = { "Echoes", "SkillTree", "Transmog", "Mounts", "Companions", "Prestige" },
+    },
+    dense = {
+      pad = 4, gap = 4, zoomMargin = 8, hubSize = 96, minimapIdleAlpha = 1,
+      hubMax = 12, hubAuraMargin = 1.25, hubAuraOwn = 0.45, hubAuraOther = 0.16,
+      hubIconScale = 0.94, hubRingScale = 1.12, hubRadius = 400, hubKey = "heading",
+      centerIcon = "Interface\\AddOns\\ProjectEbonhold\\modules\\collections\\Interface\\Icons\\INV_7xp_Inscription_TalentTome01", centerGlow = "Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", hubAura = "Interface\\AddOns\\ProjectEbonhold\\assets\\class_aura", hubRing = "Interface\\AddOns\\ProjectEbonhold\\assets\\class_ring",
+      hubIcon = "Interface\\TargetingFrame\\UI-Classes-Circles", currencyAsh = "Interface\\Icons\\inv_soulash", currencyShard = "Interface\\Icons\\inv_10_jewelcrafting3_soulcage_frost", currencyEssence = "Interface\\Icons\\inv_misc_supersoulash",
+      currencyArtisan = "Interface\\Icons\\ability_argus_soulbombdebufflarge", nodePx = 2, hubPx = 4, maxDots = 8,
+      dotStep = 3, dotMin = 1.5, linkKey = "borderDim", linkLitKey = "success",
+      stateActive = "success", stateReady = "heading", stateNopoints = "caution", stateLocked = "borderDim",
+      stateUnknown = "muted",
+      mapLinkLitKey = "heading", pendingAlpha = 0.55, haloAlpha = 0.8, lockedAlpha = 0.6,
+      fillKey = "bgSoft", fillLockedAlpha = 0.5, iconMinPx = 16, noticeHeight = 20, slotWidth = 240,
+      tipIcon = 16, tipColor = 0xFFD100, dotSize = 1,
+      minZoom = 0.09, maxZoom = 2.0, zoomStep = 1.12, defaultZoom = 0.6, textMinZoom = 0.45, nodeSize = 30, nodeMinPx = 3, borderPx = 1, presetGrow = 3,
+      haloGrow = 2, nodeHaloGrow = 2, nodeHaloTex = "Interface\\Buttons\\WHITE8x8", normalHaloAlpha = 1, normalHaloTex = "Interface\\AddOns\\ProjectEbonhold\\assets\\class_ring_glow", viewMargin = 24, linkPx = 2, linkLitPx = 2, linkTexStraight = "Interface\\Buttons\\WHITE8x8",
+      linkTexTilted = "Interface\\AddOns\\ProjectEbonhold\\assets\\link_line", linkTexFactor = 32 / 30, presetKey = "danger", pendingKey = "caution",
+      rankKey = "text", noticeKey = "caution", navTipFallback = 0xFFFFFF,
+    },
+  },
+
   kit = {
+    quality = { ["0"] = 0x9D9D9D, ["1"] = 0xFFFFFF, ["2"] = 0x1EFF00, ["3"] = 0x0070DD, ["4"] = 0xA335EE, ["5"] = 0xFF8000, ["6"] = 0xE6CC80 },
+    category = { offensive = 0xE05A4E, defensive = 0x4A9BE0, resource = 0x4CC26A, utility = 0xF08A28, mobility = 0xB06AE0 },
+    affix = { equipped = 0x4DC26B, none = 0x808080 },
+    followLevel = 1,
+    followAbove = true,
+    followLevelInside = 40,
+    followLevelBase = 40,
+    releaseLevel = 1,
     padding = 8,
     spacing = 6,
     inset = 4,
@@ -444,7 +730,30 @@ EbonAPI:RegisterSkin("Azeroth", {
   },
 
   board = {
-    note = { font = "small" },
+  pe = {
+    row = 46, gap = 4, head = 20, frame = { margin = 10 },
+    portrait = { size = 60, left = 7, top = -6, inset = 2 },
+    star = { size = 14, x = 6, y = 3, color = "heading" },
+    toggle = { size = 14, x = 2, y = 2, color = "heading", open = "-", close = "+" },
+  },
+    dress = false,
+    portrait = true,
+    frame = "LARGE",
+    color = "bg",
+    border = "border",
+    title = { font = "normal", color = "heading", align = "CENTER", x = 20, y = 15 },
+    name = { font = "large", color = "text" },
+    heading = { font = "normal", color = "text" },
+    text = { font = "normal", color = "text" },
+    note = { font = "small", color = "heading" },
+    objective = { done = "muted" },
+    panel = { color = "bgSoft", border = "borderDim" },
+    strip = { color = "card", rule = "borderDim" },
+    tab = { idle = "button", border = "buttonBorder", padding = 4 },
+    button = { idle = "card" },
+    art = { frame = true },
+    picture = { brick = "default" },
+    slot = { brick = "default" },
     header = { height = 20, font = "small", color = "heading", line = "heading", fold = 0.3, room = 8 },
     row = { height = 46, gap = 4, icon = 30, font = "normal" },
     card = { brick = "default" },
@@ -514,16 +823,7 @@ EbonAPI:RegisterSkin("Azeroth", {
         glow:SetBlendMode("ADD")
         glow:SetAllPoints(button)
         button:SetPadding(0)
-        button:SetScript("OnMouseDown", function(self)
-          self.pressed = true
-          self:Visual()
-        end)
-        button:SetScript("OnMouseUp", function(self)
-          self.pressed = false
-          self:Visual()
-        end)
-
-        button:Visual()
+        wirePress(button)
 
         return button
       end,
@@ -545,7 +845,7 @@ EbonAPI:RegisterSkin("Azeroth", {
           B.labelFont(self, text)
 
           if self.selectedState or self.hovered then
-            self.glow:SetAlpha(B.value(self.selectedState and "nav.tab.glow.selected" or "nav.tab.glow.hover"))
+            B.alpha(self.glow, B.value(self.selectedState and "nav.tab.glow.selected" or "nav.tab.glow.hover"))
             self.glow:Show()
           else
             self.glow:Hide()
@@ -742,19 +1042,8 @@ EbonAPI:RegisterSkin("Azeroth", {
           local y = 0
 
           for index, group in ipairs(box.groups or {}) do
-            local label = box.labelPool[index]
+            local lh = EbonAPI.Skins.groupLabel(B, box, index, group.label or "", role, width, y)
 
-            B.font(label, role)
-            B.paint(label, "SetTextColor", B.value("widgets.synthesis.group.color"))
-            label:SetText(group.label or "")
-            label:ClearAllPoints()
-            label:SetPoint("TOPLEFT", box, "TOPLEFT", 0, -y)
-            label:SetWidth(width)
-
-            local lh = Tiles.lineHeight(label, role)
-
-            label:SetHeight(lh)
-            label:Show()
             y = y + lh + gap
 
             for position, tile in ipairs(group.tiles) do
@@ -776,126 +1065,13 @@ EbonAPI:RegisterSkin("Azeroth", {
             end
           end
 
-          box:SetHeight(math.max(1, y))
-          box.contentHeight = y
-
-          return y
+          return EbonAPI.Skins.finishLayout(box, y)
         end
 
         return Tiles.build(parent, look)
       end,
     },
 
-    -- The status sheet as the character "Statistics" pane: a tinted band for each section title, then the rows
-    -- on alternating bands. The bands are textures (a child Frame would hide the texts); their layer is BACKGROUND.
-    output = {
-      stats = function(parent, B)
-        local T = EbonAPI.Output.tools
-        local PAD, TITLE_ALPHA, STRIPE_ALPHA = 8, 0.2, 0.35
-        local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
-
-        local function band(widget, key, alpha, level, y, width)
-          local tex = T.take(widget, "tex")
-
-          tex:SetTexture(B.media("solid"))
-          tex:SetDrawLayer("BACKGROUND")
-          B.paint(tex, "SetVertexColor", key)
-          tex:SetAlpha(alpha)
-          tex:SetWidth(width)
-          tex:SetHeight(1)
-          tex:ClearAllPoints()
-          tex:SetPoint("TOPLEFT", widget.scroll.child, "TOPLEFT", 0, -y)
-          tex.level = level
-
-          return tex
-        end
-
-        local look = { kinds = {} }
-
-        look.kinds.rows = function(widget, model, width)
-          widget.fiche = widget.fiche or { fs = {}, tex = {}, fr = {}, used = { fs = 0, tex = 0, fr = 0 } }
-          widget.sectionY = {}
-          widget.text:SetText("")
-          T.hideFiche(widget)
-
-          -- a pooled texture may come back as a marker after serving as a band: restore its defaults
-          for _, tex in ipairs(widget.fiche.tex) do
-            tex:SetAlpha(1)
-            tex:SetDrawLayer("ARTWORK")
-          end
-
-          local gap = B.value("widgets.output.row.gap")
-          local size = B.value("widgets.output.marker.size")
-          local inner = max(1, width - PAD * 2)
-          local labelW = min(B.value("widgets.output.label.width"), max(20, floor((inner - size - gap * 2) / 2)))
-          local labelX = PAD + size + gap
-          local valueX = labelX + labelW + gap
-          local valueW = max(1, width - PAD - valueX)
-          local y = 0
-
-          for index, section in ipairs(model.sections or {}) do
-            if index > 1 then
-              y = y + gap * 3
-            end
-
-            widget.sectionY[section.id] = y
-
-            local titleBand = band(widget, B.value("widgets.output.section.color"), TITLE_ALPHA, "band", y, width)
-            local _, h = T.words(widget, PAD, y + 3, inner, B.value("widgets.output.section.font"),
-              B.value("widgets.output.section.color"), section.name)
-
-            titleBand:SetHeight(h + 6)
-            y = y + h + 6 + gap
-
-            for number, row in ipairs(section.rows or {}) do
-              local stripe = number % 2 == 1 and band(widget, "borderDim", STRIPE_ALPHA, "stripe", y, width) or nil
-
-              T.marker(widget, row.level, PAD, y, size)
-
-              local _, lh = T.words(widget, labelX, y, labelW, "normal", B.value("widgets.output.label.color"), row.label)
-              local rh
-
-              if row.chips then
-                rh = T.chips(widget, row.chips, valueX, y, valueW)
-              else
-                local tagW = 0
-
-                if row.tag then
-                  local tag = T.take(widget, "fs")
-
-                  B.font(tag, B.value("kit.tag.font"))
-                  B.paint(tag, "SetTextColor", "caution")
-                  tag:SetWidth(0)
-                  tag:SetText(tostring(row.tag))
-                  tagW = min(ceil(tag:GetStringWidth() or 0), floor(valueW / 3))
-                  tag:SetWidth(tagW)
-                  tag:ClearAllPoints()
-                  tag:SetPoint("TOPLEFT", widget.scroll.child, "TOPLEFT", width - PAD - tagW, -y)
-                  tagW = tagW + gap
-                end
-
-                local _, vh = T.words(widget, valueX, y, max(1, valueW - tagW), "normal",
-                  B.value("widgets.output.value.color"), row.value)
-
-                rh = vh
-              end
-
-              local rowH = max(size, lh, rh or 0)
-
-              if stripe then
-                stripe:SetHeight(rowH + gap)
-              end
-
-              y = y + rowH + gap
-            end
-          end
-
-          return y
-        end
-
-        return EbonAPI.Output.build(parent, look)
-      end,
-    },
 
     input = {
       native = function(parent, B)

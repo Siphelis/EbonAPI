@@ -14,7 +14,6 @@ local ACTION_COLORS = {
 local function GetToastDuration()
     return (EbonAPIEbonBuildsDB.globalSettings and EbonAPIEbonBuildsDB.globalSettings.toastDuration) or 3
 end
-local QUALITY_HEX = EbonBuilds.Const.QUALITY_HEX
 
 local queue   = {}
 local frame
@@ -56,7 +55,7 @@ local function ShowNext()
         if i > 1 then
             parts[#parts + 1] = "    "
         end
-        local hex = QUALITY_HEX[ch.quality] or "ffffff"
+        local hex = EbonBuilds.Const.QualityHex(ch.quality) or "ffffff"
         local isTarget = (ch.index == entry.targetIndex)
         if isTarget then
             parts[#parts + 1] = "|cffffff00>> |r"
@@ -89,12 +88,6 @@ function EbonBuilds.Toast.ShowAutomationResult(scored, action, targetIndex)
     end
     table.insert(queue, entry)
     if not frame:IsShown() then ShowNext() end
-end
-
-function EbonBuilds.Toast.ShowLive(title, line, footer)
-    if not frame then return false end
-    Display(title, line, footer)
-    return true
 end
 
 local function Line(f, key, size, color)

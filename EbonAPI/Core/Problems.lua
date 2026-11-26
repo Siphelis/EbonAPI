@@ -729,7 +729,7 @@ function Problems.show(problem)
   local route = Problems.route(problem)
 
   if route == "line" then
-    if UIErrorsFrame and Problems.option(problem.addon, "line") then
+    if UIErrorsFrame and Problems.option(problem.addon, "line") and EbonAPI.Lib.errorsShown() then
       UIErrorsFrame:AddMessage(Problems.text(problem), 1.0, 0.1, 0.1)
     end
   elseif route and Problems.option(problem.addon, "alert") then

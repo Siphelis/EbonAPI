@@ -8,7 +8,6 @@ local QuestLog = EbonAPI.QuestLog
 local L = EbonAPI.L
 
 local ipairs, type = ipairs, type
-local format = string.format
 local S = EbonAPI.Skins.value
 
 -- Multi-select for the quest log of the game. An interrupt switch beside the quest counter turns on a check
@@ -28,37 +27,16 @@ local function api(name)
   return rawget(_G, name)
 end
 
-local function busy()
-  return QuestLog.isAbandoning()
+local function lockWhenBusy(control)
+  if EbonAPI.QuestLogSelection.busy() then
+    control:Disable()
+  else
+    control:Enable()
+  end
 end
 
 local function refreshAbandon()
-  if not abandon then
-    return
-  end
-
-  if not enabled then
-    abandon:Hide()
-
-    return
-  end
-
-  local count = #QuestLog.checkedList()
-  local position, size = QuestLog.progress()
-
-  if position then
-    abandon:SetText(format(L.QUESTLOG_ABANDON_PROGRESS, position, size))
-  else
-    abandon:SetText(format(L.QUESTLOG_ABANDON_COUNT, count))
-  end
-
-  if count > 0 and not busy() then
-    abandon:Enable()
-  else
-    abandon:Disable()
-  end
-
-  abandon:Show()
+  EbonAPI.QuestLogSelection.refresh(abandon, nil, enabled)
 end
 
 local function refreshToggle()
@@ -73,12 +51,7 @@ local function refreshToggle()
 
   toggle:SetChecked(enabled)
   toggle:Show()
-
-  if busy() then
-    toggle:Disable()
-  else
-    toggle:Enable()
-  end
+  lockWhenBusy(toggle)
 end
 
 local function rankMap()
@@ -185,12 +158,7 @@ local function decorateRow(row, ranks)
     end
   end
 
-  if busy() then
-    check:Disable()
-  else
-    check:Enable()
-  end
-
+  lockWhenBusy(check)
   check:Show()
 end
 
@@ -218,7 +186,7 @@ local function decorate()
     return
   end
 
-  if not busy() then
+  if not EbonAPI.QuestLogSelection.busy() then
     local _, quests = GetNumQuestLogEntries()
 
     if quests ~= QuestLog.count then
@@ -299,9 +267,7 @@ local function buildAbandon()
   abandon:SetFrameLevel(blizzard:GetFrameLevel() + 2)
   abandon:Hide()
 
-  abandon:SetScript("OnClick", function()
-    QuestLog.abandon(QuestLog.checkedList())
-  end)
+  EbonAPI.QuestLogSelection.bind(abandon, nil)
 end
 
 function QuestLogChecks.install()
@@ -332,9 +298,5 @@ function QuestLogChecks.install()
     enabled = false
     toggle:SetChecked(false)
     QuestLog.clear()
-  end)
-
-  EbonAPI:On("LANGUAGE_CHANGED", function()
-    Lib.safeCall(decorate)
   end)
 end

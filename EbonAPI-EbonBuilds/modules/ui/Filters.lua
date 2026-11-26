@@ -2,8 +2,6 @@ EbonBuilds.Filters = {}
 
 local L = EbonBuilds.L
 
-local FAMILY_MAP = EbonBuilds.Const.FAMILY_MAP
-local FAMILIES = EbonBuilds.Const.FAMILIES
 
 local state = {
     text     = "",
@@ -34,7 +32,7 @@ local function MatchesFamilies(entry)
     local has = {}
     local hasAnyFamily = false
     for _, fam in ipairs(entry.families or {}) do
-        local key = FAMILY_MAP[fam] or fam
+        local key = EbonAPI.ClientData.Family(fam)
         has[key] = true
         if key ~= "No family" then hasAnyFamily = true end
     end
@@ -82,7 +80,7 @@ local ALL_QUALITIES = -1
 local function QualityItems()
     local items = { { value = ALL_QUALITIES, text = L.ALL } }
     for q = 0, 4 do
-        items[#items + 1] = { value = q, text = EbonBuilds.Const.QUALITY_NAME[q] }
+        items[#items + 1] = { value = q, text = EbonAPI.ClientData.Quality(q).name }
     end
     return items
 end
@@ -137,9 +135,10 @@ local function CreateFamilyDropdown(bar, height)
     end
 
     UIDropDownMenu_Initialize(dropdown, function(self, level)
-        for _, family in ipairs(FAMILIES) do
+        for _, card in ipairs(EbonAPI.ClientData.Families()) do
+            local family = card.key
             local info = UIDropDownMenu_CreateInfo()
-            info.text             = L.FAMILY[family] or family
+            info.text             = EbonBuilds.FamilyName(family)
             info.isNotRadio       = true
             info.keepShownOnClick = true
             info.checked          = state.families[family] and true or false

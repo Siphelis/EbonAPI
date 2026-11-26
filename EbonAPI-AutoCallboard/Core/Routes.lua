@@ -50,10 +50,15 @@ Core.deleteRoute = Routes.delete
 Core.setRouteCategory = Routes.setGroup
 Core.moveRouteTo = Routes.moveTo
 
+local function Report(name, facts)
+  return Core.report(Core.problem(name, facts))
+end
+
 function Core.createRoute(profile, steps, name, category, fields)
   if not Core.isRouteCategory(category) then
-    return Core.copyAccountProfile(profile), nil,
-      Core.makeProblem("ROUTE.CATEGORY_INVALID", { category = tostring(category) })
+    Report("ROUTE.CATEGORY_INVALID", { category = tostring(category) })
+
+    return Core.copyAccountProfile(profile), nil, "category"
   end
 
   local payload = { steps = Core.copyRouteSteps(steps) }
@@ -63,15 +68,6 @@ function Core.createRoute(profile, steps, name, category, fields)
   end
 
   return Routes.create(profile, name, tonumber(category), payload)
-end
-
-local function RouteMissing(profile, id)
-  return Core.copyAccountProfile(profile), nil, Core.makeProblem("ROUTE.NOT_FOUND", { route = tostring(id) })
-end
-
-local function StepMissing(profile, id, index)
-  return Core.copyAccountProfile(profile), nil,
-    Core.makeProblem("ROUTE.STEP_NOT_FOUND", { route = tostring(id), step = tostring(index) })
 end
 
 local questFactions
@@ -206,7 +202,9 @@ function Core.appendRouteSteps(profile, id, steps)
   local route = Routes.find(profile, id)
 
   if not route then
-    return RouteMissing(profile, id)
+    Report("ROUTE.NOT_FOUND", { route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false
   end
 
   local merged = Core.copyRouteSteps(route.steps)
@@ -219,7 +217,7 @@ function Core.appendRouteSteps(profile, id, steps)
 
   if existing + #(added) > Core.MAX_ROUTE_STEPS
     and count(route.steps) <= Core.MAX_ROUTE_STEPS and count(steps) <= Core.MAX_ROUTE_STEPS then
-    Core.reportProblem("ROUTE.STEPS_TRUNCATED", { given = existing + #(added), limit = Core.MAX_ROUTE_STEPS })
+    Core.report(Core.problem("ROUTE.STEPS_TRUNCATED", { given = existing + #(added), limit = Core.MAX_ROUTE_STEPS }))
   end
 
   for _, step in ipairs(added) do
@@ -235,15 +233,18 @@ end
 
 function Core.deleteRouteStep(profile, id, index)
   local route = Routes.find(profile, id)
-  local given = index
   index = tonumber(index)
 
   if not route then
-    return RouteMissing(profile, id)
+    Report("ROUTE.NOT_FOUND", { route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false
   end
 
   if not index or not route.steps[index] then
-    return StepMissing(profile, id, given)
+    Report("ROUTE.STEP_NOT_FOUND", { step = tostring(index), route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false
   end
 
   local steps = Core.copyRouteSteps(route.steps)
@@ -254,24 +255,27 @@ end
 
 function Core.deleteRouteAction(profile, id, stepIndex, actionIndex)
   local route = Routes.find(profile, id)
-  local givenStep, givenAction = stepIndex, actionIndex
   stepIndex, actionIndex = tonumber(stepIndex), tonumber(actionIndex)
 
   if not route then
-    return RouteMissing(profile, id)
+    Report("ROUTE.NOT_FOUND", { route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false
   end
 
   local steps = Core.copyRouteSteps(route.steps)
   local step = stepIndex and steps[stepIndex]
 
   if not step then
-    return StepMissing(profile, id, givenStep)
+    Report("ROUTE.STEP_NOT_FOUND", { step = tostring(stepIndex), route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false
   end
 
   if not actionIndex or not step.actions or not step.actions[actionIndex] then
-    return Core.copyAccountProfile(profile), nil, Core.makeProblem("ROUTE.ACTION_NOT_FOUND", {
-      route = tostring(id), step = tostring(givenStep), action = tostring(givenAction),
-    })
+    Report("ROUTE.ACTION_NOT_FOUND", { action = tostring(actionIndex), step = tostring(stepIndex), route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false
   end
 
   table.remove(step.actions, actionIndex)
@@ -287,12 +291,22 @@ function Core.routeStepCount(route)
   return #(route.steps)
 end
 
+local CHECKPOINT_ALIASES = {
+  [19] = 18, [40] = 39, [53] = 52, [68] = 67, [69] = 49, [73] = 72, [75] = 74, [130] = 129,
+}
+
+function Core.resolveCheckpointId(checkpointId)
+  checkpointId = tonumber(checkpointId)
+
+  return checkpointId and CHECKPOINT_ALIASES[checkpointId] or checkpointId
+end
+
 local unknownCheckpoints = {}
 
 function Core.routeCheckpointName(checkpointId, fallback)
-  checkpointId = tonumber(checkpointId)
+  checkpointId = Core.resolveCheckpointId(checkpointId)
 
-  local service = EbonAPI.Ebonhold.Checkpoints()
+  local service = EbonAPI.Ebonhold.Service("CheckpointService")
 
   if checkpointId and service and service.GetCheckpoints then
     local ok, list = pcall(service.GetCheckpoints)
@@ -306,7 +320,7 @@ function Core.routeCheckpointName(checkpointId, fallback)
 
       if not unknownCheckpoints[checkpointId] then
         unknownCheckpoints[checkpointId] = true
-        Core.reportProblem("ROUTE.CHECKPOINT_UNKNOWN", { checkpoint = checkpointId })
+        Core.report(Core.problem("ROUTE.CHECKPOINT_UNKNOWN", { checkpoint = checkpointId }))
       end
     end
   end
@@ -488,14 +502,14 @@ function Core.routeSignature(step)
 
   local active, available = step.active or {}, step.available or {}
 
-  for i = 1, #(active) do
+  for i = 1, #active do
     table.insert(turnins, tostring(active[i].questId or 0))
   end
 
   table.sort(turnins)
 
   table.insert(parts, "in:" .. table.concat(turnins, ","))
-  table.insert(parts, "av:" .. tostring(#(available)))
+  table.insert(parts, "av:" .. tostring(#available))
 
   return table.concat(parts, "|")
 end
@@ -506,20 +520,24 @@ end
 
 function Core.setRouteStepDifficulty(profile, id, stepIndex, tier)
   local route = Routes.find(profile, id)
-  local given = stepIndex
   stepIndex = tonumber(stepIndex)
 
   if not route then
-    return RouteMissing(profile, id)
+    Report("ROUTE.NOT_FOUND", { route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false
   end
 
   if not stepIndex or not route.steps[stepIndex] then
-    return StepMissing(profile, id, given)
+    Report("ROUTE.STEP_NOT_FOUND", { step = tostring(stepIndex), route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false
   end
 
   if not route.steps[stepIndex].resting then
-    return Core.copyAccountProfile(profile), nil,
-      Core.makeProblem("ROUTE.NOT_RESTING", { route = tostring(id), step = tostring(given) })
+    Report("ROUTE.NOT_RESTING", { step = tostring(stepIndex), route = tostring(id) })
+
+    return Core.copyAccountProfile(profile), false, "not_resting"
   end
 
   local steps = Core.copyRouteSteps(route.steps)

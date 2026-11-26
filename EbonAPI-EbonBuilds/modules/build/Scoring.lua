@@ -1,10 +1,7 @@
 EbonBuilds.Scoring = {}
 
-local CLASS_BITS = EbonBuilds.Const.CLASS_BITS
 
-local FAMILY_MAP = EbonBuilds.Const.FAMILY_MAP
-
-local function NormFamily(f) return FAMILY_MAP[f] end
+local NormFamily = EbonBuilds.Const.NormFamily
 
 local function ApplyModifier(score, baseWeight, value, multiplicative)
     if multiplicative then
@@ -49,10 +46,7 @@ function EbonBuilds.Scoring.ScorePerQuality(entry, weight, settings, quality)
 end
 
 function EbonBuilds.Scoring.Score(entry, weight, settings)
-    local s = EbonBuilds.Scoring.ScorePerQuality(entry, weight, settings, entry.quality)
-    local base = weight or 0
-    s = ApplyModifier(s, base, settings.noveltyValue or 0, settings.noveltyMode)
-    return s
+    return EbonBuilds.Scoring.ScorePerQuality(entry, weight, settings, entry.quality)
 end
 
 local function MatchesClass(entry, bitVal)
@@ -61,22 +55,24 @@ local function MatchesClass(entry, bitVal)
     return bit.band(entry.classMask, bitVal) ~= 0
 end
 
-local function WeightOf(weights, name)
+local function WeightOf(weights, name, entry, classToken, spec)
     local w = weights and weights[name]
-    return type(w) == "number" and w or 0
+    if type(w) == "number" then return w end
+    if entry then return EbonBuilds.Weights.Default(entry, classToken, spec) end
+    return 0
 end
 
 EbonBuilds.Scoring.WeightOf = WeightOf
 
-function EbonBuilds.Scoring.ComputePeak(classToken, settings, weights)
+function EbonBuilds.Scoring.ComputePeak(classToken, settings, weights, spec)
     if not settings then return nil, 0 end
-    local list = EbonBuilds.Catalog.SortedList()
-    local bitVal = classToken and CLASS_BITS[classToken]
+    local list = EbonAPI.EchoCatalog.NameList() or {}
+    local bitVal = classToken and EbonAPI.EchoCatalog.ClassBit(classToken)
     local bestName, bestScore = nil, nil
     for i = 1, #list do
         local e = list[i]
         if MatchesClass(e, bitVal) then
-            local w  = WeightOf(weights, e.name)
+            local w  = WeightOf(weights, e.name, e, classToken, spec)
             local sc = EbonBuilds.Scoring.Score(e, w, settings)
             if bestScore == nil or sc > bestScore then
                 bestScore, bestName = sc, e.name

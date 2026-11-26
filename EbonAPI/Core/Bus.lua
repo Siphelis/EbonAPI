@@ -217,6 +217,8 @@ local function checkTicker(who, id, every, fn)
   end
 end
 
+local wrapper
+
 local function schedule(id, every, fn, owner, once)
   for index = 1, tickerCount do
     local ticker = tickers[index]
@@ -227,7 +229,8 @@ local function schedule(id, every, fn, owner, once)
       end
 
       ticker.every = every
-      ticker.fn = fn
+      ticker.raw = fn
+      ticker.fn = wrapper and wrapper(id, owner, fn) or fn
       ticker.owner = owner
       ticker.once = once
 
@@ -241,7 +244,7 @@ local function schedule(id, every, fn, owner, once)
   end
 
   tickerCount = tickerCount + 1
-  tickers[tickerCount] = { id = id, every = every, left = every, fn = fn, owner = owner, once = once }
+  tickers[tickerCount] = { id = id, every = every, left = every, fn = wrapper and wrapper(id, owner, fn) or fn, raw = fn, owner = owner, once = once }
 
   refreshTicker()
 
@@ -286,6 +289,26 @@ function Bus.untick(id)
   return removed
 end
 
+function Bus.wrapTickers(make)
+  wrapper = make
+
+  for index = 1, tickerCount do
+    local ticker = tickers[index]
+
+    if not ticker.dead then
+      if not ticker.raw then
+        ticker.raw = ticker.fn
+      end
+
+      if make then
+        ticker.fn = make(ticker.id, ticker.owner, ticker.raw)
+      else
+        ticker.fn = ticker.raw
+      end
+    end
+  end
+end
+
 function Bus.tickerCount()
   local live = 0
 
@@ -310,7 +333,7 @@ function Bus.eachTicker(fn)
 
     if ticker and not ticker.dead then
       seen = seen + 1
-      fn(ticker.id, ticker.owner, ticker.fn)
+      fn(ticker.id, ticker.owner, ticker.raw or ticker.fn)
     end
   end
 

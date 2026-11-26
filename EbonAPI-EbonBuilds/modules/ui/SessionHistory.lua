@@ -3,7 +3,6 @@ EbonBuilds.SessionHistory = {}
 local L = EbonBuilds.L
 local W = EbonBuilds.Widgets
 
-local QUALITY_HEX = EbonBuilds.Const.QUALITY_HEX
 local ACTION_COLORS = {
     Banish         = { 1.0, 0.27, 0.27 },
     Reroll         = { 0.27, 0.67, 1.0 },
@@ -69,7 +68,7 @@ end
 
 local function ChoiceQuality(ch)
     if ch.quality then return ch.quality end
-    local data = ch.id and EbonBuilds.Catalog.Entry(ch.id)
+    local data = ch.id and EbonAPI.EchoCatalog.Entry(ch.id)
     return (data and data.quality) or 0
 end
 
@@ -160,7 +159,7 @@ local function PopulateCard(item, s, index)
     item._startTime = s.startTime
     item._endTime   = s.endTime
     item._levelText = (isActive and L.CARD_ACTIVE or L.CARD_LEVEL):format(level)
-    item._soulText  = L.CARD_ASHES:format(isActive and "..." or tostring(s.soulAshes))
+    item._soulText  = L.CARD_ASHES:format(isActive and "..." or EbonAPI.Format.number(s.soulAshes))
     item:ClearAllPoints()
     item:SetPoint("TOPLEFT", cardChild, "TOPLEFT", CARD_LEFT + (index - 1) * CARD_STEP, -CARD_TOP)
     PaintCard(item)
@@ -329,7 +328,7 @@ local function PopulateLogRow(row, listIdx, entry)
         local ch   = choices[j]
         local cell = row._cells[j]
         if ch then
-            local hex = QUALITY_HEX[ChoiceQuality(ch)] or "ffffff"
+            local hex = EbonBuilds.Const.QualityHex(ChoiceQuality(ch)) or "ffffff"
             local name = ChoiceName(ch)
             cell._nameText  = ("|cff%s%s|r"):format(hex, name)
             cell._scoreText = ("|cff%s(%s)|r"):format(hex, FormatScore(ch.score))

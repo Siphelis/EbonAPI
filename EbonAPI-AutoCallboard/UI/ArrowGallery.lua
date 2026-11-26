@@ -11,7 +11,7 @@ local FOOTER = 22
 local PREVIEW_W = 100
 local PREVIEW_H = 90
 local PREVIEW_TOP = 6
-local REFRESH_INTERVAL = 0.05
+local REFRESH_INTERVAL = RT.REFRESH_INTERVAL
 
 local gallery
 local tiles = {}

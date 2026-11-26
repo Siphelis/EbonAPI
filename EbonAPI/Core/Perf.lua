@@ -191,21 +191,24 @@ function Handle:TrackFunction(name, fn)
 end
 
 local PerfData = EbonAPI.PerfData
-local gsub = string.gsub
+local clear = PerfData.clear
 
 local OWN_FOLDER = "EbonAPI"
 local TOTAL_KEY = "@total"
 
-local watchers = {}
-local commonOwner = {}
-local lastMs = nil
-local lastAt = nil
-local peaks = {}
 local memRef = {}
 local memRefAt = nil
 -- Last real memory reading per folder and its time: growth is the delta between two real refreshes, not a fixed origin.
 local prevMem = {}
 local prevMemAt = nil
+
+do
+local gsub = string.gsub
+local watchers = {}
+local commonOwner = {}
+local lastMs = nil
+local lastAt = nil
+local peaks = {}
 local lastGrowth = {}
 local scratchCpu = {}
 local scratchDeps = {}
@@ -214,13 +217,6 @@ local depsPool = {}
 -- Rows of the live snapshot, reused tick after tick (PerfData.group copies them; nothing keeps a reference).
 local rowPool = {}
 local depsKnown = {}
-
-local function clear(t)
-  for k in pairs(t) do
-    t[k] = nil
-  end
-end
-
 local function plain(text)
   text = gsub(text or "", "|c%x%x%x%x%x%x%x%x", "")
 
@@ -510,6 +506,7 @@ function Perf.snapshot(opts)
     rows = PerfData.group(flat, scratchDeps, attach),
   }
 end
+end
 
 Perf.LIMITS = {
   sampleEvery = 5,
@@ -527,9 +524,26 @@ Perf.LIMITS = {
   -- Pace (seconds) of the memory read per addon (UpdateAddOnMemoryUsage costs about 29 ms per call): read at the start,
   -- at the end and every memoryEvery seconds in between.
   memoryEvery = 30,
+  freezeMs = 100,
+  freezesKept = 30,
+  freezePieces = 5,
+  freezeSlots = 64,
+  freezeTickers = 128,
+  freezeHandlers = 256,
+  freezeHooks = 64,
+  freezePassBudgetMs = 0.05,
+  pieceWraps = 72,
 }
 
 local LIMITS = Perf.LIMITS
+
+local function pieceCall(name, arg)
+  local pieces = EbonAPI.PerfPieces
+
+  if pieces then
+    return pieces[name](arg)
+  end
+end
 
 local SAMPLE_TICKER = "perf.sample"
 local RECORD_TICKER = "perf.record"
@@ -589,10 +603,22 @@ local function writeProfiler(value)
     return false
   end
 
-  return (pcall(SetCVar, CVAR, value))
+  local ok = pcall(SetCVar, CVAR, value)
+
+  if ok and value == OFF then
+    local acc = account()
+
+    if acc.profilerTrace then
+      acc.profilerTrace = nil
+      acc.profilerZeroed = true
+    end
+  end
+
+  return ok and true or false
 end
 
 local Instr = { active = false }
+local Frz = { selfMs = 0 }
 
 -- Recorder of a "Measure" session (read through Perf.recording()). Flat preallocated buffers, nothing created per tick:
 --   n, index[a], folder[a]   addon list fixed at the start (a = 1..n)
@@ -624,6 +650,7 @@ end
 
 local function clearRun()
   stopSampling()
+  Frz.clear()
   clearHistory()
   Rec.release()
   runStart = nil
@@ -882,14 +909,13 @@ end
 local OVERFLOW_KEY = "?"
 local EVENT_ADDON, EVENT_CHANNEL = "CHAT_MSG_ADDON", "CHAT_MSG_CHANNEL"
 local PIECE_BUS_EVENT, PIECE_BUS_TICK, PIECE_COST, PIECE_REFRESH = "bus_event", "bus_tick", "instrument", "refresh"
-local TICK_LABEL = "Bus OnUpdate (tickers)"
 local strbyte, select = string.byte, select
 
 local depth, nested, leaks = 0, 0, 0
 local wraps = 0
 local origEvent, origUpdate = nil, nil
 local instrEvents = {}
-local tickSlot = { ms = 0, calls = 0 }
+local tickSlot = { ms = 0, calls = 0, hookMs = 0 }
 local channelSlot = { ms = 0, calls = 0 }
 local otherChannelSlot = { ms = 0, calls = 0 }
 local channelNumber = nil
@@ -898,6 +924,223 @@ local samplesOpen, samplesTotal = 0, 0
 local queueAtStart = { server = 0, channel = 0, whisper = 0 }
 local lastInstr = nil
 local refusedReason = nil
+
+local PIECE_FRAME, PIECE_HANDLER, PIECE_HOOK = "frame", "handler", "hook"
+local S = { stamp = 1, touchedN = 0, overflow = false, touched = {}, handTouched = {}, handTouchedN = 0, handSlots = {},
+  handPool = {}, handUsed = 0, tickSlots = {}, tickN = 0, curTop = nil, probes = 0, frzActive = false, frzPrimed = false,
+  frzCarry = 0, frzStartAt = 0, frzLastHeap = 0, keptList = {}, rootFrame = {}, rootName = {}, rootDelta = {}, rootBase = {},
+  rootSeen = {}, rootN = 0, rootMode = "off", rootPassMs = 0, cpuPrev = {}, frzN = 0, frzSum = 0,
+  hookIndex = {}, hookList = {}, hookN = 0, hookNest = {}, hookNestN = 0, orph = {}, orphN = 0, clockMark = nil,
+  evFrame = {}, evNames = {}, evN = 0, evCost = 0, evSess = { {}, {} }, evSecs = { 0, 0 }, evOut = {}, evPick = {}, evBest = {},
+  evScratch = {}, frzFps = nil }
+
+local function accumulate(slot, own)
+  if slot.stamp ~= S.stamp then
+    slot.stamp, slot.fms, slot.fc = S.stamp, own, 1
+
+    if S.touchedN < LIMITS.freezeSlots then
+      S.touchedN = S.touchedN + 1
+      S.touched[S.touchedN] = slot
+    else
+      S.overflow = true
+    end
+  else
+    slot.fms, slot.fc = slot.fms + own, slot.fc + 1
+  end
+end
+
+local function prepareHandlers()
+  clear(S.handSlots)
+  S.handUsed, S.handTouchedN = 0, 0
+
+  for i = #S.handPool + 1, LIMITS.freezeHandlers do
+    S.handPool[i] = { ms = 0, calls = 0 }
+  end
+end
+
+local function releaseHandlers()
+  clear(S.handSlots)
+  clear(S.handPool)
+  S.handUsed, S.handTouchedN = 0, 0
+end
+
+local function noteHandler(fn, owner, dt)
+  local slot = S.handSlots[fn]
+
+  if not slot then
+    if S.handUsed >= LIMITS.freezeHandlers then
+      return
+    end
+
+    slot = S.handPool[S.handUsed + 1]
+
+    if not slot then
+      return
+    end
+
+    S.handUsed = S.handUsed + 1
+    slot.fn, slot.owner, slot.stamp = fn, owner, nil
+    S.handSlots[fn] = slot
+  end
+
+  S.probes = S.probes + 1
+  dt = dt > 0 and dt or 0
+  slot.parent = S.curTop
+
+  if not S.curTop and S.orphN < LIMITS.freezeHandlers then
+    S.orphN = S.orphN + 1
+    S.orph[S.orphN] = slot
+  end
+
+  if slot.stamp ~= S.stamp then
+    slot.stamp, slot.fms, slot.fc = S.stamp, dt, 1
+    S.handTouchedN = S.handTouchedN + 1
+    S.handTouched[S.handTouchedN] = slot
+  else
+    slot.fms, slot.fc = slot.fms + dt, slot.fc + 1
+  end
+end
+
+local function resetHooks()
+  clear(S.hookIndex)
+  clear(S.hookList)
+  clear(S.hookNest)
+  S.hookN, S.hookNestN, S.orphN = 0, 0, 0
+end
+
+local function hookSlot(path, key, owner)
+  local byPath = S.hookIndex[path]
+  local byKey = byPath and byPath[key]
+  local slot = byKey and byKey[owner]
+
+  if slot then
+    return slot
+  end
+
+  if S.hookN >= LIMITS.freezeHooks then
+    return nil
+  end
+
+  if not byPath then
+    byPath = {}
+    S.hookIndex[path] = byPath
+  end
+
+  if not byKey then
+    byKey = {}
+    byPath[key] = byKey
+  end
+
+  local label = tostring(path) .. "." .. tostring(key) .. (owner and (" @" .. tostring(owner)) or "")
+
+  slot = { ms = 0, calls = 0, hookLabel = label, nest = { hookLabel = label } }
+  byKey[owner] = slot
+  S.hookN = S.hookN + 1
+  S.hookList[S.hookN] = slot
+
+  return slot
+end
+
+local function hookClock()
+  local at = clock()
+
+  if not S.clockMark or S.clockMark > S.orphN then
+    S.clockMark = S.orphN
+  end
+
+  return at
+end
+
+local function noteHook(path, key, owner, dt)
+  local slot = hookSlot(path, key, owner or false)
+  local from = S.clockMark or S.orphN
+
+  S.clockMark = nil
+
+  if not slot then
+    S.overflow = true
+    S.orphN = 0
+
+    return
+  end
+
+  S.probes = S.probes + 1
+  dt = dt > 0 and dt or 0
+  slot.ms = slot.ms + dt
+  slot.calls = slot.calls + 1
+
+  local parent = S.curTop
+
+  if parent then
+    local nest = slot.nest
+
+    nest.parent = parent
+
+    if nest.stamp ~= S.stamp then
+      nest.stamp, nest.fms, nest.fc = S.stamp, dt, 1
+      S.hookNestN = S.hookNestN + 1
+      S.hookNest[S.hookNestN] = nest
+    else
+      nest.fms, nest.fc = nest.fms + dt, nest.fc + 1
+    end
+  else
+    for i = from + 1, S.orphN do
+      S.orph[i].parent = slot
+    end
+
+    if depth > 0 then
+      tickSlot.hookMs = tickSlot.hookMs + dt
+
+      if tickSlot.hookStamp ~= S.stamp then
+        tickSlot.hookStamp, tickSlot.hookFms = S.stamp, dt
+      else
+        tickSlot.hookFms = tickSlot.hookFms + dt
+      end
+    end
+
+    accumulate(slot, dt)
+  end
+
+  S.orphN = 0
+end
+
+local function closeTick(slot, t0, refreshed, ...)
+  local own = clock() - t0 - (refreshAll - refreshed)
+
+  own = own > 0 and own or 0
+  slot.ms = slot.ms + own
+  slot.calls = slot.calls + 1
+  S.probes = S.probes + 1
+  S.curTop = nil
+  S.orphN = 0
+  accumulate(slot, own)
+
+  return ...
+end
+
+local function makeTicker(id, owner, raw)
+  local slot = S.tickSlots[id]
+
+  if not slot then
+    if S.tickN >= LIMITS.freezeTickers then
+      if not S.tickOther then
+        S.tickOther = { id = OVERFLOW_KEY, owner = owner, ms = 0, calls = 0 }
+      end
+
+      slot = S.tickOther
+    else
+      S.tickN = S.tickN + 1
+      slot = { id = id, owner = owner, ms = 0, calls = 0 }
+      S.tickSlots[id] = slot
+    end
+  end
+
+  return function(...)
+    S.curTop = slot
+
+    return closeTick(slot, clock(), refreshAll, raw(...))
+  end
+end
 
 -- CHAT_MSG_ADDON of the EbonAPI prefix (the flow whispers): sub-key = first byte of the text (a number, no string made).
 local function flowSlot(row, byte)
@@ -922,7 +1165,7 @@ local function flowSlot(row, byte)
   end
 
   if not slot then
-    slot = { ms = 0, calls = 0 }
+    slot = { ms = 0, calls = 0, event = row.event, key = key, flow = true }
     flow[key] = slot
     row.flowN = row.flowN + 1
   end
@@ -945,7 +1188,7 @@ local function slotFor(event, ...)
   local row = instrEvents[event]
 
   if not row then
-    row = { ms = 0, calls = 0, n = 0 }
+    row = { ms = 0, calls = 0, n = 0, event = event }
     instrEvents[event] = row
   end
 
@@ -980,7 +1223,7 @@ local function slotFor(event, ...)
   end
 
   if not slot then
-    slot = { ms = 0, calls = 0 }
+    slot = { ms = 0, calls = 0, event = event, key = key }
     sub[key] = slot
     row.n = row.n + 1
   end
@@ -991,10 +1234,14 @@ end
 local function finish(slot, t0, refreshed, ...)
   local own = clock() - t0 - (refreshAll - refreshed)
 
-  slot.ms = slot.ms + (own > 0 and own or 0)
+  own = own > 0 and own or 0
+  slot.ms = slot.ms + own
   slot.calls = slot.calls + 1
   wraps = wraps + 1
   depth = 0
+  S.curTop = nil
+  S.orphN = 0
+  accumulate(slot, own)
 
   return ...
 end
@@ -1010,6 +1257,8 @@ local function wrapEvent(self, event, ...)
 
   local slot = slotFor(event, ...)
 
+  S.curTop = slot
+
   return finish(slot, clock(), refreshAll, origEvent(self, event, ...))
 end
 
@@ -1020,6 +1269,7 @@ local function wrapUpdate(self, elapsed)
   end
 
   depth = 1
+  S.curTop = nil
 
   return finish(tickSlot, clock(), refreshAll, origUpdate(self, elapsed))
 end
@@ -1043,9 +1293,23 @@ local function measureUnit()
 
   origEvent = keep
   instrEvents.PERF_PROBE = nil
-  wraps, depth, nested, leaks = 0, 0, 0, 0
 
-  return spent / n, n
+  prepareHandlers()
+
+  t0 = clock()
+
+  for _ = 1, n do
+    local began = clock()
+
+    noteHandler(noop, nil, clock() - began)
+  end
+
+  local probeSpent = clock() - t0
+
+  releaseHandlers()
+  wraps, depth, nested, leaks, S.probes, S.curTop = 0, 0, 0, 0, 0, nil
+
+  return spent / n, n, probeSpent / n
 end
 
 -- A loop of clock reads against the rise of the profiler counter of EbonAPI: tells how the profiler reads our own time.
@@ -1160,25 +1424,39 @@ function Instr.start()
   end
 
   clear(instrEvents)
-  tickSlot.ms, tickSlot.calls = 0, 0
+  tickSlot.ms, tickSlot.calls, tickSlot.hookMs = 0, 0, 0
   channelSlot.ms, channelSlot.calls = 0, 0
   otherChannelSlot.ms, otherChannelSlot.calls = 0, 0
   wraps, depth, nested, leaks = 0, 0, 0, 0
   refreshCpuMs, refreshCpuCalls, refreshMemMs, refreshMemCalls, refreshAll = 0, 0, 0, 0, 0
   samplesOpen, samplesTotal = 0, 0
+  Frz.reset()
 
-  local unit, unitLoops = measureUnit()
+  local unit, unitLoops, probeUnit = measureUnit()
   local channel = EbonAPI.Channel
 
   channelNumber = channel and channel.index and channel.index() or nil
+  channelSlot.event, channelSlot.key = EVENT_CHANNEL, "~channel " .. tostring(channelNumber)
+  otherChannelSlot.event, otherChannelSlot.key = EVENT_CHANNEL, "~channelOther"
   flowPrefix = EbonAPI.Share and EbonAPI.Share.PREFIX or "EbonAPI"
   queueSent(queueAtStart)
   shareRead(shareAtStart)
   metered = true
   Instr.unit, Instr.unitLoops, Instr.calibration = unit, unitLoops, calibrate()
+  Instr.probeUnit = probeUnit
   Instr.frame = frame
   frame:SetScript("OnEvent", wrapEvent)
   frame:SetScript("OnUpdate", wrapUpdate)
+  EbonAPI.fanoutProbe(noteHandler, clock)
+  resetHooks()
+
+  if EbonAPI.Ebonhold and EbonAPI.Ebonhold.hookProbe then
+    EbonAPI.Ebonhold.hookProbe(noteHook, hookClock)
+  end
+
+  EbonAPI.Bus.wrapTickers(makeTicker)
+  Frz.start()
+  pieceCall("place")
   Instr.active = true
 
   return true
@@ -1194,6 +1472,8 @@ local function noteWindow()
   if main and main:IsShown() then
     samplesOpen = samplesOpen + 1
   end
+
+  Frz.roots()
 end
 
 local function flowLabel(byte)
@@ -1202,6 +1482,660 @@ local function flowLabel(byte)
   end
 
   return EVENT_ADDON .. " [" .. flowPrefix .. " " .. tostring(byte) .. "]"
+end
+
+local function slotLabel(slot)
+  if slot.hookLabel then
+    return slot.hookLabel
+  end
+
+  if slot.id ~= nil then
+    return tostring(slot.id)
+  end
+
+  if slot == tickSlot then
+    return "~tickLoop"
+  end
+
+  local event = slot.event
+
+  if event == nil then
+    return "~unknown"
+  end
+
+  if slot.flow then
+    return slot.key == OVERFLOW_KEY and (event .. " [" .. flowPrefix .. " " .. OVERFLOW_KEY .. "]") or flowLabel(slot.key)
+  end
+
+  if slot.key ~= nil then
+    return event .. " [" .. tostring(slot.key) .. "]"
+  end
+
+  return event
+end
+
+local function ownerLabel(owner)
+  if type(owner) == "string" then
+    return owner
+  end
+
+  if type(owner) == "table" then
+    return tostring(owner.addonName or owner.name or "?")
+  end
+
+  return "?"
+end
+
+local function resolveName(slot)
+  local fn = slot.fn
+
+  for _, list in pairs(functions) do
+    for i = 1, #list do
+      if list[i].fn == fn then
+        return list[i].name
+      end
+    end
+  end
+
+  local found = nil
+
+  local function look(event, candidate, owner, ranks)
+    ranks[event] = (ranks[event] or 0) + 1
+
+    if not found and candidate == fn then
+      found = tostring(event) .. " @" .. ownerLabel(owner) .. " #" .. ranks[event]
+    end
+  end
+
+  local busRanks, apiRanks = {}, {}
+
+  if EbonAPI.Bus and EbonAPI.Bus.eachHandler then
+    EbonAPI.Bus.eachHandler(function(event, candidate, owner)
+      look(event, candidate, owner, busRanks)
+    end)
+  end
+
+  if not found and EbonAPI.eachSubscription then
+    EbonAPI.eachSubscription(function(event, candidate, owner)
+      look(event, candidate, owner, apiRanks)
+    end)
+  end
+
+  return found or ("? @" .. ownerLabel(slot.owner))
+end
+
+do
+local function readRoots()
+  for i = 1, S.rootN do
+    local frame = S.rootFrame[i]
+    local cpu = GetFrameCPUUsage(frame, true) or 0
+
+    S.rootDelta[i] = cpu - S.rootBase[frame]
+    S.rootBase[frame] = cpu
+  end
+end
+
+local function addRoot(frame, name, onlyShown)
+  if type(frame) ~= "table" or S.rootSeen[frame] then
+    return
+  end
+
+  if onlyShown and not (frame.IsShown and frame:IsShown()) then
+    return
+  end
+
+  S.rootSeen[frame] = true
+  S.rootN = S.rootN + 1
+  S.rootFrame[S.rootN], S.rootName[S.rootN] = frame, name or frame.id
+
+  if S.rootBase[frame] == nil then
+    S.rootBase[frame] = GetFrameCPUUsage(frame, true) or 0
+  end
+end
+
+local function buildRoots(onlyShown)
+  clear(S.rootSeen)
+  S.rootN = 0
+
+  local windows = EbonAPI.Windows and EbonAPI.Windows.all and EbonAPI.Windows.all()
+
+  for i = 1, windows and #windows or 0 do
+    addRoot(windows[i], nil, onlyShown)
+  end
+
+  for _, list in pairs(tracked) do
+    for i = 1, #list do
+      addRoot(list[i].frame, list[i].name, onlyShown)
+    end
+  end
+
+  for i = 1, S.rootN do
+    if type(S.rootName[i]) ~= "string" then
+      S.rootName[i] = tostring(S.rootName[i] or "~unknown")
+    end
+  end
+end
+
+local function timeRoots()
+  local t0 = clock()
+
+  readRoots()
+
+  return clock() - t0
+end
+
+function Frz.roots()
+  if S.frzActive and S.rootMode ~= "off" then
+    buildRoots(S.rootMode == "shown")
+  end
+end
+
+local function byMs(a, b)
+  return a.ms > b.ms
+end
+
+local function byFms(a, b)
+  return a.fms > b.fms
+end
+
+local function syncFz()
+  local fz = S.runFz
+
+  if fz then
+    fz.n, fz.sum, fz.kept, fz.self, fz.roots = S.frzN, S.frzSum, #S.keptList, Frz.selfMs, S.rootMode
+    fz.pass = math.floor(S.rootPassMs * 1000 + 0.5)
+  end
+end
+
+local function windowContext(g)
+  local windows = EbonAPI.Windows and EbonAPI.Windows.all and EbonAPI.Windows.all()
+  local shown = {}
+
+  for i = 1, windows and #windows or 0 do
+    local frame = windows[i]
+
+    if type(frame) == "table" and frame.id and frame.IsShown and frame:IsShown() then
+      shown[#shown + 1] = tostring(frame.id)
+    end
+  end
+
+  g.wins = #shown > 0 and table.concat(shown, "+") or nil
+
+  local window = EbonAPI.Window
+
+  if window and window.selected then
+    local owner, key = window.selected()
+
+    g.page = (owner ~= nil and key ~= nil) and (tostring(owner) .. "/" .. tostring(key)) or nil
+  end
+
+  g.zone = GetRealZoneText and GetRealZoneText() or nil
+end
+
+local FREEZE_LOAD_GUARD = 2
+
+local function addonDeltas(g)
+  local n = Rec.n
+
+  if n <= 0 or not profiling() then
+    return
+  end
+
+  refreshCpu()
+
+  local at = now()
+  local from = at - g.d / 1000
+  local row = nil
+
+  for r = Rec.count, 1, -1 do
+    if Rec.at[r] <= from then
+      row = r
+
+      break
+    end
+  end
+
+  if row == nil and S.gelAt == nil and Rec.count > 0 then
+    row = 1
+  end
+
+  local useRec = row ~= nil and (S.gelAt == nil or S.gelAt > from or Rec.at[row] > S.gelAt)
+  local base = useRec and (row - 1) * n or nil
+  local baseAt = useRec and Rec.at[row] or S.gelAt
+  local list, total = {}, 0
+
+  for a = 1, n do
+    local cur = GetAddOnCPUUsage(Rec.index[a]) or 0
+    local before = useRec and Rec.cpu[base + a] or S.cpuPrev[a]
+
+    if baseAt and before then
+      local delta = cur - before
+
+      total = total + delta
+
+      if delta > 0 then
+        list[#list + 1] = { id = Rec.folder[a], ms = delta }
+      end
+    end
+
+    S.cpuPrev[a] = cur
+  end
+
+  S.gelAt = at
+
+  if baseAt then
+    table.sort(list, byMs)
+
+    for i = #list, LIMITS.freezePieces + 1, -1 do
+      list[i] = nil
+    end
+
+    g.addons, g.addonsMs, g.addonsWindow = list, total, (at - baseAt) * 1000
+  end
+end
+
+function Frz.topEvents(counts, names, n, limit)
+  local out, pick, best = S.evOut, S.evPick, S.evBest
+
+  if not names then
+    names, n = S.evScratch, 0
+
+    for key, count in pairs(counts) do
+      if count > 0 then
+        n = n + 1
+        names[n] = key
+      end
+    end
+  end
+
+  local m = 0
+
+  for _ = 1, limit do
+    local pickKey, pickCount = nil, 0
+
+    for i = 1, n do
+      local key = names[i]
+      local count = counts[key]
+
+      if not pick[key] and count > 0 and (count > pickCount or (count == pickCount and key < pickKey)) then
+        pickKey, pickCount = key, count
+      end
+    end
+
+    if not pickKey then
+      break
+    end
+
+    pick[pickKey] = true
+    m = m + 1
+    best[m] = pickKey
+    out[m] = pickKey .. ":" .. pickCount
+  end
+
+  for i = 1, m do
+    pick[best[i]] = nil
+  end
+
+  return table.concat(out, ",", 1, m)
+end
+
+function Frz.context(g)
+  local total = 0
+
+  for i = 1, S.evN do
+    total = total + S.evFrame[S.evNames[i]]
+  end
+
+  g.ev, g.evTop = total, Frz.topEvents(S.evFrame, S.evNames, S.evN, 5)
+  g.fps = GetFramerate and S.frzFps or nil
+
+  local raid = GetNumRaidMembers and GetNumRaidMembers() or 0
+
+  if raid <= 0 then
+    raid = GetNumPartyMembers and GetNumPartyMembers() or 0
+  end
+
+  g.raid = raid
+
+  if WorldFrame and WorldFrame.GetChildren then
+    local plates = 0
+    local kids = { WorldFrame:GetChildren() }
+
+    for i = 1, #kids do
+      local kid = kids[i]
+
+      if kid.IsVisible and kid:IsVisible() and kid:GetName() == nil then
+        plates = plates + 1
+      end
+    end
+
+    g.plates = plates
+  end
+end
+
+function Frz.record(d, sc, hd)
+  local g = { t = now() - S.frzStartAt, d = d, sc = sc, hd = hd, combat = inCombat(), overflow = S.overflow }
+  local pieces = {}
+  local loop = 0
+
+  for i = 1, S.touchedN do
+    local slot = S.touched[i]
+
+    if slot.hookLabel then
+      pieces[#pieces + 1] = { kind = PIECE_HOOK, ms = slot.fms, calls = slot.fc, count = 1, label = slot.hookLabel }
+    elseif slot == tickSlot then
+      loop = loop + slot.fms
+    elseif slot.id ~= nil then
+      loop = loop - slot.fms
+      pieces[#pieces + 1] = { kind = PIECE_BUS_TICK, ms = slot.fms, calls = slot.fc, count = 1, label = slotLabel(slot) }
+    else
+      pieces[#pieces + 1] = { kind = PIECE_BUS_EVENT, ms = slot.fms, calls = slot.fc, count = 1, label = slotLabel(slot) }
+    end
+  end
+
+  if tickSlot.hookStamp == S.stamp then
+    loop = loop - tickSlot.hookFms
+  end
+
+  if loop > 0.0005 then
+    pieces[#pieces + 1] = { kind = PIECE_BUS_TICK, ms = loop, calls = tickSlot.stamp == S.stamp and tickSlot.fc or 0,
+      count = 1, label = "~tickLoop" }
+  end
+
+  for i = 1, S.rootN do
+    if S.rootDelta[i] > 0 then
+      pieces[#pieces + 1] = { kind = PIECE_FRAME, ms = S.rootDelta[i], calls = 0, count = 1, label = S.rootName[i] }
+    end
+  end
+
+  local lua = 0
+
+  for i = 1, #pieces do
+    lua = lua + pieces[i].ms
+  end
+
+  table.sort(pieces, byMs)
+
+  local top = {}
+
+  for i = 1, math.min(#pieces, LIMITS.freezePieces) do
+    top[i] = pieces[i]
+  end
+
+  local handlers = {}
+
+  for i = 1, S.handTouchedN do
+    handlers[i] = S.handTouched[i]
+  end
+
+  for i = 1, S.hookNestN do
+    handlers[#handlers + 1] = S.hookNest[i]
+  end
+
+  table.sort(handlers, byFms)
+
+  local inside = {}
+
+  for i = 1, math.min(#handlers, LIMITS.freezePieces) do
+    local slot = handlers[i]
+
+    inside[i] = { kind = slot.hookLabel and PIECE_HOOK or PIECE_HANDLER, ms = slot.fms, calls = slot.fc, count = 1,
+      label = (slot.parent and slotLabel(slot.parent) or "~unknown") .. " > " .. (slot.hookLabel or resolveName(slot)) }
+  end
+
+  local row = instrEvents.PLAYER_ENTERING_WORLD
+
+  g.loading = (row ~= nil and row.stamp ~= nil and row.stamp >= S.stamp - 1)
+    or (S.frzReload and g.t - d / 1000 < FREEZE_LOAD_GUARD) or false
+  g.reset = lua > d * 1.02 + 1
+  g.lua, g.top, g.inside = lua, top, inside
+
+  local top = pieceCall("top", LIMITS.freezePieces)
+  local parts = {}
+
+  for i = 1, top and #top or 0 do
+    parts[i] = string.format("%s:%d:%.2f", (string.gsub(top[i].label, ",", " ")), top[i].calls, top[i].net)
+  end
+
+  g.pcs = table.concat(parts, ",")
+  windowContext(g)
+  addonDeltas(g)
+  Frz.context(g)
+  S.frzN, S.frzSum = S.frzN + 1, S.frzSum + d
+
+  local line = PerfData.encodeFreeze(g)
+  local lines = S.runFz and S.runFz.list
+  local slotIndex = nil
+
+  if #S.keptList < LIMITS.freezesKept then
+    slotIndex = #S.keptList + 1
+  else
+    local shortest = 1
+
+    for i = 2, #S.keptList do
+      if S.keptList[i].d < S.keptList[shortest].d then
+        shortest = i
+      end
+    end
+
+    if d > S.keptList[shortest].d then
+      slotIndex = shortest
+    end
+  end
+
+  S.lastFz, S.lastFzSlot = g, slotIndex
+
+  if slotIndex then
+    S.keptList[slotIndex] = g
+
+    if lines then
+      lines[slotIndex] = line
+    end
+  end
+
+  syncFz()
+end
+
+local function frzTick(_, elapsed)
+  local t0, r0 = clock(), refreshAll
+  local heap = collectgarbage("count")
+  local sc = GetScriptCPUUsage and GetScriptCPUUsage() or nil
+
+  readRoots()
+  pieceCall("retry")
+
+  local late = S.lastFz
+
+  if late then
+    local event = instrEvents.PLAYER_ENTERING_WORLD
+
+    S.lastFz = nil
+
+    if not late.loading and event ~= nil and event.stamp == S.stamp then
+      late.loading = true
+
+      local slot, lines = S.lastFzSlot, S.runFz and S.runFz.list
+
+      if slot and lines and S.keptList[slot] == late then
+        lines[slot] = PerfData.encodeFreeze(late)
+      end
+    end
+  end
+
+  if S.frzPrimed then
+    S.evCost = S.evCost + (pieceCall("takeCost") or 0)
+
+    local d = elapsed * 1000 - S.frzCarry - S.evCost
+
+    if d >= LIMITS.freezeMs then
+      Frz.record(d, (sc and S.frzLastSc) and sc - S.frzLastSc or nil, heap - S.frzLastHeap)
+    end
+  end
+
+  S.frzPrimed, S.frzLastHeap, S.frzLastSc = true, heap, sc
+
+  for i = 1, S.evN do
+    S.evFrame[S.evNames[i]] = 0
+  end
+
+  local mode = inCombat() and 2 or 1
+
+  S.evN, S.evSecs[mode] = 0, S.evSecs[mode] + elapsed
+  S.frzFps = GetFramerate and GetFramerate() or nil
+  S.stamp, S.touchedN, S.handTouchedN, S.overflow = S.stamp + 1, 0, 0, false
+  S.hookNestN, S.orphN = 0, 0
+  pieceCall("frame")
+
+  local refreshed = refreshAll - r0
+  local own = clock() - t0 - refreshed
+
+  own = own > 0 and own or 0
+  Frz.selfMs = Frz.selfMs + own + S.evCost
+  S.evCost = 0
+  S.frzCarry = own + refreshed
+end
+
+function Frz.reset()
+  clear(S.tickSlots)
+  S.tickN, S.tickOther, S.probes, S.curTop = 0, nil, 0, nil
+  tickSlot.stamp, tickSlot.fms, tickSlot.fc, tickSlot.hookStamp = nil, nil, nil, nil
+  S.clockMark = nil
+  S.stamp, S.touchedN, S.handTouchedN, S.overflow = S.stamp + 1, 0, 0, false
+  S.hookNestN, S.orphN = 0, 0
+end
+
+function Frz.start()
+  local frame = Frz.frame
+
+  if not frame then
+    frame = CreateFrame("Frame")
+    Frz.frame = frame
+  end
+
+  local counter = Frz.evFrame
+
+  if not counter then
+    counter = CreateFrame("Frame")
+    counter:Hide()
+    counter:SetScript("OnEvent", function(_, event)
+      local t0 = clock()
+      local count = S.evFrame[event] or 0
+
+      if count == 0 then
+        S.evN = S.evN + 1
+        S.evNames[S.evN] = event
+      end
+
+      S.evFrame[event] = count + 1
+
+      local session = S.evSess[inCombat() and 2 or 1]
+
+      session[event] = (session[event] or 0) + 1
+      S.evCost = S.evCost + clock() - t0
+    end)
+    Frz.evFrame = counter
+  end
+
+  prepareHandlers()
+  Frz.reset()
+
+  for i = #S.keptList, 1, -1 do
+    S.keptList[i] = nil
+  end
+
+  S.frzN, S.frzSum, Frz.selfMs = 0, 0, 0
+  S.frzStartAt, S.gelAt = now(), nil
+  S.frzReload, S.reloaded, S.lastFz = S.reloaded, nil, nil
+  S.frzPrimed, S.frzCarry = false, 0
+  clear(S.evFrame)
+  clear(S.evSess[1])
+  clear(S.evSess[2])
+  S.evN, S.evCost, S.evSecs[1], S.evSecs[2], S.frzFps = 0, 0, 0, 0, nil
+  counter:RegisterAllEvents()
+  S.frzLastHeap = collectgarbage("count")
+  S.frzLastSc = GetScriptCPUUsage and GetScriptCPUUsage() or nil
+  S.rootMode, S.rootN, S.rootPassMs = "off", 0, 0
+  clear(S.rootBase)
+
+  if GetFrameCPUUsage then
+    buildRoots(false)
+    S.rootMode = "all"
+    S.rootPassMs = timeRoots()
+
+    if S.rootPassMs > LIMITS.freezePassBudgetMs then
+      buildRoots(true)
+      S.rootMode = "shown"
+      S.rootPassMs = timeRoots()
+
+      if S.rootPassMs > LIMITS.freezePassBudgetMs then
+        S.rootMode, S.rootN = "off", 0
+      end
+    end
+  end
+
+  local data = account().perfRun
+
+  S.runFz = nil
+
+  if type(data) == "table" then
+    S.runFz = { fmt = 1, th = LIMITS.freezeMs, n = 0, sum = 0, kept = 0, pass = 0, roots = S.rootMode, self = 0, list = {} }
+    data.fz = S.runFz
+    syncFz()
+  end
+
+  S.frzActive = true
+  frame:SetScript("OnUpdate", frzTick)
+  frame:Show()
+end
+
+function Frz.stop()
+  if Frz.evFrame then
+    Frz.evFrame:UnregisterAllEvents()
+  end
+
+  if not S.frzActive then
+    return
+  end
+
+  S.frzActive = false
+
+  local frame = Frz.frame
+
+  if frame then
+    frame:SetScript("OnUpdate", nil)
+    frame:Hide()
+  end
+
+  syncFz()
+  releaseHandlers()
+end
+
+function Frz.entry()
+  if not S.runFz then
+    return nil
+  end
+
+  return { fmt = 1, th = LIMITS.freezeMs, n = S.frzN, sum = S.frzSum, kept = #S.keptList, pass = math.floor(S.rootPassMs * 1000 + 0.5),
+    roots = S.rootMode, self = Frz.selfMs, list = PerfData.encodeFreezes(S.keptList),
+    evc = Frz.topEvents(S.evSess[2], nil, 0, 10), evo = Frz.topEvents(S.evSess[1], nil, 0, 10),
+    evcs = math.floor(S.evSecs[2] * 10 + 0.5) / 10, evos = math.floor(S.evSecs[1] * 10 + 0.5) / 10 }
+end
+
+function Frz.clear()
+  Frz.stop()
+  Frz.reset()
+
+  for i = #S.keptList, 1, -1 do
+    S.keptList[i] = nil
+  end
+
+  clear(S.rootBase)
+  clear(S.rootSeen)
+  clear(S.cpuPrev)
+  S.rootN, S.rootMode, S.rootPassMs = 0, "off", 0
+  S.frzN, S.frzSum, Frz.selfMs = 0, 0, 0
+  S.gelAt, S.runFz = nil, nil
+end
 end
 
 local function collect()
@@ -1235,7 +2169,26 @@ local function collect()
   add(EVENT_CHANNEL .. " [~channel " .. tostring(channelNumber) .. "]", PIECE_BUS_EVENT,
     channelSlot)
   add(EVENT_CHANNEL .. " [~channelOther]", PIECE_BUS_EVENT, otherChannelSlot)
-  add(TICK_LABEL, PIECE_BUS_TICK, tickSlot)
+  local rest = tickSlot.ms - tickSlot.hookMs
+
+  for _, slot in pairs(S.tickSlots) do
+    rest = rest - slot.ms
+    add(tostring(slot.id), PIECE_BUS_TICK, slot)
+  end
+
+  if S.tickOther then
+    rest = rest - S.tickOther.ms
+    add(tostring(S.tickOther.id), PIECE_BUS_TICK, S.tickOther)
+  end
+
+  if tickSlot.calls > 0 then
+    pieces[#pieces + 1] = { label = "~tickLoop", kind = PIECE_BUS_TICK, ms = rest > 0 and rest or 0,
+      calls = tickSlot.calls, count = 1 }
+  end
+
+  for i = 1, S.hookN do
+    add(S.hookList[i].hookLabel, PIECE_HOOK, S.hookList[i])
+  end
 
   return pieces, generic
 end
@@ -1247,6 +2200,15 @@ function Instr.stop()
 
   Instr.active = false
   metered = false
+  EbonAPI.fanoutProbe(nil)
+
+  if EbonAPI.Ebonhold and EbonAPI.Ebonhold.hookProbe then
+    EbonAPI.Ebonhold.hookProbe(nil)
+  end
+
+  EbonAPI.Bus.wrapTickers(nil)
+  Frz.stop()
+  pieceCall("remove")
 
   local frame = Instr.frame
 
@@ -1259,6 +2221,9 @@ function Instr.stop()
   end
 
   local pieces, generic = collect()
+
+  resetHooks()
+
   local sent = {}
 
   queueSent(sent)
@@ -1273,7 +2238,7 @@ function Instr.stop()
 
   lastInstr = { shareKeys = shareDelta(shareAtStart.keys, shareNow.keys), shareMs = shareDelta(shareAtStart.ms, shareNow.ms),
     shareIgnored = shareDelta(shareAtStart.ignored, shareNow.ignored),
-    shareIgnoredPlayers = shareDelta(shareAtStart.players, shareNow.players), pieces = pieces, generic = generic, wraps = wraps, unitMs = Instr.unit, unitLoops = Instr.unitLoops,
+    shareIgnoredPlayers = shareDelta(shareAtStart.players, shareNow.players), pieces = pieces, generic = generic, wraps = wraps, probes = S.probes, probeUnit = Instr.probeUnit, unitMs = Instr.unit, unitLoops = Instr.unitLoops,
     calibration = Instr.calibration, nested = nested, leaks = leaks, samplesOpen = samplesOpen,
     samplesTotal = samplesTotal, queueSent = sent,
     refresh = { cpuMs = refreshCpuMs, cpuCalls = refreshCpuCalls, memoryMs = refreshMemMs,
@@ -1321,7 +2286,7 @@ local function instrumentExtra(rows)
   end
 
   local cpu = familyCpu(rows)
-  local cost = data.wraps * data.unitMs
+  local cost = data.wraps * data.unitMs + data.probes * data.probeUnit + Frz.selfMs
   local refresh = data.refresh
   local refreshMs = refresh.cpuMs + refresh.memoryMs
   local sum = cost + refreshMs
@@ -1525,7 +2490,7 @@ function Perf.begin(seconds, opts)
     return false
   end
 
-  account().perfRun = { phase = PHASE_RUNNING, duration = seconds, profilerByAddon = false,
+  account().perfRun = { phase = PHASE_RUNNING, duration = seconds, profilerByAddon = account().profilerTrace and true or false,
     startedAt = time and time() or 0, scan = type(opts) == "table" and opts.scan and true or nil }
   startRun()
 
@@ -1546,6 +2511,7 @@ function Perf.enableProfiler(seconds, opts)
 
   blocked = nil
   pending = nil
+  account().profilerTrace = true
   account().perfRun = { phase = PHASE_ARMED, duration = seconds, profilerByAddon = true,
     scan = type(opts) == "table" and opts.scan and true or nil }
   ReloadUI()
@@ -1594,7 +2560,50 @@ function Perf.purgeLegacy()
   return removed
 end
 
+function Perf.restorePending()
+  local acc = account()
+
+  return (acc.profilerTrace or acc.profilerZeroed) and true or false
+end
+
+function Perf.settle()
+  local acc = account()
+
+  if not acc.profilerTrace then
+    return
+  end
+
+  local data = acc.perfRun
+
+  if type(data) == "table" and (data.phase == PHASE_ARMED or data.phase == PHASE_RUNNING or data.phase == PHASE_SCANNING) then
+    return
+  end
+
+  if not profiling() then
+    acc.profilerTrace = nil
+
+    return
+  end
+
+  writeProfiler(OFF)
+end
+
+EbonAPI.Bus.on("PLAYER_REGEN_ENABLED", Perf.settle, "EbonAPI")
+
 function Perf.resume()
+  pieceCall("remove")
+  account().profilerZeroed = nil
+
+  local state = Perf.resumeRun()
+
+  if state ~= PHASE_RUNNING then
+    Perf.settle()
+  end
+
+  return state
+end
+
+function Perf.resumeRun()
   Perf.purgeLegacy()
 
   local data = account().perfRun
@@ -1607,6 +2616,7 @@ function Perf.resume()
     if profiling() then
       data.phase = PHASE_RUNNING
       data.startedAt = time and time() or 0
+      S.reloaded = true
       startRun()
 
       return PHASE_RUNNING
@@ -1629,6 +2639,7 @@ function Perf.resume()
   return data.phase
 end
 
+do
 local function scanResult()
   local scan = EbonAPI.PerfScan
 
@@ -1852,11 +2863,13 @@ local function complete(startedMs, startedWall, scanned)
     duration = now() - (runStart or startedWall or now()),
     profilerByAddon = data.profilerByAddon and true or false,
     totals = totals,
+    fz = Frz.entry(),
     -- Text only (see PerfData.encodeRows): no table per row / piece; the page decodes the session it shows.
     win = math.floor(window * 1000 + 0.5),
     rc = PerfData.encodeRows(snap.rows),
     rec = PerfData.encodeRecording(Rec),
     ua = PerfData.encodePieces(trimPieces(result.unattributed or {}, LIMITS.unattributedKept, window)),
+    pp = PerfData.encodePieceStats(pieceCall("stats")),
     stats = { frames = stats.frames, tables = stats.tables, functions = stats.functions, ms = stats.ms },
   })
 
@@ -1865,6 +2878,7 @@ local function complete(startedMs, startedWall, scanned)
   end
 
   data.phase = PHASE_DONE
+  data.fz = nil
   clearRun()
   say(L.PERFPAGE_RUN_DONE)
 end
@@ -1918,4 +2932,5 @@ function Perf.finish()
   end
 
   return true
+end
 end

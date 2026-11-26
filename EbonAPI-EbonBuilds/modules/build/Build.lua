@@ -1,7 +1,5 @@
 EbonBuilds.Build = {}
 
--- Permanent slots the current character owns (set by the server): used by the automation only.
--- A build, its display and its saving always use Const.BUILD_LOCKED_SLOTS.
 EbonBuilds.Build.LOCKED_SLOTS = 6
 
 local BUILD_SLOTS = EbonBuilds.Const.BUILD_LOCKED_SLOTS
@@ -23,10 +21,9 @@ local function DefaultSettings()
         autoRerollPct    = 120,
         rerollGuardPct   = 90,
         autoFreezePct    = 80,
-        noveltyValue     = 0,
-        noveltyMode      = false,
         echoBanList      = {},
         echoBanAllMode   = "highestScore",
+        manageSouvenirs  = true,
 
         scoreSource      = "matrix",
 
@@ -54,6 +51,8 @@ local function EnsureSettings(build)
             end
         end
     end
+    build.settings.noveltyValue = nil
+    build.settings.noveltyMode = nil
 end
 
 EbonBuilds.Build.EnsureSettings = EnsureSettings
@@ -151,8 +150,8 @@ function EbonBuilds.Build.Stamp(build)
     checksums[build] = EbonBuilds.Build.Checksum(build)
 end
 
-local function EnsureStats(build)
-    build.stats = build.stats or {
+local function statsFields()
+    return {
         echoesSeen    = 0,
         runsCompleted = 0,
         runsReset     = 0,
@@ -162,6 +161,10 @@ local function EnsureStats(build)
         freezesUsed   = 0,
         qualityPicks  = { [0] = 0, [1] = 0, [2] = 0, [3] = 0 },
     }
+end
+
+local function EnsureStats(build)
+    build.stats = build.stats or statsFields()
     local qp = build.stats.qualityPicks
     if not qp or qp[0] == nil then
         build.stats.qualityPicks = { [0] = 0, [1] = 0, [2] = 0, [3] = 0 }
@@ -273,6 +276,29 @@ function EbonBuilds.Build.Migrate()
 
     EbonBuilds.Build.MigrateIds()
 
+    if not EbonAPIEbonBuildsDB.defaultWeightsReset then
+        local function deepCopy(v)
+            if type(v) ~= "table" then return v end
+            local out = {}
+            for k, x in pairs(v) do out[k] = deepCopy(x) end
+            return out
+        end
+        local snapshot
+        for id, b in pairs(EbonAPIEbonBuildsDB.builds) do
+            if type(b.echoWeights) == "table" and next(b.echoWeights) ~= nil then
+                if not snapshot then
+                    local stamp = date("%Y%m%d-%H%M%S")
+                    EbonAPIEbonBuildsDB.weightsBackups = EbonAPIEbonBuildsDB.weightsBackups or {}
+                    EbonAPIEbonBuildsDB.weightsBackups[stamp] = EbonAPIEbonBuildsDB.weightsBackups[stamp] or {}
+                    snapshot = EbonAPIEbonBuildsDB.weightsBackups[stamp]
+                end
+                snapshot[id] = deepCopy(b.echoWeights)
+                b.echoWeights = {}
+            end
+        end
+        EbonAPIEbonBuildsDB.defaultWeightsReset = true
+    end
+
     for _, b in pairs(EbonAPIEbonBuildsDB.builds) do
         b._checksum = nil
         EbonBuilds.Build.Stamp(b)
@@ -324,6 +350,7 @@ function EbonBuilds.Build.GetActive()
 end
 
 function EbonBuilds.Build.SetActive(id)
+    if not EbonAPIEbonBuildsDB.builds[id] then return nil end
     if EbonAPIEbonBuildsCharDB.activeBuildId == id then return end
     EbonAPIEbonBuildsCharDB.activeBuildId = id
     Notify()
@@ -362,16 +389,7 @@ function EbonBuilds.Build.NewObject(data)
         lastModified    = data.lastModified or date("%Y-%m-%d %H:%M:%S"),
         automationEnabled = automationEnabled,
         copiedFrom        = data.copiedFrom or nil,
-        stats            = {
-            echoesSeen    = 0,
-            runsCompleted = 0,
-            runsReset     = 0,
-            picks         = 0,
-            rerollsUsed   = 0,
-            banishesUsed  = 0,
-            freezesUsed   = 0,
-            qualityPicks  = { [0] = 0, [1] = 0, [2] = 0, [3] = 0 },
-        },
+        stats            = statsFields(),
     }
     return build
 end
@@ -442,4 +460,129 @@ function EbonBuilds.Build.Delete(id)
         EbonAPIEbonBuildsCharDB.activeBuildId = nil
         Notify()
     end
+end
+
+function EbonBuilds.Build.GetActiveId()
+    local id = EbonAPIEbonBuildsCharDB.activeBuildId
+    if id and EbonBuilds.Build.Get(id) then return id end
+    return nil
+end
+
+function EbonBuilds.Build.IsFree()
+    return EbonBuilds.Build.GetActiveId() == nil
+end
+
+function EbonBuilds.Build.RailList()
+    local out = EbonBuilds.Build.List()
+    table.sort(out, function(a, b)
+        local ta, tb = a.title or "", b.title or ""
+        if ta ~= tb then return ta < tb end
+        return (a.id or "") < (b.id or "")
+    end)
+    return out
+end
+
+function EbonBuilds.Build.Stacks(build, spellId)
+    local stacks = build and build.echoStacks and build.echoStacks[spellId]
+    if type(stacks) == "number" and stacks >= 1 then return stacks end
+    return 1
+end
+
+local echoIndex = { source = nil, byName = nil }
+
+local function EchoIndexByName()
+    local catalog = EbonAPI and EbonAPI.EchoCatalog
+    local list = catalog and catalog.NameList and catalog.NameList()
+    if not list then return nil end
+    if echoIndex.source ~= list then
+        local byName = {}
+        for i = 1, #list do
+            local entry = list[i]
+            local group = catalog.GroupKey(entry.spellId) or entry.spellId
+            local spellIds = {}
+            for quality, spellId in pairs(entry.spellIds or {}) do
+                spellIds[quality] = spellId
+            end
+            byName[entry.name] = { key = group, spellIds = spellIds, spellId = entry.spellId, quality = entry.quality }
+        end
+        echoIndex.source = list
+        echoIndex.byName = byName
+    end
+    return echoIndex.byName
+end
+
+local function EchoQualityOf(spellId)
+    local entry = EbonAPI.EchoCatalog.Entry(spellId)
+    return entry and tonumber(entry.quality) or nil
+end
+
+function EbonBuilds.Build.Echoes(build)
+    local out, unknown = {}, {}
+    if not build then return out, unknown end
+    local catalog = EbonAPI and EbonAPI.EchoCatalog
+    local byName = EchoIndexByName()
+    local banList = build.settings and build.settings.echoBanList or {}
+    local byKey = {}
+
+    local function Slot(name, info)
+        local item = byKey[info.key]
+        if not item then
+            item = {
+                key = info.key,
+                name = name,
+                spellIds = info.spellIds,
+                spellId = info.spellId,
+                quality = info.quality,
+                weight = 0,
+                locked = false,
+                banned = false,
+                chosen = false,
+            }
+            for _, spellId in pairs(info.spellIds) do
+                if banList[spellId] then item.banned = true end
+            end
+            byKey[info.key] = item
+            out[#out + 1] = item
+        end
+        return item
+    end
+
+    for i = 1, BUILD_SLOTS do
+        local spellId = build.lockedEchoes and build.lockedEchoes[i]
+        if type(spellId) == "number" then
+            local name = byName and catalog.NameKey(spellId)
+            local info = name and byName[name]
+            if info then
+                local item = Slot(name, info)
+                item.locked = true
+                item.chosen = true
+                item.spellId = spellId
+                item.quality = EchoQualityOf(spellId) or item.quality
+            else
+                unknown[#unknown + 1] = spellId
+            end
+        end
+    end
+
+    for key, weight in pairs(build.echoWeights or {}) do
+        if type(weight) == "number" and weight > 0 then
+            local name = key
+            if type(key) == "number" then
+                name = byName and catalog.NameKey(key)
+            end
+            local info = byName and name and byName[name]
+            if info then
+                local item = Slot(name, info)
+                item.weight = weight
+            else
+                unknown[#unknown + 1] = key
+            end
+        end
+    end
+
+    for i = 1, #out do
+        out[i].stacks = EbonBuilds.Build.Stacks(build, out[i].spellId)
+    end
+    table.sort(out, function(a, b) return a.key < b.key end)
+    return out, unknown
 end

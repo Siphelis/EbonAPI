@@ -66,7 +66,10 @@ local function OwnText()
         local slot = tonumber(build.slot)
         local echoes = Codec.EncodeEchoes(build.echoes)
         if slot and slot >= 1 and slot <= limit and echoes ~= "" then
-            parts[#parts + 1] = slot .. "," .. NONE .. ",," .. LockedText(build) .. "," .. echoes
+            local locked = LockedText(build)
+            if EbonBuilds.Const.CompleteBuild(echoes, locked) then
+                parts[#parts + 1] = slot .. "," .. NONE .. ",," .. locked .. "," .. echoes
+            end
         end
     end
     return FORMAT .. "|" .. name .. "|" .. class .. "|" .. table.concat(parts, ";")

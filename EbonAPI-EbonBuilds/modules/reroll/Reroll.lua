@@ -11,20 +11,22 @@ local DEFAULT_BUDGET = 10
 
 local BUTTON_WIDTH = 190
 local HUNT_BUTTON_WIDTH = 150
-local SLIDER_WIDTH = 180
 local RARITY_WIDTH = 28
 local BUTTON_GAP = 8
 local BUTTON_HEIGHT = 32
 local BUTTON_Y = -8
 
-local TOGGLE_X = 0.040
-local TOGGLE_Y = 0.062
-
-local QUALITY_COLORS = {}
-for q, hex in pairs(EbonBuilds.Const.QUALITY_HEX) do QUALITY_COLORS[q] = "|cff" .. hex end
+local function QualityColor(q)
+  local hex = EbonBuilds.Const.QualityHex(q)
+  return hex and ("|cff" .. hex) or nil
+end
 
 local L = ns.L
 local R = ns.C.R
+
+local function N(n)
+  return EbonAPI.Format.number(n)
+end
 
 local function S(n)
   return n == 1 and "" or L.PLURAL
@@ -34,10 +36,8 @@ local PE = nil
 local container = nil
 local button = nil
 local huntButton = nil
-local slider = nil
 local uiParent = nil
-local orbHooksInstalled = false
-local orbHookMissing = false
+local subscribed = false
 
 local state = "idle"
 local pickSpellId = nil
@@ -49,12 +49,28 @@ local hunt = {
   budget = 0,
   spent  = 0,
   nextAt = 0,
+  directInFlight = false,
 }
 ns.hunt = hunt
 
 EbonBuilds.Reroll = EbonBuilds.Reroll or {}
 function EbonBuilds.Reroll.IsHunting()
   return (hunt.armed or hunt.active) and true or false
+end
+
+local huntListeners = {}
+local lastHunting = EbonBuilds.Reroll.IsHunting()
+
+local function NotifyHunt()
+  local now = EbonBuilds.Reroll.IsHunting()
+  if now == lastHunting then return end
+  lastHunting = now
+  for _, fn in ipairs(huntListeners) do fn() end
+end
+
+function EbonBuilds.Reroll.OnHuntChange(fn)
+  if type(fn) ~= "function" then return end
+  huntListeners[#huntListeners + 1] = fn
 end
 
 local lastJudged = nil
@@ -103,6 +119,21 @@ local deadFor = nil
 
 local Refresh
 
+local function OpenHuntWindow()
+  local hw = EbonBuilds.HuntWindow
+  if hw and hw.Open then hw.Open() end
+end
+
+local function CloseHuntWindow()
+  local hw = EbonBuilds.HuntWindow
+  if hw and hw.Close then hw.Close() end
+end
+
+local function RefreshHuntWindow()
+  local hw = EbonBuilds.HuntWindow
+  if hw and hw.Refresh then hw.Refresh() end
+end
+
 local Timer = EbonBuilds.Timer
 local Arm, Cancel = Timer.Arm, Timer.Cancel
 
@@ -110,6 +141,7 @@ local stateTimer  = Timer.New("Hunt: pick then spend")
 local probeTimer  = Timer.New("Hunt: orb count probe")
 local huntTimer   = Timer.New("Hunt: cycle floor")
 local unfoldTimer = Timer.New("Hunt: unfold")
+local Unfold
 
 local settleTimer = Timer.New("Hunt: orb offer settle")
 local settleUntil = 0
@@ -125,23 +157,63 @@ local function ArmSettle()
   Arm(settleTimer, TICK, SettleTick)
 end
 
-local function Orb()
-  return PE and PE.OrbService
+local SS_OFFER, SS_GRANTED, SS_ORBS = 16, 18, 1220
+
+local function State()
+  return ns.api:State()
 end
 
-local function Svc()
-  return PE and PE.PerkService
+local snapshots = {}
+
+local function Snapshot(key, op, read)
+  local source = ns.api:ServerState(op)
+  local slot = snapshots[key]
+  if not slot then
+    slot = {}
+    snapshots[key] = slot
+  end
+  if source == nil then
+    slot.source, slot.value = nil, nil
+  elseif source ~= slot.source then
+    slot.source, slot.value = source, read()
+  end
+  return slot.value
+end
+
+local function ReadOffer()
+  local offer = State().GetOffer()
+  return offer and offer.choices
+end
+
+local function Choices()
+  return Snapshot("offer", SS_OFFER, ReadOffer)
+end
+
+local function ReadLocked()
+  local set = {}
+  local value = State().GetLocked()
+  for _, p in ipairs(value and value.perks or {}) do set[p.spellId] = true end
+  return set
+end
+
+local function ReadOwned()
+  local map = {}
+  local value = State().GetOwned()
+  for _, p in ipairs(value and value.perks or {}) do map[p.spellId] = p end
+  return map
+end
+
+local function ReadOrbs()
+  local orbs = State().GetOrbs()
+  return orbs and (orbs.charges or 0) or nil
 end
 
 local function Charges()
-  local orb = Orb()
-  return (orb and orb.GetCharges and orb.GetCharges()) or 0
+  return Snapshot("orbs", SS_ORBS, ReadOrbs) or 0
 end
 
 local function ChargesKnown()
-  local orb = Orb()
-  if not orb or not orb.IsStateKnown then return true end
-  return orb.IsStateKnown()
+  return Snapshot("orbs", SS_ORBS, ReadOrbs) ~= nil
 end
 
 local OnProbeExpired
@@ -152,8 +224,7 @@ local function ProbeCharges()
     return
   end
   if probeTimer:IsShown() then return end
-  local orb = Orb()
-  if orb and orb.RequestCharges then orb.RequestCharges() end
+  EbonAPI.Actions.RequestOrbCharges()
   Arm(probeTimer, CHARGE_PROBE_INTERVAL, OnProbeExpired)
 end
 
@@ -163,12 +234,13 @@ end
 
 local function ColoredName(spellId, quality)
   local name = GetSpellInfo(spellId) or ("Echo " .. tostring(spellId))
-  return (QUALITY_COLORS[quality or 0] or "|cffFFFFFF") .. name .. "|r"
+  return (QualityColor(quality or 0) or "|cffFFFFFF") .. name .. "|r"
 end
 
 local function QualityName(q)
-  local name = _G["ITEM_QUALITY" .. (q + 1) .. "_DESC"] or tostring(q)
-  return (QUALITY_COLORS[q] or "") .. name .. R
+  local card = EbonAPI.ClientData.Quality(q)
+  local name = card and card.name or tostring(q)
+  return (QualityColor(q) or "") .. name .. R
 end
 
 local function Wanted(spellId)
@@ -182,10 +254,7 @@ local function WantedCount()
 end
 
 local function AutoAcceptOn()
-  local svc = EbonAPI.Ebonhold.OptionsService()
-  if not svc or not svc.GetSetting then return false end
-  local value = ns.api:Guard("HUNT.AUTO_ACCEPT_READ", svc.GetSetting, svc, "autoAcceptLoadoutEchoes")
-  return value and true or false
+  return State().GetAutoAcceptLoadoutEchoes() and true or false
 end
 
 local function FindWanted(choices)
@@ -198,29 +267,15 @@ local function FindWanted(choices)
 end
 
 local function IsPermanent(spellId)
-  local svc = Svc()
-  local locked = svc and svc.GetLockedPerks and svc.GetLockedPerks()
-  if not locked then return false end
-  for _, p in ipairs(locked) do
-    if p.spellId == spellId then return true end
-  end
-  return false
+  local set = Snapshot("locked", SS_GRANTED, ReadLocked)
+  return set ~= nil and set[spellId] == true
 end
 
 local function OwnedStacks(spellId)
-  local svc = Svc()
-  local granted = svc and svc.GetGrantedPerks and svc.GetGrantedPerks()
-  local name = GetSpellInfo(spellId)
-  if not granted or not name or not granted[name] then return 0, nil end
-
-  local owned, maxStack = 0, nil
-  for _, entry in ipairs(granted[name]) do
-    if entry.spellId == spellId then
-      owned = owned + 1
-      maxStack = entry.maxStack or maxStack
-    end
-  end
-  return owned, maxStack
+  local map = Snapshot("owned", SS_GRANTED, ReadOwned)
+  local perk = map and map[spellId]
+  if not perk then return 0, nil end
+  return perk.stack or 0, perk.maxStack
 end
 
 local function ChooseSacrifice(choices)
@@ -236,9 +291,9 @@ local function ChooseSacrifice(choices)
     end
     if eligible then
       local score = c.quality or 0
-      if c.isGuaranteed then score = score + 1000 end
-      if c.isFrozen then score = score + 500 end
-      if c.isCarried then score = score + 250 end
+      if c.memory then score = score + 1000 end
+      if c.frozen then score = score + 500 end
+      if c.carried then score = score + 250 end
       if not bestScore or score < bestScore then
         best, bestScore = c, score
       end
@@ -248,14 +303,12 @@ local function ChooseSacrifice(choices)
 end
 
 local function CanReroll()
-  if not PE or not Orb() or not Svc() then return nil, "REROLL.NO_ORB_SERVICE" end
   if state ~= "idle" then return nil, "REROLL.BUSY" end
 
-  local svc = Svc()
-  local choices = svc.GetCurrentChoice and svc.GetCurrentChoice()
+  local choices = Choices()
   if not choices or #choices == 0 then return nil, "REROLL.NO_CHOICE" end
 
-  if PE.Perks and PE.Perks.pendingSelectSpellId then
+  if State().GetPendingPick() then
     return nil, "REROLL.PICK_IN_FLIGHT"
   end
 
@@ -273,60 +326,19 @@ local function CanReroll()
   return pick
 end
 
-local MARK_OPEN  = "|cffffff00>> |r"
-local MARK_CLOSE = " |cffffff00<<|r"
-local CARD_GAP   = "    "
-
-local liveLine = nil
-local liveWanted = nil
-local cardParts = {}
-
-local function CardsLine(choices, markedId)
-  if not choices then return "" end
-  local n = #choices
-  for i = 1, n do
-    local c = choices[i]
-    local text = ColoredName(c.spellId, c.quality)
-    if c.spellId == markedId or Wanted(c.spellId) then
-      text = MARK_OPEN .. text .. MARK_CLOSE
-    end
-    cardParts[i] = text
-  end
-  return table.concat(cardParts, CARD_GAP, 1, n)
-end
-
-local function WantedLine()
-  local wl = ns.Wishlist
-  if not wl or wl.Count() == 0 then return nil end
-  local rows = wl.Armed()
-  local names = {}
-  for i = 1, #rows do
-    local row = rows[i]
-    if row.floor ~= row.qualities[1] then
-      names[i] = string.format(L.LIVE_WANTED_MIN, row.name, QualityName(row.floor))
-    else
-      names[i] = row.name
-    end
-  end
-  return string.format(L.LIVE_WANTED, table.concat(names, ", "))
-end
-
-local function Live(title, line)
-  liveLine = line
-  local toast = EbonBuilds.Toast
-  if toast and toast.ShowLive and toast.ShowLive(title, line, liveWanted) then return end
-  ns.api:Notify(title)
-end
-
-local function LiveTitle()
-  return string.format(L.LIVE_TITLE, hunt.spent, hunt.budget, S(hunt.budget))
-end
-
-local function HuntStop(reason, clearList, line)
+local function HuntStop(key, args, foundId)
   if not hunt.active then return end
+  local cost = Multiplier()
+  hunt.endReason = key
+  hunt.endArgs = args
+  hunt.lastDraws = math.floor(hunt.spent / cost)
+  hunt.lastSpent = hunt.spent
+  hunt.lastBudget = hunt.budget
   hunt.active = false
+  NotifyHunt()
   hunt.budget = 0
   huntCycleInFlight = false
+  hunt.directInFlight = false
   lastJudged = nil
 
   local spent = hunt.spent
@@ -334,29 +346,34 @@ local function HuntStop(reason, clearList, line)
 
   Cancel(huntTimer)
 
-  if clearList and ns.Wishlist then ns.Wishlist.Clear() end
-  if reason then
-    Live(reason .. string.format(L.HUNT_SPENT, spent, S(spent)), line or liveLine)
+  if foundId and ns.Wishlist then ns.Wishlist.Remove(foundId) end
+  if key then
+    local reason = args and string.format(L[key], unpack(args)) or L[key]
+    ns.api:Notify(reason .. string.format(L.HUNT_SPENT, N(spent), S(spent)))
   end
+  RefreshHuntWindow()
   Refresh()
+  if not foundId and EbonAPI.Ebonhold.IsOfferPending() == true then
+    Arm(unfoldTimer, 0, Unfold)
+  end
 end
 
-local function FailHuntCycle(reason, detail)
+local function FailHuntCycle(key, args)
   if not huntCycleInFlight then return end
   huntCycleInFlight = false
-  HuntStop(reason, false, detail)
+  HuntStop(key, args, false)
 end
 
-local function Fail(problem, huntReason)
+local function Fail(problem, huntReason, huntArgs)
   if problem then ns.api:Report(problem) end
-  FailHuntCycle(huntReason)
+  FailHuntCycle(huntReason, huntArgs)
 end
 
 local function Abort(problem)
   state = "idle"
   pickSpellId, pickName = nil, nil
   Cancel(stateTimer)
-  Fail(problem, L.HUNT_INTERRUPTED)
+  Fail(problem, "HUNT_INTERRUPTED")
   Refresh()
 end
 
@@ -364,43 +381,85 @@ local function OnPickTimeout()
   Abort(ns.api:Problem("REROLL.PICK_TIMED_OUT", { echo = PlainName(pickSpellId), seconds = PICK_TIMEOUT }))
 end
 
-local function Spend()
-  local orb, spellId = Orb(), pickSpellId
-  state = "idle"
-  pickSpellId, pickName = nil, nil
-
-  if not orb or not spellId then
-    Fail(ns.api:Problem("REROLL.NO_PICK_TO_SPEND"), L.HUNT_BEFORE_SPEND)
-    return
-  end
-
+local function SendHuntSpend(spellId)
   if IsPermanent(spellId) then
-    Fail(ns.api:Problem("REROLL.WENT_PERMANENT", { echo = PlainName(spellId) }), L.HUNT_WENT_PERMANENT)
-    return
+    return false, "wentPermanent", nil, nil, ns.api:Problem("REROLL.WENT_PERMANENT", { echo = PlainName(spellId) }), "HUNT_WENT_PERMANENT"
   end
 
   local cost = Multiplier()
   if Charges() < cost then
-    Fail(ns.api:Problem("REROLL.SPEND_SHORT_ORBS", { echo = PlainName(spellId), cost = cost, charges = Charges() }),
-      string.format(L.HUNT_NO_ORBS, cost))
-    return
+    return false, "shortOrbs", cost, nil,
+      ns.api:Problem("REROLL.SPEND_SHORT_ORBS", { echo = PlainName(spellId), cost = cost, charges = Charges() }),
+      "HUNT_NO_ORBS", { N(cost) }
   end
 
   ns.selfCall = true
-  local sent, problem = EbonAPI.Ebonhold.ConfirmSpend(spellId, cost)
+  local sent = EbonAPI.Ebonhold.ConfirmSpend(spellId, cost)
   ns.selfCall = false
 
   if not sent then
-    Fail(problem, L.HUNT_SPEND_FAILED)
+    return false, "sendFailed", cost
+  end
+  return true, nil, cost
+end
+
+local function Spend()
+  local spellId = pickSpellId
+  state = "idle"
+  pickSpellId, pickName = nil, nil
+
+  if not spellId then
+    Fail(ns.api:Problem("REROLL.NO_PICK_TO_SPEND"), "HUNT_BEFORE_SPEND")
+    return
+  end
+
+  local ok, why, cost, _, problem, huntReason, huntArgs = SendHuntSpend(spellId)
+  if not ok then
+    if why == "sendFailed" then
+      FailHuntCycle("HUNT_SPEND_FAILED")
+    else
+      Fail(problem, huntReason, huntArgs)
+    end
     return
   end
 
   if huntCycleInFlight then
     huntCycleInFlight = false
     hunt.spent = hunt.spent + cost
-    Live(LiveTitle(), CardsLine(lastJudged, spellId))
+    hunt.sacrificeId = spellId
+    RefreshHuntWindow()
   end
 
+end
+
+local function DirectSpend(spellId)
+  if not hunt.active then return false end
+  if hunt.drawCards or EbonAPI.Ebonhold.IsOfferPending() == true then return false end
+  if hunt.directInFlight then return true end
+
+  local step = Multiplier()
+  if not IsPermanent(spellId) and Charges() >= step and hunt.spent + step > hunt.budget then
+    HuntStop("HUNT_BUDGET_DONE", nil, false)
+    return true
+  end
+
+  local ok, why, cost, _, problem, huntReason, huntArgs = SendHuntSpend(spellId)
+  if not ok then
+    hunt.directInFlight = false
+    if why == "sendFailed" then
+      HuntStop("HUNT_SPEND_FAILED")
+    else
+      if problem then ns.api:Report(problem) end
+      HuntStop(huntReason, huntArgs, false)
+    end
+    return true
+  end
+
+  hunt.spent = hunt.spent + cost
+  hunt.sacrificeId = spellId
+  hunt.directInFlight = true
+  pcall(RefreshHuntWindow)
+  return true
 end
 
 local function SpendOrb()
@@ -420,12 +479,10 @@ local function Reroll()
   state = "picking"
   Arm(stateTimer, PICK_TIMEOUT, OnPickTimeout)
 
-  ns.selfCall = true
-  local sent, problem = EbonAPI.Ebonhold.SelectPerk(pick.spellId)
-  ns.selfCall = false
+  local outcome = EbonAPI.Actions.SelectEcho(pick.spellId)
 
-  if not sent then
-    Abort(problem)
+  if not outcome.sent then
+    Abort(nil)
     return false
   end
   Refresh()
@@ -434,7 +491,15 @@ end
 
 local budgetWanted = DEFAULT_BUDGET
 
-local function CanHunt()
+local function Remaining()
+  return (hunt.lastBudget or 0) - (hunt.lastSpent or 0)
+end
+
+local function Resumable()
+  return not hunt.active and hunt.endReason == "HUNT_FOUND"
+end
+
+local function CanHunt(resume)
   if hunt.active then return nil, "HUNT.RUNNING_ALREADY" end
   if WantedCount() == 0 then return nil, "HUNT.NOTHING_ARMED" end
   if AutoAcceptOn() then return nil, "HUNT.AUTO_ACCEPT_ON" end
@@ -444,53 +509,121 @@ local function CanHunt()
   if Charges() < cost then
     return nil, "REROLL.NOT_ENOUGH_ORBS", cost, Charges()
   end
-  if math.min(budgetWanted, Charges()) < cost then
-    return nil, "HUNT.BUDGET_TOO_LOW", cost, math.min(budgetWanted, Charges())
+  local room = math.min(resume and Remaining() or budgetWanted, Charges())
+  if room < cost then
+    return nil, "HUNT.BUDGET_TOO_LOW", cost, room
   end
   return true
 end
 
-local function HuntBegin()
+local function HuntBegin(resume)
+  local carried = resume and hunt.lastSpent or 0
   hunt.active = true
-  hunt.budget = math.min(budgetWanted, Charges())
-  hunt.spent  = 0
+  NotifyHunt()
+  hunt.budget = carried + math.min(resume and Remaining() or budgetWanted, Charges())
+  hunt.spent  = carried
   hunt.nextAt = 0
+  hunt.endReason = nil
+  hunt.endArgs = nil
+  hunt.drawCards, hunt.sacrificeId, hunt.foundId = nil, nil, nil
   lastJudged = nil
   huntCycleInFlight = false
+  hunt.directInFlight = false
 
-  local cost  = Multiplier()
-  local draws = math.floor(hunt.budget / cost)
-  liveWanted = WantedLine()
-  Live(LiveTitle(), string.format(L.HUNT_STARTED, WantedCount(),
-    hunt.budget, S(hunt.budget), draws, S(draws), cost))
-
+  if resume then RefreshHuntWindow() else OpenHuntWindow() end
   Refresh()
 end
 
-local function HuntStart()
-  local ok, code, a, b = CanHunt()
+local function HuntStart(resume)
+  local ok, code, a, b = CanHunt(resume)
   if not ok then
     Refuse(code, a, b)
     return
   end
 
-  HuntBegin()
+  HuntBegin(resume)
 end
 
 local function ToggleHunt()
   if hunt.active then
-    HuntStop(L.HUNT_STOPPED, false)
+    HuntStop("HUNT_STOPPED", nil, false)
   else
     HuntStart()
   end
 end
 
-local function ToggleGuard()
-  hunt.armed = not hunt.armed
+function EbonBuilds.Reroll.ToggleHunt()
+  ToggleHunt()
+end
+
+function EbonBuilds.Reroll.Continue()
+  if Resumable() then HuntStart(true) end
+end
+
+function EbonBuilds.Reroll.SetBudget(n)
+  local top = ChargesKnown() and math.max(1, Charges()) or math.huge
+  budgetWanted = math.max(1, math.min(math.floor(n), top))
+  EbonAPIEbonBuildsDB.globalSettings.huntBudget = budgetWanted
+  RefreshHuntWindow()
   Refresh()
 end
 
-local function Unfold()
+function EbonBuilds.Reroll.ColoredName(spellId, quality)
+  return ColoredName(spellId, quality)
+end
+
+function EbonBuilds.Reroll.QualityName(q)
+  return QualityName(q)
+end
+
+function EbonBuilds.Reroll.HuntState()
+  local cost = Multiplier()
+  local blocked = nil
+  local resume = Resumable()
+  if not hunt.active then
+    local ok, code, x, y = CanHunt(resume)
+    if not ok then blocked = Why(code, x, y) end
+  end
+  local active = hunt.active
+  local budget = active and hunt.budget or math.min(budgetWanted, Charges())
+  local spent = active and hunt.spent or (hunt.lastSpent or 0)
+  return {
+    active = active,
+    wanted = WantedCount(),
+    budget = budget,
+    spent = spent,
+    cost = cost,
+    reserve = Charges(),
+    drawsDone = math.floor(spent / cost),
+    drawsPlanned = math.floor(budget / cost),
+    endReason = (not active) and hunt.endReason or nil,
+    endArgs = (not active) and hunt.endArgs or nil,
+    blocked = blocked,
+    continuable = resume and WantedCount() > 0 and Remaining() >= cost and Charges() >= cost,
+    waiting = active and not hunt.drawCards and EbonAPI.Ebonhold.IsOfferPending() ~= true,
+    drawCards = hunt.drawCards,
+    sacrificeId = hunt.sacrificeId,
+    foundId = hunt.foundId,
+  }
+end
+
+local function ToggleGuard()
+  hunt.armed = not hunt.armed
+  local wl = ns.Wishlist
+  if wl then wl.SetShown(hunt.armed) end
+  if hunt.armed then
+    if not hunt.active then
+      hunt.endReason, hunt.endArgs = nil, nil
+      if WantedCount() > 0 then OpenHuntWindow() end
+    end
+  else
+    CloseHuntWindow()
+  end
+  NotifyHunt()
+  Refresh()
+end
+
+Unfold = function()
   local parent, choose = EbonAPI.Ebonhold.PerkFrame(), _G.PerkChooseButton
   if parent and parent.perksHidden and choose and choose:IsShown() then
     choose:Click()
@@ -510,11 +643,19 @@ local function HuntTick(choices)
   end
 
   lastJudged = choices
+  local cards = {}
+  for i = 1, #choices do
+    cards[i] = { spellId = choices[i].spellId, quality = choices[i].quality }
+  end
+  hunt.drawCards = cards
+  hunt.directInFlight = false
+  hunt.sacrificeId = nil
 
   local found = FindWanted(choices)
+  hunt.foundId = found and found.spellId or nil
+  RefreshHuntWindow()
   if found then
-    HuntStop(string.format(L.HUNT_FOUND, ColoredName(found.spellId, found.quality)), true,
-      CardsLine(choices))
+    HuntStop("HUNT_FOUND", { ColoredName(found.spellId, found.quality) }, found.spellId)
     Arm(unfoldTimer, 0, Unfold)
     return
   end
@@ -522,12 +663,12 @@ local function HuntTick(choices)
   local cost = Multiplier()
 
   if hunt.spent + cost > hunt.budget then
-    HuntStop(L.HUNT_BUDGET_DONE, false, CardsLine(choices))
+    HuntStop("HUNT_BUDGET_DONE", nil, false)
     return
   end
   if Charges() < cost then
     ns.api:Report(ns.api:Problem("HUNT.NO_ORBS_LEFT", { cost = cost, charges = Charges(), spent = hunt.spent }))
-    HuntStop(string.format(L.HUNT_NO_ORBS, cost), false, CardsLine(choices))
+    HuntStop("HUNT_NO_ORBS", { N(cost) }, false)
     return
   end
 
@@ -535,7 +676,7 @@ local function HuntTick(choices)
   if not pick then
     deadFor = choices
     Refuse(code, a, b)
-    HuntStop(L.HUNT_STOPPED, false, CardsLine(choices))
+    HuntStop("HUNT_STOPPED", nil, false)
     return
   end
 
@@ -556,52 +697,33 @@ local function InstallPerkHooks()
   draw.After("Hide", Refresh)
 
   draw.After("UpdateSinglePerk", Refresh)
-
-  draw.After("ResetSelection", function()
-    if state == "picking" and not (PE.Perks and PE.Perks.pendingSelectSpellId) then
-      Abort(nil)
-    end
-  end)
 end
 
-local function InstallOrbHooks()
-  if orbHooksInstalled then return end
-  local orb = Orb()
-  if not orb then return end
-  if not orb.ClearOffer then
-    if not orbHookMissing then
-      orbHookMissing = true
-      ns.api:Degrade(ns.api:Problem("HUNT.NO_ORB_HOOK"))
-    end
-    return
-  end
-  if orbHookMissing then
-    orbHookMissing = false
-    ns.api:Restore("HUNT.NO_ORB_HOOK")
-  end
-  orbHooksInstalled = true
-
-  local originalClearOffer = orb.ClearOffer
-  orb.ClearOffer = function(...)
-    originalClearOffer(...)
+local function OnPickResult(_, result)
+  if result.ok then
     if state == "picking" then
       state = "consuming"
       Arm(stateTimer, CONSUME_DELAY, SpendOrb)
     elseif hunt.active then
-      HuntStop(L.HUNT_STOPPED_CLICK, false)
+      HuntStop("HUNT_STOPPED_CLICK", nil, false)
     end
-    Refresh()
+  elseif state == "picking" then
+    Abort(nil)
+    return
   end
+  Refresh()
+end
 
-  local originalConfirmSpend = orb.ConfirmSpend
-  if originalConfirmSpend then
-    orb.ConfirmSpend = function(spellId, count, ...)
-      if not ns.selfCall and type(count) == "number" and count >= 1 then
-        orbMultiplier = math.floor(count)
-      end
-      return originalConfirmSpend(spellId, count, ...)
-    end
+local function OnOrbSpend(_, spend)
+  local orbs = spend.orbs
+  if not ns.selfCall and type(orbs) == "number" and orbs >= 1 then
+    orbMultiplier = math.floor(orbs)
   end
+end
+
+local function OnServerData()
+  if hunt.active then Refresh() end
+  RefreshHuntWindow()
 end
 
 local TOGGLE_BUTTONS = { "PerkHideButton", "PerkChooseButton" }
@@ -626,7 +748,7 @@ local function RerollTip(add)
   if pick then
     local cost = Multiplier()
     add(string.format(L.REROLL_BODY, ColoredName(pick.spellId, pick.quality)), "text", true)
-    add(string.format(L.REROLL_COST, cost, S(cost), Charges()))
+    add(string.format(L.REROLL_COST, N(cost), S(cost), N(Charges())))
   else
     add(Why(code, a, b), "error", true)
   end
@@ -637,7 +759,7 @@ local function HuntTip(add)
 
   if hunt.active then
     add(L.HUNT_RUNNING, "title")
-    add(string.format(L.HUNT_PROGRESS, hunt.spent, hunt.budget, cost))
+    add(string.format(L.HUNT_PROGRESS, N(hunt.spent), N(hunt.budget), N(cost)))
     add(L.HUNT_CLICK_STOP, "muted")
     return
   end
@@ -648,7 +770,7 @@ local function HuntTip(add)
     local budget = math.min(budgetWanted, Charges())
     local draws  = math.floor(budget / cost)
     add(string.format(L.HUNT_BODY, WantedCount()), "text", true)
-    add(string.format(L.HUNT_BODY_COST, cost, draws, budget), "text", true)
+    add(string.format(L.HUNT_BODY_COST, N(cost), draws, N(budget)), "text", true)
     add(L.HUNT_BODY_MANUAL, "muted", true)
     if cost == 1 then
       add(L.HUNT_BODY_HINT, "faint", true)
@@ -661,9 +783,8 @@ end
 local rarityButton = nil
 
 local function QualityRGB(q)
-  local const = EbonBuilds and EbonBuilds.Const
-  local rgb = const and const.QUALITY_RGB and const.QUALITY_RGB[q]
-  if rgb then return rgb[1], rgb[2], rgb[3] end
+  local card = EbonAPI.ClientData.Quality(q)
+  if card then return card.r, card.g, card.b end
   return 1, 1, 1
 end
 
@@ -718,39 +839,6 @@ local function MakeButton(parent, label, width, onClick, tip)
   return b
 end
 
-local function MakeSlider(parent)
-  local s
-  local function Relabel(value)
-    local cost = Multiplier()
-    if cost > 1 then
-      local draws = math.floor(value / cost)
-      s._title = string.format(L.BUDGET_DRAWS, value, draws, S(draws), cost)
-    else
-      s._title = string.format(L.BUDGET, value)
-    end
-    s:SetTitle(s._title)
-    s._lblValue, s._lblCost = value, cost
-  end
-
-  s = EbonBuilds.Widgets.Kit("range", parent, {
-    width = SLIDER_WIDTH, min = 1, max = math.max(1, DEFAULT_BUDGET), step = 1,
-    value = DEFAULT_BUDGET,
-    text = function(self) return self._title or "" end,
-    onChange = function(_, value)
-      value = math.floor(value + 0.5)
-      budgetWanted = value
-      Relabel(value)
-      Refresh()
-    end,
-  })
-  s._relabel = Relabel
-  if s.low then s.low:Hide() end
-  if s.high then s.high:Hide() end
-
-  Relabel(DEFAULT_BUDGET)
-  return s
-end
-
 local function SetEnabled(w, on)
   if w._eorEnabled == on then return end
   w._eorEnabled = on
@@ -787,31 +875,8 @@ local function EnsureUI(parent)
   swatch:SetPoint("CENTER")
   rarityButton.swatch = swatch
 
-  slider = MakeSlider(container)
-
   SetShown(container, false)
   return container
-end
-
-local function RefreshSliderBounds()
-  local maxOrbs = math.max(1, Charges())
-  if slider._eorMax == maxOrbs then return end
-  slider._eorMax = maxOrbs
-  slider:SetRange(1, maxOrbs, 1)
-  if budgetWanted > maxOrbs then
-    budgetWanted = maxOrbs
-    slider:SetValue(maxOrbs)
-  else
-    slider:SetValue(budgetWanted)
-  end
-  slider._relabel(budgetWanted)
-end
-
-local function RefreshSliderLabel()
-  if not slider or not slider._relabel then return end
-  local value = budgetWanted
-  if slider._lblValue == value and slider._lblCost == Multiplier() then return end
-  slider._relabel(value)
 end
 
 local function RefreshRarity()
@@ -865,56 +930,36 @@ local function SetHuntLabel(b, enabled)
   end
 end
 
-local toggle = nil
-
-local function GuardTip(add)
-  add(L.TOGGLE, "title")
-  add(L.GUARD_BODY, "text", true)
-  add(hunt.armed and L.GUARD_ON or L.GUARD_OFF, "muted", true)
-end
-
-local function PaintToggle(on)
-  if not toggle or toggle._on == on then return end
-  toggle._on = on
-  toggle:Refresh()
-end
-
 local function BuildToggle(root)
-  if toggle or not root or not PE then return end
+end
 
-  local t = EbonBuilds.Widgets.Kit("toggle", root, {
-    key = "TOGGLE",
-    get = function() return hunt.armed end,
-    onChange = ToggleGuard,
-  })
-  t:SetFrameLevel(root:GetFrameLevel() + 10)
-  t:SetPoint("TOPRIGHT", root, "TOPRIGHT",
-    -root:GetWidth() * TOGGLE_X, -root:GetHeight() * TOGGLE_Y)
-  EbonBuilds.Widgets.Tip(t, GuardTip)
+function EbonBuilds.Reroll.GetArmed()
+  return hunt.armed and true or false
+end
 
-  toggle = t
-  toggle._on = hunt.armed
+function EbonBuilds.Reroll.SetArmed(on)
+  if (on and true or false) ~= (hunt.armed and true or false) then
+    ToggleGuard()
+  end
+end
+
+local function OnEchoesVisible(on)
 end
 
 local function Evaluate()
-  PaintToggle(hunt.armed)
-
   local parent = EbonAPI.Ebonhold.PerkFrame()
   if not parent then
     if container then SetShown(container, false) end
     return
   end
 
-  InstallOrbHooks()
   InstallToggleHooks()
 
-  local svc = Svc()
-  local orb = Orb()
-  local choices = svc and svc.GetCurrentChoice and svc.GetCurrentChoice()
-  local offerPending = orb and orb.IsOfferPending and orb.IsOfferPending() or false
+  local choices = Choices()
+  local offerPending = EbonAPI.Ebonhold.IsOfferPending() == true
 
   if offerPending then
-    Cancel(settleTimer)
+    if not hunt.active then Cancel(settleTimer) end
     ProbeCharges()
     HuntTick(choices)
   end
@@ -931,9 +976,6 @@ local function Evaluate()
 
   local panel = EnsureUI(parent)
   if uiParent ~= parent then Anchor(panel, parent) end
-
-  RefreshSliderBounds()
-  RefreshSliderLabel()
 
   local pick, code, impossible = CanReroll()
   if impossible then
@@ -956,13 +998,12 @@ local function Evaluate()
   SetEnabled(rarityButton, WantedCount() > 0)
   RefreshRarity()
 
-  SetEnabled(slider, not hunt.active)
-
   SetShown(panel, true)
 end
 
 local refreshing = false
 function Refresh()
+  NotifyHunt()
   if refreshing then return end
   refreshing = true
   ns.api:Guard("REROLL.REFRESH", Evaluate)
@@ -970,16 +1011,26 @@ function Refresh()
 end
 
 local function OnWishlistChanged()
-  if hunt.active then liveWanted = WantedLine() end
+  local count = WantedCount()
+  if count > (hunt.wantedSeen or 0) then
+    if ns.Wishlist then ns.Wishlist.SetShown(true) end
+    OpenHuntWindow()
+  end
+  hunt.wantedSeen = count
+  RefreshHuntWindow()
   Refresh()
 end
 
 local function Boot()
+  local saved = EbonAPIEbonBuildsDB and EbonAPIEbonBuildsDB.globalSettings
+  budgetWanted = saved and saved.huntBudget or DEFAULT_BUDGET
+  if ns.Wishlist then ns.Wishlist.Load() end
+  hunt.wantedSeen = WantedCount()
   if not EbonAPI.Ebonhold.IsPresent() then return end
 
   PE = EbonAPI.Ebonhold.Raw()
   local ui = PE and PE.PerkUI
-  if not PE or not PE.PerkService or not ui
+  if not PE or not ui
       or not ui.Show or not ui.Hide or not ui.ResetSelection then
     PE = nil
     ns.api:Degrade(ns.api:Problem("HUNT.NO_PERK_SYSTEM"))
@@ -988,9 +1039,22 @@ local function Boot()
 
   InstallPerkHooks()
 
+  if not subscribed then
+    subscribed = true
+    ns.api:On("SERVER_PICK_RESULT", OnPickResult)
+    ns.api:On("CLIENT_ORB_SPEND", OnOrbSpend)
+    ns.api:On("SERVER_OFFER", OnServerData)
+    ns.api:On("SERVER_ORBS", OnServerData)
+    if EbonAPI.Ebonhold.OnSpendRequest(DirectSpend) == false then
+      ns.api:Degrade(ns.api:Problem("HUNT.NO_PERK_SYSTEM"))
+    end
+  end
+
   ns.OnWishlistChanged = OnWishlistChanged
 
   ns.OnJournalFound = BuildToggle
+  ns.OnEchoesVisible = OnEchoesVisible
+  if EbonBuilds.Pe and EbonBuilds.Pe.Shell then EbonBuilds.Pe.Shell.Install() end
 end
 
 ns.api:On("READY", Boot)

@@ -7,7 +7,6 @@ EbonAPI.QueueTable = EbonAPI.QueueTable or {}
 -- virtual list (a pool of frames for the visible rows, rebound on scroll, repainted only when changed).
 
 local QueueTable = EbonAPI.QueueTable
-local Skins = EbonAPI.Skins
 local Palette = EbonAPI.Palette
 local Parameters = EbonAPI.Parameters
 local Bricks = EbonAPI.Bricks
@@ -31,20 +30,9 @@ local COLUMNS = {
   { id = "last", key = "QUEUEVIEW_COL_LASTSHORT", min = 64, right = true },
 }
 
-local function S(key, fallback)
-  local ok, found = pcall(Skins.value, key)
-  if ok and found ~= nil then
-    return found
-  end
+local S = EbonAPI.QueueParts.value
 
-  return fallback
-end
-
-local function word(key)
-  local L = EbonAPI.L
-
-  return (L and L[key]) or key
-end
+local word, hue, tint = EbonAPI.QueueGroups.word, EbonAPI.QueueGroups.hue, EbonAPI.QueueGroups.tint
 
 local function parts()
   return EbonAPI.QueueParts
@@ -57,17 +45,6 @@ local function number(n)
   end
 
   return n
-end
-
-local function hue(key)
-  local color = THEME[key] or THEME.text
-
-  return color[1] + color[2] * 1000 + color[3] * 1000000
-end
-
-local function tint(target, method, key, alpha)
-  local color = THEME[key] or THEME.text
-  target[method](target, color[1], color[2], color[3], alpha or 1)
 end
 
 local function differs(mem, ...)
@@ -210,6 +187,25 @@ local function newRow(frame)
   end)
 
   return row
+end
+
+local function shapeRow(frame, row, style, radius, index)
+  local look = row.look
+  look.style, look.zebra = style, style == "zebra" and index % 2 == 0
+  row.line:Hide()
+  if style == "pill" or style == "card" then
+    row:SetBackdrop(backdropOf(style, radius))
+    tint(row, "SetBackdropColor", "card", style == "card" and 1 or 0.5)
+    tint(row, "SetBackdropBorderColor", "borderDim", 0.6)
+  else
+    row:SetBackdrop(nil)
+    if style == "line" then
+      tint(row.line, "SetVertexColor", "borderDim", 0.6)
+      row.line:Show()
+    end
+  end
+
+  frame:PaintHover(row)
 end
 
 function QueueTable.people(parent, opts)
@@ -482,25 +478,6 @@ function QueueTable.people(parent, opts)
     row.layout = frame.layoutId
   end
 
-  local function shapeRow(row, style, radius, index)
-    local look = row.look
-    look.style, look.zebra = style, style == "zebra" and index % 2 == 0
-    row.line:Hide()
-    if style == "pill" or style == "card" then
-      row:SetBackdrop(backdropOf(style, radius))
-      tint(row, "SetBackdropColor", "card", style == "card" and 1 or 0.5)
-      tint(row, "SetBackdropBorderColor", "borderDim", 0.6)
-    else
-      row:SetBackdrop(nil)
-      if style == "line" then
-        tint(row.line, "SetVertexColor", "borderDim", 0.6)
-        row.line:Show()
-      end
-    end
-
-    frame:PaintHover(row)
-  end
-
   local function paintRow(row, data, index, maxSent, sig)
     local Parts = parts()
     local style, gap, radius = styleOf()
@@ -518,7 +495,7 @@ function QueueTable.people(parent, opts)
 
     if differs(row.mem, tostring(data.who or ""), laneText, laneKey, waiting, queued, sent, failed, avg, peak, lastText, maxSent, index, frame.layoutId, sig) then
       frame.paints = frame.paints + 1
-      shapeRow(row, style, radius, index)
+      shapeRow(frame, row, style, radius, index)
       row.who:SetText(tostring(data.who or ""))
       row.laneDot:Set(laneKey)
       row.laneText:SetText(laneText)
@@ -704,7 +681,7 @@ local LIST_COLUMNS = {
   { id = "last", key = "QUEUEVIEW_COL_LASTSHORT", min = 70, right = true },
 }
 local CLASSES = 7
-local CLASS_KEY = { "success", "success", "success", "caution", "caution", "danger", "danger" }
+local CLASS_KEY = EbonAPI.QueueParts.CLASS_KEY
 local CLASS_WIDTH, CLASS_HEIGHT, CLASS_MIN = 10, 16, 0.08
 local LIST_SCALE = 130
 
@@ -922,25 +899,6 @@ function QueueTable.addons(parent, opts)
     row.layout = frame.layoutId
   end
 
-  local function shapeListRow(row, style, radius, index)
-    local look = row.look
-    look.style, look.zebra = style, style == "zebra" and index % 2 == 0
-    row.line:Hide()
-    if style == "pill" or style == "card" then
-      row:SetBackdrop(backdropOf(style, radius))
-      tint(row, "SetBackdropColor", "card", style == "card" and 1 or 0.5)
-      tint(row, "SetBackdropBorderColor", "borderDim", 0.6)
-    else
-      row:SetBackdrop(nil)
-      if style == "line" then
-        tint(row.line, "SetVertexColor", "borderDim", 0.6)
-        row.line:Show()
-      end
-    end
-
-    frame:PaintHover(row)
-  end
-
   local function paintListRow(row, data, index, maxSent, sig)
     local Parts = parts()
     local style, _, radius = styleOf()
@@ -957,7 +915,7 @@ function QueueTable.addons(parent, opts)
 
     if differs(row.mem, tostring(data.lane or ""), waiting, queued, sent, failed, avg, peak, lastText, maxSent, index, frame.layoutId, sig, b1, b2, b3, b4, b5, b6, b7) then
       frame.paints = frame.paints + 1
-      shapeListRow(row, style, radius, index)
+      shapeRow(frame, row, style, radius, index)
       row.name:SetText(tostring(data.lane or ""))
       if waiting > 0 then
         row.pill:Set(Parts.number(waiting), "accent")

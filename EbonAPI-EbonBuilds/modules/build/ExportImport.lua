@@ -231,8 +231,6 @@ function EbonBuilds.ExportImport.ExportBuild(build)
 	return Base64Encode(json)
 end
 
--- The decoder is lenient: a string cut short still decodes, to a partial table. A whole export closes every
--- bracket and every string it opens.
 local function IsBalanced(json)
 	local depth, inString, escaped = 0, false, false
 	for i = 1, #json do
@@ -249,7 +247,6 @@ local function IsBalanced(json)
 end
 
 function EbonBuilds.ExportImport.DecodeBuild(b64String)
-	-- A pasted string may be wrapped over several lines: whitespace never belongs to Base64.
 	b64String = b64String and b64String:gsub("%s+", "")
 	if not b64String or b64String == "" then
 		return nil, EbonBuilds.api:Problem("IMPORT.EMPTY", {})
@@ -266,7 +263,6 @@ function EbonBuilds.ExportImport.DecodeBuild(b64String)
 	if not data or type(data) ~= "table" then
 		return nil, EbonBuilds.api:Problem("IMPORT.NOT_A_BUILD", { reason = "decoded text is not a JSON object", length = length })
 	end
-	-- Every export carries its version: JSON that does not is not one of ours.
 	if type(data.v) ~= "number" then
 		return nil, EbonBuilds.api:Problem("IMPORT.NOT_A_BUILD", { reason = "no export version", length = length })
 	end
@@ -299,51 +295,39 @@ function EbonBuilds.ExportImport.DecodeBuild(b64String)
 	return build
 end
 
--- Project Ebonhold's echo loadout string: "EBH1:<id.quality.stacks,...>:<CLASS>:<name>".
--- Its own reader also accepts the older "EBH1:<echoes>:<name>" without a class, and so does this one.
-local CLASS_ORDER = {
-    "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID",
-}
-local CLASS_TOKENS = {}
-for i = 1, #CLASS_ORDER do CLASS_TOKENS[CLASS_ORDER[i]] = true end
 
--- Weight written for each echo of an imported composition: the wizard's "Good" (40), and "Want" (50)
--- for an echo taken several times.
-local IMPORT_WEIGHT         = 40
-local IMPORT_WEIGHT_STACKED = 50
-local TITLE_LENGTH          = 40
-local SAMPLE_SIZE           = 5
+local TITLE_LENGTH = 32
 
 local function CleanName(name)
     name = (name or ""):gsub("[|;:,]", ""):gsub("^%s+", ""):gsub("%s+$", "")
     return name:sub(1, TITLE_LENGTH)
 end
 
-local function Sample(ids)
-    local out = {}
-    for i = 1, math.min(#ids, SAMPLE_SIZE) do out[i] = ids[i] end
-    return table.concat(out, ",")
+EbonBuilds.ExportImport.CleanName = CleanName
+
+local function Fail(code, facts)
+    return nil, code, EbonBuilds.api:Problem("IMPORT." .. code, facts or {})
 end
 
 function EbonBuilds.ExportImport.IsEBH1(text)
     return type(text) == "string" and strtrim(text):sub(1, 5) == "EBH1:"
 end
 
--- Returns nil when the text is not an EBH1 string, (nil, problem) when it is a broken one, and otherwise
--- { class = token or nil, name = text or nil, echoes = { { spellId, quality, stacks } ... } }.
 function EbonBuilds.ExportImport.ParseEBH1(text)
-    if not EbonBuilds.ExportImport.IsEBH1(text) then return nil end
+    if not EbonBuilds.ExportImport.IsEBH1(text) then return Fail("EBH1_BAD_FORMAT") end
     text = strtrim(text)
     local list, rest = text:match("^EBH1:([^:]*):?(.*)$")
+    list = list:gsub("%s+", "")
+    if list == "" then return Fail("EBH1_EMPTY") end
 
     local class, name
     local head, tail = rest:match("^([^:]*):(.*)$")
     if head then
         class, name = head:upper():gsub("[^A-Z]", ""), tail
-        if class ~= "" and not CLASS_TOKENS[class] then
-            return nil, EbonBuilds.api:Problem("IMPORT.EBH1_BAD_CLASS", { class = head })
+        if class ~= "" and not EbonAPI.ClientData.Class(class) then
+            return Fail("EBH1_BAD_CLASS", { class = head })
         end
-    elseif CLASS_TOKENS[rest] then
+    elseif EbonAPI.ClientData.Class(rest) then
         class = rest
     else
         name = rest
@@ -352,113 +336,94 @@ function EbonBuilds.ExportImport.ParseEBH1(text)
 
     local echoes = {}
     local tokens = 0
-    for token in list:gsub("%s+", ""):gmatch("[^,]+") do
+    for token in list:gmatch("[^,]+") do
         tokens = tokens + 1
-        local id, quality, stacks = token:match("^(%d+)%.(%d+)%.?(%d*)$")
+        local id, quality, stacks, flag = token:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+        if id then
+            if flag ~= "1" then id = nil end
+        else
+            id, quality, stacks = token:match("^(%d+)%.(%d+)%.?(%d*)$")
+            flag = nil
+        end
         if id then
             echoes[#echoes + 1] = {
                 spellId = tonumber(id),
                 quality = tonumber(quality),
                 stacks  = tonumber(stacks) or 1,
+                avoid   = flag and true or nil,
             }
         end
     end
-    if #echoes == 0 then
-        return nil, EbonBuilds.api:Problem("IMPORT.EBH1_NO_ECHOES", { tokens = tokens })
-    end
+    if #echoes == 0 then return Fail("EBH1_NO_ECHOES", { tokens = tokens }) end
 
     name = CleanName(name)
-    return { class = class, name = (name ~= "" and name or nil), echoes = echoes }
+    if name == "" then return Fail("EBH1_NO_NAME") end
+
+    local classMismatch = class ~= nil and class ~= EbonBuilds.Build.PlayerClassToken()
+    return {
+        class = class,
+        name = name,
+        echoes = echoes,
+        refused = tokens - #echoes,
+        classMismatch = classMismatch,
+    }
 end
 
--- A composition without a class: the one class every echo of it allows. Several fit (most echoes are shared):
--- the player's own class if it is one of them, else the first. No echo says anything: nil.
-local function InferClass(echoes)
-    local mask
-    for i = 1, #echoes do
-        local entry = EbonBuilds.Catalog.Entry(echoes[i].spellId)
-        local echoMask = entry and entry.classMask or 0
-        if echoMask ~= 0 then mask = mask and bit.band(mask, echoMask) or echoMask end
-    end
-    if not mask then return nil end
+function EbonBuilds.ExportImport.ImportEBH1(text)
+    local parsed, code, problem = EbonBuilds.ExportImport.ParseEBH1(text)
+    if not parsed then return nil, code, problem end
 
-    local player, first = EbonBuilds.Build.PlayerClassToken(), nil
-    for i = 1, #CLASS_ORDER do
-        local token = CLASS_ORDER[i]
-        if bit.band(mask, EbonBuilds.Const.CLASS_BITS[token]) ~= 0 then
-            if token == player then return token end
-            first = first or token
+    local id, reason, existing = EbonBuilds.Favorites.Add({
+        name = parsed.name,
+        class = parsed.class,
+        echoes = parsed.echoes,
+        source = "ebh1",
+    })
+    if not id then
+        if reason == "FAVORITE_DUPLICATE" then
+            return nil, "DUPLICATE", EbonBuilds.api:Problem("IMPORT.DUPLICATE", { id = existing })
         end
+        return nil, reason, EbonBuilds.api:Problem("IMPORT." .. tostring(reason), {})
     end
-    return first
+
+    local info = {
+        added = #parsed.echoes,
+        refused = parsed.refused,
+        classMismatch = parsed.classMismatch,
+        class = parsed.class,
+        name = parsed.name,
+    }
+    return id, info
 end
 
--- Weights are kept by echo name, as the automation reads them (Catalog.WeightKey, the spell name otherwise).
--- An id the catalog does not know is not an echo of this game: it is left out and counted.
-local function WeightsOf(echoes)
-    local weights, ids, unknown = {}, {}, {}
+function EbonBuilds.ExportImport.ExportEBH1(source)
+    local Build = EbonBuilds.Build
+    local echoes, class, name
+    if type(source) == "table" then
+        echoes = source.echoes
+        class = source.class or ""
+        name = source.name
+    else
+        local build = Build.Get(source)
+        if not build then return nil, "BUILD_NOT_FOUND" end
+        echoes = Build.Echoes(build)
+        class = build.class and build.class ~= "" and build.class or Build.PlayerClassToken() or ""
+        name = build.title
+    end
+    if type(echoes) ~= "table" or #echoes == 0 then return nil, "EXPORT_EMPTY" end
+    local tokens = {}
     for i = 1, #echoes do
         local echo = echoes[i]
-        local key = EbonBuilds.Catalog.Entry(echo.spellId)
-            and (EbonBuilds.Catalog.WeightKey(echo.spellId) or GetSpellInfo(echo.spellId))
-        if key then
-            local weight = echo.stacks > 1 and IMPORT_WEIGHT_STACKED or IMPORT_WEIGHT
-            if (weights[key] or 0) < weight then weights[key] = weight end
-            ids[#ids + 1] = echo.spellId
-        else
-            unknown[#unknown + 1] = echo.spellId
-        end
+        local data = EbonAPI.EchoCatalog.Entry(echo.spellId)
+        local quality = echo.quality or data and data.quality or 0
+        local token = echo.spellId .. "." .. quality .. "." .. (echo.stacks or 1)
+        if echo.avoid then token = token .. ".1" end
+        tokens[i] = token
     end
-    return weights, ids, unknown
+    name = CleanName(name)
+    return "EBH1:" .. table.concat(tokens, ",") .. ":" .. class .. ":" .. name
 end
 
--- Turns an EBH1 string into a saved, active build. Returns (build, info) with info = { class, guessed, known,
--- echoes, skipped }, or (nil, problem). Importing the same composition twice gives the build back (info.known).
-function EbonBuilds.ExportImport.ImportEBH1(text)
-    local api, Build = EbonBuilds.api, EbonBuilds.Build
-    local parsed, problem = EbonBuilds.ExportImport.ParseEBH1(text)
-    if not parsed then return nil, problem end
-    if EbonAPI.Ebonhold.PerkDatabase() == nil then
-        return nil, api:Problem("IMPORT.EBH1_CATALOG_MISSING", {})
-    end
-
-    local weights, ids, unknown = WeightsOf(parsed.echoes)
-    if #ids == 0 then
-        return nil, api:Problem("IMPORT.EBH1_NONE_KNOWN", { count = #unknown, sample = Sample(unknown) })
-    end
-
-    local class = parsed.class or InferClass(parsed.echoes) or Build.PlayerClassToken()
-    local build = Build.NewObject({
-        title       = parsed.name or L.IMPORTED_BUILD,
-        class       = class,
-        spec        = class == Build.PlayerClassToken() and Build.PlayerTopTalentTab() or 1,
-        echoWeights = weights,
-    })
-    local info = { class = class, guessed = parsed.class == nil, echoes = #ids, skipped = #unknown }
-
-    local checksum = Build.Checksum(build)
-    for _, other in ipairs(Build.List()) do
-        if Build.Checksum(other) == checksum then
-            info.known = true
-            Build.SetActive(other.id)
-            return other, info
-        end
-    end
-
-    Build.Add(build)
-    Build.SetActive(build.id)
-
-    if EbonBuilds.Matrix and EbonBuilds.Matrix.AddImportedComposition then
-        EbonBuilds.Matrix.AddImportedComposition(class, ids)
-    else
-        api:Report(api:Problem("IMPORT.EBH1_MATRIX_MISSING", {}))
-    end
-    if #unknown > 0 then
-        api:Report(api:Problem("IMPORT.EBH1_ECHOES_SKIPPED",
-            { count = #unknown, total = #parsed.echoes, sample = Sample(unknown) }))
-    end
-    return build, info
-end
 
 function EbonBuilds.ExportImport.ImportBuild(b64String)
 	local build, problem = EbonBuilds.ExportImport.DecodeBuild(b64String)
@@ -486,29 +451,30 @@ local importDialog
 local function RunImport(f)
 	local text = f._field.edit:GetText() or ""
 
-	local build, result
+	local build, result, problem
 	if EbonBuilds.ExportImport.IsEBH1(text) then
-		build, result = EbonBuilds.ExportImport.ImportEBH1(text)
+		local id
+		id, result, problem = EbonBuilds.ExportImport.ImportEBH1(text)
+		if id then
+			f:Close()
+			EbonBuilds.api:Notify(string.format(L.EBH1_IMPORTED, result.name, result.class and EbonBuilds.ClassName(result.class) or "-", result.added))
+			return
+		end
 	else
 		build, result = EbonBuilds.ExportImport.ImportBuild(text)
-	end
-	if build then
-		f:Close()
-		if result then
-			local format = result.known and L.EBH1_KNOWN or L.EBH1_IMPORTED
-			EbonBuilds.api:Notify(string.format(format, build.title, EbonBuilds.ClassName(result.class), result.echoes))
+		if build then
+			f:Close()
+			if EbonBuilds.Pe and EbonBuilds.Pe.Rail and EbonBuilds.Pe.Rail.Refresh then
+				EbonBuilds.Pe.Rail.Refresh()
+			end
+			return
 		end
-		if EbonBuilds.BuildList and EbonBuilds.BuildList.Refresh then
-			EbonBuilds.BuildList.Refresh()
-		end
-		EbonBuilds.ViewRouter.Show("buildOverview", { build = build })
-	else
-		local problem = result
-		EbonBuilds.api:Report(problem)
-		f._problem = problem
-		f._failed = true
-		f:Refresh()
+		problem = result
 	end
+	EbonBuilds.api:Report(problem)
+	f._problem = problem
+	f._failed = true
+	f:Refresh()
 end
 
 local function CreateImportDialog()
@@ -520,7 +486,6 @@ local function CreateImportDialog()
 	})
 	f:SetFrameStrata("FULLSCREEN_DIALOG")
 
-	-- 0 = no limit: a game edit box keeps only its first 256 letters by default, and a pasted string is far longer.
 	local field = W.Field(f, { width = inner, lines = IMPORT_LINES }, { placeholder = "IMPORT_HINT", maxLetters = 0 })
 	field.edit:SetScript("OnEscapePressed", function() f:Close() end)
 	f._field = field
