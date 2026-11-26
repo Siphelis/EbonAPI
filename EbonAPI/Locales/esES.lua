@@ -46,6 +46,8 @@ EbonAPILocales.esES = {
 
   VERSION_UPDATE = "%s %s (%s disponible)",
   UPDATE_AVAILABLE = "la versión %s está disponible (instalada: %s).",
+  UPDATE_DIALOG_TITLE = "Nueva versión disponible",
+  UPDATE_DIALOG_TEXT = "%s %s está disponible.\nVersión instalada: %s.",
   VERSION_TOO_OLD = "EbonAPI %s es demasiado antiguo para %s, que requiere %s.",
 
   SENDERS_NONE = "ningún remitente observado",
@@ -707,7 +709,11 @@ EbonAPILocales.esES = {
   PROBLEM_BRIDGE_DROPPED = "se descartó un mensaje del servidor; la información que contenía no se actualizó",
   PROBLEM_SERVER_NO_ANSWER = "el servidor no respondió en {seconds} segundos; la información no se actualizó",
   PROBLEM_QUEUE_FULL = "un mensaje de {addon} no se puso en cola: la cola de envío está llena ({waiting} mensajes en espera, {parts} más no cabrían); no se envió, inténtelo de nuevo en un momento",
-  PROBLEM_QUESTLOG_ABANDON_FAILED = "No se pudo abandonar {failed} misión(es)",
+  PROBLEM_QUESTLOG_ABANDON_BUSY = "Abandono rechazado: ya hay otro abandono en curso",
+  PROBLEM_QUESTLOG_ABANDON_EMPTY = "Abandono rechazado: ninguna de las misiones solicitadas está en su Diario",
+  PROBLEM_QUESTLOG_ABANDON_UNCONFIRMED = "{quest} no se abandonó: no se confirmó a tiempo su eliminación del Diario",
+  PROBLEM_QUESTLOG_ABANDON_MISSING = "{quest} ya no está en su Diario: no hay nada que abandonar",
+  PROBLEM_QUESTLOG_ABANDON_NOT_STARTED = "{quest} no se abandonó: el juego no la seleccionó como objetivo",
   PROBLEM_QUEUE_PEER_OFFLINE = "{player} se desconectó: {purged} mensajes en espera de {addon} se eliminaron y no se enviaron",
   PROBLEM_QUEUE_SEND_FAILED = "{addon} no pudo enviar un mensaje a {target}; el mensaje no se envió",
   PROBLEM_QUEUE_STREAM_CUT = "una transferencia de {addon} se cortó tras {sent} de {total} partes; el otro jugador no recibió el mensaje completo",

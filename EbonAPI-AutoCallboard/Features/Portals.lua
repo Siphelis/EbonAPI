@@ -241,31 +241,44 @@ local function RequestPortals()
   service.RequestPortals()
 end
 
+local POSITION_CAUSE = {
+  ["client:absent"] = "PORTAL.POSITION_CLIENT_ABSENT",
+  ["client:no-numbers"] = "PORTAL.POSITION_CLIENT_NO_NUMBERS",
+  ["map:no-position"] = "PORTAL.POSITION_MAP_NO_POSITION",
+  ["map:no-bounds"] = "PORTAL.POSITION_MAP_NO_BOUNDS",
+}
+
 local function PlayerWorldPoint()
-  if IsInInstance and IsInInstance() then
-    return nil
+  local point, failure = RT.PlayerWorldPoint()
+
+  if point then
+    reportedZone = nil
+
+    return point
   end
 
-  local mapName, x, y, areaId = RT.ReadPlayerMapPoint()
+  if failure and not failure.indoors then
+    local key = table.concat(failure.tried, " ; ")
 
-  if not mapName then
-    return nil
-  end
+    if reportedZone ~= key then
+      reportedZone = key
+      local cause
 
-  local point = RT.WorldPointFor(mapName, x, y, areaId)
+      for _, code in ipairs(failure.tried) do
+        local name = POSITION_CAUSE[code]
 
-  if not point then
-    if reportedZone ~= mapName then
-      reportedZone = mapName
-      RT.api:Report(RT.api:Problem("PORTAL.PLAYER_POSITION_UNKNOWN", { map = tostring(mapName), area = tostring(areaId or "?") }))
+        if name then
+          cause = RT.api:Problem(name, nil, cause)
+        else
+          cause = RT.api:Problem("PORTAL.POSITION_UNKNOWN_CODE", { code = code }, cause)
+        end
+      end
+
+      RT.api:Report(RT.api:Problem("PORTAL.PLAYER_POSITION_UNKNOWN", { tried = key }, cause))
     end
-
-    return nil
   end
 
-  reportedZone = nil
-
-  return { x = point.x, y = point.y, map = point.map, continent = tonumber(string.match(point.map, "^(%d+)")) }
+  return nil
 end
 
 local function CheckpointWorldPoint(checkpoint)
@@ -510,6 +523,12 @@ local function TryAuto()
   local target = pendingTarget
 
   if not target then
+    return
+  end
+
+  if RT.IsStoppedByDeath() then
+    pendingTarget = nil
+    events:Unlisten("PLAYER_REGEN_ENABLED")
     return
   end
 

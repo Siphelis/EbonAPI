@@ -1,10 +1,6 @@
 local RT = AutoCallboardRuntime
 
 RT.api:Problems("ACB", {
-  ["SHARE.UNAVAILABLE"] = { class = "echec" },
-  ["SHARE.NOT_SHAREABLE"] = { class = "refus", key = "quest" },
-  ["SHARE.NO_ACCEPTED_QUEST"] = { class = "refus" },
-  ["SHARE.QUEST_NOT_IN_LOG"] = { class = "refus", key = "quest" },
   ["SHARE.ACCEPTED_QUEST_ID_UNKNOWN"] = { class = "rejet" },
   ["SHARE.ACCEPT_UNAVAILABLE"] = { class = "echec" },
   ["TRAVEL.SERVICE_UNAVAILABLE"] = { class = "panne" },
@@ -17,10 +13,6 @@ RT.api:Problems("ACB", {
 
 EbonAPI.Locale.register("AutoCallboard", {
   enUS = {
-    PROBLEM_SHARE_UNAVAILABLE = "the quest could not be shared because the game function {api} is not available. Nothing was sent; reload the interface and try again",
-    PROBLEM_SHARE_NOT_SHAREABLE = "the quest {quest} cannot be shared: the game marks it as not shareable. Nothing was sent",
-    PROBLEM_SHARE_NO_ACCEPTED_QUEST = "there is no accepted quest to share yet. Nothing was sent; accept a quest first, then press share",
-    PROBLEM_SHARE_QUEST_NOT_IN_LOG = "the quest {quest} is not in your quest log: it was abandoned, handed in, or has not been added yet. Nothing was sent",
     PROBLEM_SHARE_ACCEPTED_QUEST_ID_UNKNOWN = "the game reported an accepted quest without a usable identifier ({first}, {second}). The quest was not recorded, so there is nothing to share until the next quest you accept",
     PROBLEM_SHARE_ACCEPT_UNAVAILABLE = "the quest offer could not be accepted automatically because the game has no accept function available. The quest stays unaccepted; accept it yourself in the quest window",
     PROBLEM_TRAVEL_SERVICE_UNAVAILABLE = "travel is unavailable because the checkpoint service of ProjectEbonhold is not available. Automatic travel is paused until it returns; update ProjectEbonhold if this persists",
@@ -32,10 +24,6 @@ EbonAPI.Locale.register("AutoCallboard", {
     SHARE_REQUESTED = "share request sent: %s",
   },
   frFR = {
-    PROBLEM_SHARE_UNAVAILABLE = "la quête n'a pas pu être partagée car la fonction du jeu {api} n'est pas disponible. Rien n'a été envoyé ; rechargez l'interface puis réessayez",
-    PROBLEM_SHARE_NOT_SHAREABLE = "la quête {quest} ne peut pas être partagée : le jeu la marque comme non partageable. Rien n'a été envoyé",
-    PROBLEM_SHARE_NO_ACCEPTED_QUEST = "il n'y a pas encore de quête acceptée à partager. Rien n'a été envoyé ; acceptez d'abord une quête, puis appuyez sur partager",
-    PROBLEM_SHARE_QUEST_NOT_IN_LOG = "la quête {quest} n'est pas dans votre journal de quêtes : elle a été abandonnée, rendue, ou pas encore ajoutée. Rien n'a été envoyé",
     PROBLEM_SHARE_ACCEPTED_QUEST_ID_UNKNOWN = "le jeu a signalé une quête acceptée sans identifiant exploitable ({first}, {second}). La quête n'a pas été enregistrée, il n'y a donc rien à partager avant la prochaine quête que vous accepterez",
     PROBLEM_SHARE_ACCEPT_UNAVAILABLE = "l'offre de quête n'a pas pu être acceptée automatiquement car le jeu n'a aucune fonction d'acceptation disponible. La quête reste non acceptée ; acceptez-la vous-même dans la fenêtre de quête",
     PROBLEM_TRAVEL_SERVICE_UNAVAILABLE = "le voyage est indisponible car le service de points de passage de ProjectEbonhold n'est pas disponible. Le voyage automatique est en pause jusqu'à son retour ; mettez ProjectEbonhold à jour si cela persiste",
@@ -47,10 +35,6 @@ EbonAPI.Locale.register("AutoCallboard", {
     SHARE_REQUESTED = "demande de partage envoyée : %s",
   },
   deDE = {
-    PROBLEM_SHARE_UNAVAILABLE = "die Quest konnte nicht geteilt werden, weil die Spielfunktion {api} nicht verfügbar ist. Es wurde nichts gesendet; laden Sie die Oberfläche neu und versuchen Sie es erneut",
-    PROBLEM_SHARE_NOT_SHAREABLE = "die Quest {quest} kann nicht geteilt werden: das Spiel markiert sie als nicht teilbar. Es wurde nichts gesendet",
-    PROBLEM_SHARE_NO_ACCEPTED_QUEST = "es gibt noch keine angenommene Quest zum Teilen. Es wurde nichts gesendet; nehmen Sie zuerst eine Quest an und drücken Sie dann auf Teilen",
-    PROBLEM_SHARE_QUEST_NOT_IN_LOG = "die Quest {quest} ist nicht in Ihrem Questlog: sie wurde abgebrochen, abgegeben oder noch nicht hinzugefügt. Es wurde nichts gesendet",
     PROBLEM_SHARE_ACCEPTED_QUEST_ID_UNKNOWN = "das Spiel meldete eine angenommene Quest ohne verwendbare Kennung ({first}, {second}). Die Quest wurde nicht gespeichert, daher gibt es bis zur nächsten angenommenen Quest nichts zu teilen",
     PROBLEM_SHARE_ACCEPT_UNAVAILABLE = "das Questangebot konnte nicht automatisch angenommen werden, weil das Spiel keine Annahmefunktion bereitstellt. Die Quest bleibt unangenommen; nehmen Sie sie selbst im Questfenster an",
     PROBLEM_TRAVEL_SERVICE_UNAVAILABLE = "die Reise ist nicht möglich, weil der Wegpunktdienst von ProjectEbonhold nicht verfügbar ist. Die automatische Reise ist pausiert, bis er zurückkehrt; aktualisieren Sie ProjectEbonhold, falls es bestehen bleibt",
@@ -62,10 +46,6 @@ EbonAPI.Locale.register("AutoCallboard", {
     SHARE_REQUESTED = "Teilen-Anfrage gesendet: %s",
   },
   esES = {
-    PROBLEM_SHARE_UNAVAILABLE = "no se pudo compartir la misión porque la función del juego {api} no está disponible. No se envió nada; recargue la interfaz y vuelva a intentarlo",
-    PROBLEM_SHARE_NOT_SHAREABLE = "la misión {quest} no se puede compartir: el juego la marca como no compartible. No se envió nada",
-    PROBLEM_SHARE_NO_ACCEPTED_QUEST = "todavía no hay ninguna misión aceptada que compartir. No se envió nada; acepte primero una misión y pulse compartir",
-    PROBLEM_SHARE_QUEST_NOT_IN_LOG = "la misión {quest} no está en su diario de misiones: fue abandonada, entregada o aún no se ha añadido. No se envió nada",
     PROBLEM_SHARE_ACCEPTED_QUEST_ID_UNKNOWN = "el juego informó de una misión aceptada sin un identificador utilizable ({first}, {second}). La misión no se registró, así que no hay nada que compartir hasta la próxima misión que acepte",
     PROBLEM_SHARE_ACCEPT_UNAVAILABLE = "la oferta de misión no se pudo aceptar automáticamente porque el juego no tiene ninguna función de aceptación disponible. La misión sigue sin aceptar; acéptela usted mismo en la ventana de misión",
     PROBLEM_TRAVEL_SERVICE_UNAVAILABLE = "el viaje no está disponible porque el servicio de puntos de paso de ProjectEbonhold no está disponible. El viaje automático queda en pausa hasta que vuelva; actualice ProjectEbonhold si persiste",

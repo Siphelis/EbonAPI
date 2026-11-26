@@ -81,6 +81,7 @@ local function dismiss(alert)
   end
 
   alert.problem = nil
+  alert.notice = nil
   stack()
 end
 
@@ -132,17 +133,23 @@ local function build()
   alert.view = Bricks.create("button", alert)
   alert.copy = Bricks.create("button", alert)
   alert.close = Bricks.create("button", alert)
-  alert.view:SetLabel(L.ALERT_VIEW)
-  alert.view:Fit(max(alert.view:TextWidth(), 0))
   alert.copy:SetLabel(L.ALERT_COPY)
   alert.copy:Fit(max(alert.copy:TextWidth(), 0))
   alert.close:SetLabel("x")
   alert.close:Fit(S("widgets.button.height"))
   act(alert.view, function(self)
-    Problems.open(self.problem.addon, Problems.keyOf(self.problem))
+    if self.notice then
+      self.notice.onAction()
+    else
+      Problems.open(self.problem.addon, Problems.keyOf(self.problem))
+    end
   end)
   act(alert.copy, copy)
-  act(alert.close, function() end)
+  act(alert.close, function(self)
+    if self.notice and self.notice.onClose then
+      self.notice.onClose()
+    end
+  end)
   alert:Hide()
   pool[#pool + 1] = alert
 
@@ -159,14 +166,14 @@ local function frame()
   return build()
 end
 
-local function fit(alert, text, width)
+local function fit(alert, text, width, unlimited)
   local line = alert.title:GetStringHeight() or 0
   local field = alert.text
 
   field:SetWidth(width)
   field:SetText(text)
 
-  if line <= 0 then
+  if line <= 0 or unlimited then
     return
   end
 
@@ -192,16 +199,18 @@ end
 
 local function render(alert)
   local problem = alert.problem
+  local notice = alert.notice
   local pad = S("kit.padding")
   local gap = S("kit.gap")
   local iconSize = S("kit.toast.icon")
   local width = S("kit.problem.alert.width")
   local left = pad
-  local icon = EbonAPI:AddonIcon(problem.addon)
+  local addon = notice and notice.addon or problem.addon
+  local icon = EbonAPI:AddonIcon(addon)
   local quietKind = alert.kind == "quiet"
 
   Bricks.paint(alert, "SetBackdropColor", S("kit.problem.alert.color"))
-  Bricks.paint(alert, "SetBackdropBorderColor", quietKind and "caution" or "danger")
+  Bricks.paint(alert, "SetBackdropBorderColor", notice and "border" or quietKind and "caution" or "danger")
 
   if icon then
     alert.icon:SetTexture(icon)
@@ -216,9 +225,9 @@ local function render(alert)
   end
 
   local closeSize = alert.close:GetWidth() or 0
-  local title = problem.addon
+  local title = notice and notice.title or addon
 
-  if alert.n > 1 then
+  if not notice and alert.n > 1 then
     title = title .. " \195\151" .. alert.n
   end
 
@@ -231,25 +240,34 @@ local function render(alert)
   alert.text:ClearAllPoints()
   alert.text:SetPoint("TOPLEFT", alert.title, "BOTTOMLEFT", 0, -gap)
 
-  local text = Problems.text(problem)
+  local text = notice and notice.text or Problems.text(problem)
 
   if quietKind and alert.n > 1 then
     text = format(L.ALERT_INTERNAL_ERRORS, alert.n)
   end
 
-  fit(alert, text, width - left - pad)
+  fit(alert, text, width - left - pad, notice)
+  alert.view:SetLabel(notice and notice.action or L.ALERT_VIEW)
+  alert.view:Fit(max(alert.view:TextWidth(), 0))
+  Lib.setShown(alert.view, not notice or notice.action ~= nil)
   alert.view:ClearAllPoints()
   alert.view:SetPoint("TOPLEFT", alert.text, "BOTTOMLEFT", 0, -gap)
   alert.copy:ClearAllPoints()
   alert.copy:SetPoint("LEFT", alert.view, "RIGHT", gap, 0)
 
-  Lib.setShown(alert.copy, not quietKind)
+  Lib.setShown(alert.copy, not quietKind and not notice)
 
   alert:SetWidth(width)
 
   local body = (alert.title:GetStringHeight() or 0) + gap + (alert.text:GetStringHeight() or 0)
 
-  alert:SetHeight(pad * 2 + max(iconSize, body) + gap + (alert.view:GetHeight() or 0))
+  local foot = gap + (alert.view:GetHeight() or 0)
+
+  if notice and not notice.action then
+    foot = 0
+  end
+
+  alert:SetHeight(pad * 2 + max(iconSize, body) + foot)
 end
 
 local function open(problem, kind)
@@ -315,6 +333,31 @@ local function block(problem)
   open(problem, "block")
 end
 
+local function showNotice(spec)
+  for _, shown in ipairs(pool) do
+    if shown:IsShown() and shown.kind == "notice" and shown.addon == spec.addon then
+      shown.notice = spec
+      render(shown)
+      stack()
+
+      return
+    end
+  end
+
+  local alert = frame()
+
+  arrivals = arrivals + 1
+  alert.kind = "notice"
+  alert.addon = spec.addon
+  alert.notice = spec
+  alert.n = 1
+  alert.arrival = arrivals
+  alert:SetAlpha(1)
+  render(alert)
+  alert:Show()
+  stack()
+end
+
 local function forget(now, window)
   for key, at in pairs(memory) do
     if now - at >= window then
@@ -359,6 +402,10 @@ local function soft(problem)
 end
 
 local function deliver(problem, kind)
+  if kind == "notice" then
+    return showNotice(problem)
+  end
+
   if not Lib.errorsShown() then
     return
   end
@@ -401,7 +448,7 @@ flush = function()
 end
 
 function Alerts.show(problem, kind)
-  if kind == "quiet" and InCombatLockdown and InCombatLockdown() then
+  if (kind == "quiet" or kind == "notice") and InCombatLockdown and InCombatLockdown() then
     if #held < MAX_HELD * 2 then
       held[#held + 1], held[#held + 2] = problem, kind
       wait()
@@ -411,6 +458,10 @@ function Alerts.show(problem, kind)
   end
 
   deliver(problem, kind)
+end
+
+function Alerts.notice(spec)
+  Alerts.show(spec, "notice")
 end
 
 function Alerts.shown()

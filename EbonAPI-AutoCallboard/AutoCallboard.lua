@@ -223,7 +223,6 @@ EVENTS.ADDON_LOADED = function(arg1)
   end)
   Boot("character", SetUpCharacter)
   Boot("hooks", function()
-    RT.InstallAbandonQuestHook()
     RT.InstallRouteRecorderHooks()
   end)
   Boot("routes", function()
@@ -352,6 +351,10 @@ end
 
 EVENTS.ZONE_CHANGED_INDOORS = EVENTS.ZONE_CHANGED
 
+EVENTS.PLAYER_DEAD = function()
+  RT.StopByDeath()
+end
+
 frame:SetScript("OnEvent", function(_, event, ...)
   if RT.DebugEvent and not events:IsListening(event) then
     RT.DebugEvent(event, ...)
@@ -373,4 +376,5 @@ events:Listen("GOSSIP_CLOSED")
 events:Listen("ZONE_CHANGED_NEW_AREA")
 events:Listen("PLAYER_ENTERING_WORLD")
 events:Listen("ZONE_CHANGED")
+events:Listen("PLAYER_DEAD")
 pcall(events.Listen, events, "ZONE_CHANGED_INDOORS")

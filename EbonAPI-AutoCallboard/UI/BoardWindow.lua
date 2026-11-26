@@ -1195,47 +1195,79 @@ local function BoardLot()
     end
   end
 
-  return ids, mode, category
+  return ids, mode
+end
+
+local decision
+
+local function LotLabel(chosen, shownText)
+  local ids = chosen and chosen.ids
+
+  if not ids then
+    return shownText
+  end
+
+  if chosen.mode == "abandon" then
+    return string.format(L.BOARD_ABANDON_LABEL, #ids)
+  end
+
+  if #ids > 1 then
+    return string.format(L.BOARD_LOT_FORMAT, shownText or "", #ids)
+  end
+
+  return shownText
 end
 
 local function LotClick(button, ...)
-  local ids, mode, category = BoardLot()
+  local chosen = decision
+  local ids = chosen and chosen.ids
 
-  if not ids or #ids < 2 then
-    if mode == "abandon" and ids then
-      RT.ExpectBoardAbandon(ids)
-    end
-
+  if not ids or (chosen.mode ~= "abandon" and #ids < 2) then
     if peClick then
       peClick(button, ...)
+    else
+      RT.api:Report(RT.api:Problem("ABANDON.NO_SELECTION", {}))
     end
 
     return
   end
 
-  if mode == "abandon" then
-    RT.AbandonBoardLot(ids, category)
-  else
+  if chosen.mode ~= "abandon" then
     RT.AcceptBoardLot(ids)
+  elseif type(RT.api.AbandonQuests) == "function" then
+    RT.api:AbandonQuests(ids)
+  else
+    RT.api:Report(RT.api:Problem("ABANDON.API_MISSING", { count = #ids }))
   end
 end
 
 local function ApplyActionGraft(action)
-  local ids = BoardLot()
+  local ids, mode = BoardLot()
 
   actionWriting = true
 
   if ids then
-    action:SetText(#ids > 1 and string.format(L.BOARD_LOT_FORMAT, peText or "", #ids) or (peText or ""))
+    decision = { ids = ids, mode = mode }
+    action:SetText(LotLabel(decision, peText or "") or "")
     action:SetScript("OnClick", LotClick)
-    actionGrafted = true
-  elseif actionGrafted then
-    actionGrafted = false
-    action:SetText(peText or "")
-    action:SetScript("OnClick", peClick)
+    actionGrafted = #ids
+  else
+    decision = nil
+
+    if actionGrafted then
+      actionGrafted = false
+      action:SetText(peText or "")
+      action:SetScript("OnClick", peClick)
+    end
   end
 
   actionWriting = false
+end
+
+local function CheckActionGraft(action)
+  if actionGrafted and action:GetScript("OnClick") ~= LotClick then
+    RT.api:Report(RT.api:Problem("ABANDON.GRAFT_LOST", { count = actionGrafted }))
+  end
 end
 
 local function GraftActionButton(panel)
@@ -1268,7 +1300,9 @@ local function GraftActionButton(panel)
     end)
   end
 
+  CheckActionGraft(action)
   ApplyActionGraft(action)
+  CheckActionGraft(action)
 end
 
 local function Decorate(frame)

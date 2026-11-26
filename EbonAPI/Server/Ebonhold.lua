@@ -237,6 +237,179 @@ for name, serviceName in pairs(services) do
   end
 end
 
+local SERVER_MAP_TOLERANCE = 25
+local serverMapKnown = nil
+local mapForced = false
+
+EbonAPI.Bus.onCore("PLAYER_ENTERING_WORLD", function()
+  serverMapKnown = nil
+  mapForced = false
+end)
+
+local function worldFromMap(bounds, nx, ny)
+  local north = bounds[3] + ny * (bounds[4] - bounds[3])
+  local west = bounds[1] + nx * (bounds[2] - bounds[1])
+
+  return north, west
+end
+
+local function clientPosition()
+  if type(EbonholdGetPlayerPosition) ~= "function" then
+    return nil, nil, "absent"
+  end
+
+  local x, y = EbonholdGetPlayerPosition()
+
+  if type(x) ~= "number" or type(y) ~= "number" then
+    return nil, nil, "no-numbers"
+  end
+
+  return x, y
+end
+
+local function mapPlaced()
+  local nx, ny = GetPlayerMapPosition("player")
+
+  return nx ~= nil and not (nx == 0 and ny == 0)
+end
+
+local function mapForcePossible()
+  return not mapForced and not IsInInstance() and WorldMapFrame ~= nil and not WorldMapFrame:IsShown() and service("WorldMapBounds") ~= nil
+end
+
+local function zoomToContinent()
+  local continent = GetCurrentMapContinent()
+
+  if type(continent) == "number" and continent > 0 then
+    SetMapZoom(continent)
+    return true
+  end
+
+  return false
+end
+
+local function forceSearch(read)
+  mapForced = true
+  SetMapToCurrentZone()
+
+  local done, a, b, c, d = read()
+
+  if not done and zoomToContinent() then
+    done, a, b, c, d = read()
+  end
+
+  SetMapToCurrentZone()
+
+  return done, a, b, c, d
+end
+
+local function displayedBounds()
+  if not mapPlaced() then
+    return nil, nil, nil, "no-position"
+  end
+
+  local nx, ny = GetPlayerMapPosition("player")
+  local mapName = GetMapInfo()
+  local wmb = service("WorldMapBounds")
+  local bounds = mapName and wmb and wmb[mapName]
+
+  if not bounds then
+    return nil, nil, nil, "no-bounds"
+  end
+
+  return nx, ny, bounds
+end
+
+local function confirmServerMap(north, west)
+  local nx, ny, bounds = displayedBounds()
+
+  if not bounds then
+    return nil
+  end
+
+  local n, w = worldFromMap(bounds, nx, ny)
+
+  if math.abs(n - north) > SERVER_MAP_TOLERANCE or math.abs(w - west) > SERVER_MAP_TOLERANCE then
+    return nil
+  end
+
+  return bounds[5]
+end
+
+local function serverMapFor(north, west)
+  local confirmed = confirmServerMap(north, west)
+
+  if confirmed then
+    serverMapKnown = confirmed
+    return confirmed
+  end
+
+  if serverMapKnown then
+    return serverMapKnown
+  end
+
+  if mapForcePossible() then
+    local found, serverMap = forceSearch(function()
+      local s = confirmServerMap(north, west)
+
+      return s ~= nil, s
+    end)
+
+    if found then
+      serverMapKnown = serverMap
+      return serverMap
+    end
+  end
+
+  return nil
+end
+
+local function mapPosition()
+  if IsInInstance() then
+    return nil, nil, nil, "indoors"
+  end
+
+  local nx, ny, bounds, why = displayedBounds()
+
+  if not bounds and mapPlaced() and mapForcePossible() then
+    nx, ny, bounds, why = select(2, forceSearch(function()
+      local px, py, pb, reason = displayedBounds()
+
+      return pb ~= nil, px, py, pb, reason
+    end))
+  end
+
+  if not bounds then
+    return nil, nil, nil, why
+  end
+
+  local north, west = worldFromMap(bounds, nx, ny)
+
+  return north, west, bounds[5]
+end
+
+function Ebonhold.PlayerPosition()
+  local indoors = IsInInstance() and true or false
+  local tried = {}
+  local x, y, why = clientPosition()
+
+  if x then
+    return { north = x, west = y, serverMap = serverMapFor(x, y), source = "client" }
+  end
+
+  tried[#tried + 1] = "client:" .. why
+
+  local north, west, mapID, whyMap = mapPosition()
+
+  if north then
+    return { north = north, west = west, serverMap = mapID, source = "map" }
+  end
+
+  tried[#tried + 1] = "map:" .. whyMap
+
+  return nil, { tried = tried, indoors = indoors }
+end
+
 function Ebonhold.OptionsService()
   return frame("ProjectEbonholdOptionsService")
 end

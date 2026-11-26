@@ -48,14 +48,6 @@ function RT.RefreshUpdateNotice()
   return controlFrame.updateButton:IsShown() and true or false
 end
 
-function RT.UpdateShareButtonState()
-  local enabled = RT.lastAcceptedQuest ~= nil
-
-  if controlFrame and controlFrame.shareButton then
-    SetButtonEnabled(controlFrame.shareButton, enabled)
-  end
-end
-
 function RT.SyncOverlayFrameLevels()
   local referenceFrame = RT.GetBoardWindow()
   local referenceLevel = 20
@@ -369,22 +361,6 @@ local function CreateToolbar()
   controlFrame.startButton = mainStartButton
   RT.ConfigureStartButton(mainStartButton)
   UpdateStartButtonState(mainStartButton, RT.IsBoardAvailable())
-  controlFrame.shareButton = MakeActionButton(
-      "AutoCallboardShareButton",
-      L.BUTTON_SHARE,
-      "LEFT",
-      mainStartButton,
-      "RIGHT",
-      4,
-      0,
-      function()
-        RT.ShareAcceptedQuest("main button")
-      end,
-      nil,
-      "SHARE_BUTTON_TOOLTIP"
-    )
-  Localized(controlFrame.shareButton, "BUTTON_SHARE")
-  RT.UpdateShareButtonState()
 end
 
 local function CreateCallboardButton()

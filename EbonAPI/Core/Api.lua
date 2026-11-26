@@ -7,6 +7,7 @@ local setmetatable, pcall, error = setmetatable, pcall, error
 local report = Lib.report
 
 EbonAPI.name = "EbonAPI"
+EbonAPI.url = "https://github.com/Siphelis/EbonAPI/releases/latest"
 
 local VERSION = GetAddOnMetadata(EbonAPI.name, "Version")
 local MAJOR, MINOR, PATCH = string.match(VERSION, "^(%d+)%.(%d+)%.(%d+)")
@@ -488,6 +489,10 @@ function EbonAPI:NewAddon(name, needMajor, needMinor, info)
 end
 
 function EbonAPI:AddonLink(name)
+  if name == self.name then
+    return self.url
+  end
+
   local handle = self._addons[name]
 
   return handle and handle.link

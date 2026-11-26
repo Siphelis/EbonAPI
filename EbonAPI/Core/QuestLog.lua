@@ -6,7 +6,7 @@ local Lib = EbonAPI.Lib
 local Bus = EbonAPI.Bus
 local Handle = EbonAPI.Handle
 
-local type, pairs, ipairs, pcall, tostring = type, pairs, ipairs, pcall, tostring
+local type, pairs, ipairs, next, pcall, tostring = type, pairs, ipairs, next, pcall, tostring
 local sort = table.sort
 
 local WAIT_ID = "EbonAPI.QuestLog.wait"
@@ -14,13 +14,19 @@ local WAIT_ID = "EbonAPI.QuestLog.wait"
 local Problems = EbonAPI.Problems
 
 Problems.declare("EbonAPI", "EBONAPI", {
-  ["QUESTLOG.ABANDON_FAILED"] = { class = "refus" },
+  ["QUESTLOG.ABANDON_BUSY"] = { class = "refus" },
+  ["QUESTLOG.ABANDON_EMPTY"] = { class = "refus" },
+  ["QUESTLOG.ABANDON_UNCONFIRMED"] = { class = "refus" },
+  ["QUESTLOG.ABANDON_MISSING"] = { class = "refus" },
+  ["QUESTLOG.ABANDON_NOT_STARTED"] = { class = "refus" },
 })
 
 -- The quest log of the game is read and driven here, never by name: a quest is its questID (9th return of
 -- GetQuestLogTitle), a category is its rank (n-th header of a reading). Titles are only displayed.
 
 local checked = {}
+local expected = {}
+local turnedIn = {}
 local run = nil
 
 QuestLog.last = nil
@@ -333,13 +339,80 @@ local function collapseAgain(r)
   end
 end
 
-local onLogUpdate
+local function updateBoard()
+  Lib.safeCall(function()
+    EbonAPI.Actions.RequestCallboard()
+  end)
+end
+
+local function signal(code, facts)
+  Problems.report(Problems.new("EbonAPI", code, facts))
+end
+
+local function refuse(reason)
+  signal(reason == "busy" and "QUESTLOG.ABANDON_BUSY" or "QUESTLOG.ABANDON_EMPTY")
+
+  return false, reason
+end
+
+local function hasCollapsed(ranks)
+  for _, collapsed in pairs(ranks) do
+    if collapsed then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function stillListed(questID, entry, force)
+  if indexOf(questID) then
+    return true
+  end
+
+  local wasCollapsed = collapsedRanks()
+
+  if not hasCollapsed(wasCollapsed) then
+    return false
+  end
+
+  local entries, quests = total()
+  local signature = entries .. ":" .. quests
+
+  if not force and entry.hidden == signature then
+    return nil
+  end
+
+  local wasReading = QuestLog.reading
+  QuestLog.reading = true
+
+  local selected = selectedID()
+  local ok, found = pcall(function()
+    expandCollapsed()
+
+    return indexOf(questID) ~= nil
+  end)
+
+  Lib.safeCall(recollapse, wasCollapsed)
+  Lib.safeCall(reselect, selected)
+  QuestLog.reading = wasReading
+
+  if not ok then
+    Problems.bug("EbonAPI", "questlog.presence", tostring(found))
+
+    return nil
+  end
+
+  if found then
+    entry.hidden = signature
+  end
+
+  return found
+end
 
 local function finish()
   local r = run
 
-  Bus.untick(WAIT_ID)
-  Bus.off("QUEST_LOG_UPDATE", onLogUpdate)
   run = nil
 
   Lib.safeCall(collapseAgain, r)
@@ -347,10 +420,7 @@ local function finish()
 
   if #r.abandoned > 0 then
     PlaySound("igQuestLogAbandonQuest")
-  end
-
-  if #r.failed > 0 then
-    Problems.report(Problems.new("EbonAPI", "QUESTLOG.ABANDON_FAILED", { failed = #r.failed }))
+    updateBoard()
   end
 
   QuestLog.read()
@@ -358,38 +428,164 @@ local function finish()
   changed()
 end
 
-local advance
+local advance, onLogUpdate
 
-local function settle(r, questID, gone)
-  r.waiting = nil
-  Bus.untick(WAIT_ID)
+local function waitId(questID)
+  return WAIT_ID .. "." .. questID
+end
 
-  if gone then
-    r.abandoned[#r.abandoned + 1] = questID
-    checked[questID] = nil
-    EbonAPI:Emit("QUEST_ABANDONED", questID, r.titles[questID] or "")
-  else
-    r.failed[#r.failed + 1] = questID
+local function resolve(questID, gone)
+  local entry = expected[questID]
+
+  if not entry then
+    return
   end
 
-  advance()
+  Bus.untick(waitId(questID))
+
+  if gone then
+    expected[questID] = nil
+
+    if not next(expected) then
+      Bus.off("QUEST_LOG_UPDATE", onLogUpdate)
+    end
+  else
+    entry.late = true
+  end
+
+  local r = run
+  local batched = r ~= nil and r.waiting == questID
+  local handedIn = gone and turnedIn[questID] == true
+
+  if gone then
+    turnedIn[questID] = nil
+  end
+
+  if batched then
+    r.waiting = nil
+
+    if not handedIn then
+      local list = gone and r.abandoned or r.failed
+      list[#list + 1] = questID
+    end
+  end
+
+  if gone then
+    checked[questID] = nil
+    QuestLog.last = nil
+
+    if not handedIn then
+      EbonAPI:Emit("QUEST_ABANDONED", questID, entry.title)
+    end
+  else
+    signal("QUESTLOG.ABANDON_UNCONFIRMED", { quest = entry.title })
+  end
+
+  if batched then
+    advance()
+  elseif gone then
+    updateBoard()
+    changed()
+  end
 end
 
 onLogUpdate = function()
-  local r = run
+  if QuestLog.reading then
+    return
+  end
 
-  if r and r.waiting and not indexOf(r.waiting) then
-    settle(r, r.waiting, true)
+  local pending = {}
+
+  for questID in pairs(expected) do
+    pending[#pending + 1] = questID
+  end
+
+  for _, questID in ipairs(pending) do
+    local entry = expected[questID]
+
+    if entry and stillListed(questID, entry, false) == false then
+      resolve(questID, true)
+    end
   end
 end
 
-local function onTimeout()
-  local r = run
+local function expire(questID)
+  local entry = expected[questID]
 
-  if r and r.waiting then
-    settle(r, r.waiting, not indexOf(r.waiting))
+  if entry then
+    resolve(questID, stillListed(questID, entry, true) == false)
   end
 end
+
+local function expect(questID, title)
+  turnedIn[questID] = nil
+  expected[questID] = { title = run and run.titles[questID] or title or "" }
+
+  Bus.on("QUEST_LOG_UPDATE", onLogUpdate)
+  Bus.after(waitId(questID), QuestLog.TIMEOUT, function()
+    expire(questID)
+  end)
+end
+
+Bus.on("QUEST_TURNED_IN", function(questID)
+  if type(questID) == "number" then
+    turnedIn[questID] = true
+  end
+end)
+
+if type(hooksecurefunc) == "function" and type(GetQuestReward) == "function" then
+  hooksecurefunc("GetQuestReward", function()
+    local questID = selectedID()
+
+    if questID then
+      turnedIn[questID] = true
+    end
+  end)
+end
+
+local function hookAbandon()
+  local nativeSet, nativeAbandon = SetAbandonQuest, AbandonQuest
+
+  if type(nativeSet) ~= "function" or type(nativeAbandon) ~= "function" then
+    Problems.bug("EbonAPI", "questlog.hook", "SetAbandonQuest or AbandonQuest is missing")
+
+    return
+  end
+
+  local targetID, targetTitle = nil, nil
+
+  local function retain()
+    targetID, targetTitle = selectedID(), nil
+
+    if targetID then
+      targetTitle = GetQuestLogTitle(GetQuestLogSelection())
+    end
+  end
+
+  local function register()
+    local questID, title = targetID, targetTitle
+
+    targetID, targetTitle = nil, nil
+
+    if questID then
+      expect(questID, title)
+    end
+  end
+
+  SetAbandonQuest = function(...)
+    Lib.safeCall(retain)
+
+    return nativeSet(...)
+  end
+
+  AbandonQuest = function(...)
+    Lib.safeCall(register)
+
+    return nativeAbandon(...)
+  end
+end
+
+hookAbandon()
 
 advance = function()
   local r = run
@@ -398,12 +594,21 @@ advance = function()
     return
   end
 
-  while r.pos < #r.ids do
+  while run == r and r.pos < #r.ids do
     r.pos = r.pos + 1
     changed()
 
+    if run ~= r then
+      return
+    end
+
     local questID = r.ids[r.pos]
     local index = indexOf(questID)
+
+    if not index then
+      expandCollapsed()
+      index = indexOf(questID)
+    end
 
     if index then
       r.waiting = questID
@@ -411,24 +616,38 @@ advance = function()
       SetAbandonQuest()
       AbandonQuest()
 
-      if run == r and r.waiting == questID then
-        Bus.after(WAIT_ID, QuestLog.TIMEOUT, onTimeout)
+      if run ~= r or r.waiting ~= questID or (expected[questID] and not expected[questID].late) then
+        return
       end
 
-      return
+      r.waiting = nil
+      r.failed[#r.failed + 1] = questID
+      signal("QUESTLOG.ABANDON_NOT_STARTED", { quest = r.titles[questID] or "" })
+    else
+      signal("QUESTLOG.ABANDON_MISSING", { quest = r.titles[questID] or "" })
     end
   end
 
+  if run == r then
+    finish()
+  end
+end
+
+function QuestLog.cancelAbandon()
+  if not run then
+    return false
+  end
+
+  run.waiting = nil
   finish()
+
+  return true
 end
 
 local function start(ids, titles)
   if run then
-    return false
+    return refuse("busy")
   end
-
-  -- The log is only listened to while a batch runs: QUEST_LOG_UPDATE fires at every progress.
-  Bus.on("QUEST_LOG_UPDATE", onLogUpdate)
 
   local selected = selectedID()
   local categories = QuestLog.read()
@@ -528,7 +747,7 @@ end
 
 function QuestLog.abandon(ids, skipConfirm)
   if run then
-    return false, "busy"
+    return refuse("busy")
   end
 
   local present = presentSet()
@@ -545,11 +764,11 @@ function QuestLog.abandon(ids, skipConfirm)
   end
 
   if #wanted == 0 then
-    return false, "empty"
+    return refuse("empty")
   end
 
   if skipConfirm then
-    return start(wanted, titles), nil
+    return start(wanted, titles)
   end
 
   local model
@@ -602,4 +821,8 @@ end
 
 function Handle:AbandonQuests(ids, skipConfirm)
   return QuestLog.abandon(ids, skipConfirm)
+end
+
+function Handle:CancelAbandon()
+  return QuestLog.cancelAbandon()
 end

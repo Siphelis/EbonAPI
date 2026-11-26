@@ -77,100 +77,6 @@ function RT.QuestLogTitles()
   return titles
 end
 
-function RT.QuestShareLabel(quest)
-  if not quest then
-    return L.QUEST_FALLBACK_LABEL
-  end
-
-  local questID = tonumber(quest.questID) or tonumber(quest.questId) or 0
-  local title = tostring(quest.title or "")
-  if title ~= "" and questID > 0 then
-    return tostring(questID) .. " " .. title
-  end
-
-  if questID > 0 then
-    return tostring(questID)
-  end
-
-  if title ~= "" then
-    return title
-  end
-
-  return L.QUEST_FALLBACK_LABEL
-end
-
-function RT.ShareQuestLogIndex(index, quest, source)
-  if not index then
-    RT.api:Report(RT.api:Problem("SHARE.QUEST_NOT_IN_LOG", { quest = RT.QuestShareLabel(quest) }))
-  elseif not SelectQuestLogEntry then
-    RT.api:Report(RT.api:Problem("SHARE.UNAVAILABLE", { api = "SelectQuestLogEntry" }))
-  end
-
-  if not index or not SelectQuestLogEntry then
-    Log("quest", "share blocked source=", source, " reason=missing SelectQuestLogEntry")
-    return false, L.SHARE_LOG_UNAVAILABLE
-  end
-
-  if not QuestLogPushQuest then
-    RT.api:Report(RT.api:Problem("SHARE.UNAVAILABLE", { api = "QuestLogPushQuest" }))
-    Log("quest", "share blocked source=", source, " reason=missing QuestLogPushQuest")
-    return false, L.SHARE_PUSH_UNAVAILABLE
-  end
-
-  local previousIndex = GetQuestLogSelection and GetQuestLogSelection() or nil
-  SelectQuestLogEntry(index)
-
-  if GetQuestLogPushable and not GetQuestLogPushable() then
-    if previousIndex then
-      SelectQuestLogEntry(previousIndex)
-    end
-
-    RT.api:Report(RT.api:Problem("SHARE.NOT_SHAREABLE", { quest = RT.QuestShareLabel(quest) }))
-    Log("quest", "share skipped source=", source, " quest=", RT.QuestShareLabel(quest), " reason=not pushable")
-    return false, string.format(L.SHARE_NOT_SHAREABLE, RT.QuestShareLabel(quest))
-  end
-
-  QuestLogPushQuest()
-
-  if previousIndex then
-    SelectQuestLogEntry(previousIndex)
-  end
-
-  Log("quest", "shared source=", source, " quest=", RT.QuestShareLabel(quest), " index=", index)
-  return true
-end
-
-function RT.ShareAcceptedQuest(source)
-  if not RT.lastAcceptedQuest then
-    RT.api:Report(RT.api:Problem("SHARE.NO_ACCEPTED_QUEST"))
-    Log("quest", "share skipped source=", source, " reason=no accepted quest")
-    return false
-  end
-
-  local lastAcceptedQuest = RT.lastAcceptedQuest
-  local index, entry = RT.FindQuestLogIndexByID(lastAcceptedQuest.questID, lastAcceptedQuest.questLogIndex)
-  if entry and entry.title and entry.title ~= "" then
-    lastAcceptedQuest.title = entry.title
-  end
-
-  if not index then
-    RT.api:Report(RT.api:Problem("SHARE.QUEST_NOT_IN_LOG", { quest = RT.QuestShareLabel(lastAcceptedQuest) }))
-    Log("quest", "share skipped source=", source, " quest=", RT.QuestShareLabel(lastAcceptedQuest), " reason=not in log yet")
-    return false
-  end
-
-  local shared, message = RT.ShareQuestLogIndex(index, {
-      questID = lastAcceptedQuest.questID,
-      title = lastAcceptedQuest.title,
-    }, source)
-
-  if shared then
-    RT.SetQuestStatus("SHARE_ACCEPTED_QUEST", RT.QuestShareLabel(lastAcceptedQuest))
-  end
-
-  return shared, message
-end
-
 function RT.TrackAcceptedQuest(arg1, arg2)
   local first = tonumber(arg1)
   local second = tonumber(arg2)
@@ -199,7 +105,6 @@ function RT.TrackAcceptedQuest(arg1, arg2)
     RT.api:Reject("SHARE.ACCEPTED_QUEST_ID_UNKNOWN", { first = tostring(arg1), second = tostring(arg2) })
     Log("quest", "accepted quest id unavailable arg1=", arg1, " arg2=", arg2)
     RT.lastAcceptedQuest = nil
-    RT.UpdateShareButtonState()
     return
   end
 
@@ -210,8 +115,7 @@ function RT.TrackAcceptedQuest(arg1, arg2)
     acceptedAt = GetTime(),
   }
 
-  Log("quest", "accepted ", RT.QuestShareLabel(RT.lastAcceptedQuest), " index=", questLogIndex or "unknown")
-  RT.UpdateShareButtonState()
+  Log("quest", "accepted ", questID, " index=", questLogIndex or "unknown")
 
   RT.HandleEternalQuest()
 end

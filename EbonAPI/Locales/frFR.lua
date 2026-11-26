@@ -46,6 +46,8 @@ EbonAPILocales.frFR = {
 
   VERSION_UPDATE = "%s %s (%s disponible)",
   UPDATE_AVAILABLE = "la version %s est disponible (installée : %s).",
+  UPDATE_DIALOG_TITLE = "Nouvelle version disponible",
+  UPDATE_DIALOG_TEXT = "%s %s est disponible.\nVersion installée : %s.",
   VERSION_TOO_OLD = "EbonAPI %s est trop ancien pour %s, qui demande %s.",
 
   SENDERS_NONE = "aucun expéditeur observé",
@@ -707,7 +709,11 @@ EbonAPILocales.frFR = {
   PROBLEM_BRIDGE_DROPPED = "un message du serveur a été écarté ; l'information qu'il portait n'a pas été mise à jour",
   PROBLEM_SERVER_NO_ANSWER = "le serveur n'a pas répondu en {seconds} secondes ; l'information n'a pas été mise à jour",
   PROBLEM_QUEUE_FULL = "un message de {addon} n'a pas été mis en file : la file d'envoi est pleine ({waiting} messages en attente, {parts} de plus ne tiendraient pas) ; il n'a pas été envoyé, réessayez dans un instant",
-  PROBLEM_QUESTLOG_ABANDON_FAILED = "{failed} quête(s) n'ont pas pu être abandonnées",
+  PROBLEM_QUESTLOG_ABANDON_BUSY = "Abandon refusé : un autre abandon est déjà en cours",
+  PROBLEM_QUESTLOG_ABANDON_EMPTY = "Abandon refusé : aucune des quêtes demandées n'est dans votre journal",
+  PROBLEM_QUESTLOG_ABANDON_UNCONFIRMED = "{quest} n'a pas été abandonnée : sa sortie du journal n'a pas été confirmée à temps",
+  PROBLEM_QUESTLOG_ABANDON_MISSING = "{quest} n'est plus dans votre journal : rien à abandonner",
+  PROBLEM_QUESTLOG_ABANDON_NOT_STARTED = "{quest} n'a pas été abandonnée : le jeu ne l'a pas ciblée",
   PROBLEM_QUEUE_PEER_OFFLINE = "{player} s'est déconnecté : {purged} messages en attente de {addon} ont été retirés et n'ont pas été envoyés",
   PROBLEM_QUEUE_SEND_FAILED = "{addon} n'a pas pu envoyer un message à {target} ; le message n'a pas été envoyé",
   PROBLEM_QUEUE_STREAM_CUT = "un transfert de {addon} a été coupé après {sent} parties sur {total} ; l'autre joueur n'a pas reçu le message entier",

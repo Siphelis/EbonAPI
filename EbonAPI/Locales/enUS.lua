@@ -46,6 +46,8 @@ EbonAPILocales.enUS = {
 
   VERSION_UPDATE = "%s %s (%s available)",
   UPDATE_AVAILABLE = "version %s is available (installed: %s).",
+  UPDATE_DIALOG_TITLE = "New version available",
+  UPDATE_DIALOG_TEXT = "%s %s is available.\nInstalled version: %s.",
   VERSION_TOO_OLD = "EbonAPI %s is too old for %s, which needs %s.",
 
   SENDERS_NONE = "no sender observed",
@@ -707,7 +709,11 @@ EbonAPILocales.enUS = {
   PROBLEM_BRIDGE_DROPPED = "a message from the server was dropped; the information it carried was not updated",
   PROBLEM_SERVER_NO_ANSWER = "the server did not answer within {seconds} seconds; the information was not updated",
   PROBLEM_QUEUE_FULL = "a message from {addon} was not queued: the send queue is full ({waiting} messages waiting, {parts} more would not fit); it was not sent, try again in a moment",
-  PROBLEM_QUESTLOG_ABANDON_FAILED = "{failed} quest(s) could not be abandoned",
+  PROBLEM_QUESTLOG_ABANDON_BUSY = "Abandon refused: another abandon is already running",
+  PROBLEM_QUESTLOG_ABANDON_EMPTY = "Abandon refused: none of the requested quests is in your quest log",
+  PROBLEM_QUESTLOG_ABANDON_UNCONFIRMED = "{quest} was not abandoned: its removal from the quest log was not confirmed in time",
+  PROBLEM_QUESTLOG_ABANDON_MISSING = "{quest} is no longer in your quest log: nothing to abandon",
+  PROBLEM_QUESTLOG_ABANDON_NOT_STARTED = "{quest} was not abandoned: the game did not target it",
   PROBLEM_QUEUE_PEER_OFFLINE = "{player} went offline: {purged} queued messages from {addon} were removed and not sent",
   PROBLEM_QUEUE_SEND_FAILED = "{addon} could not send a message to {target}; the message was not sent",
   PROBLEM_QUEUE_STREAM_CUT = "a transfer from {addon} was cut after {sent} of {total} parts; the other player did not receive the whole message",

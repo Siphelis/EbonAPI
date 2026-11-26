@@ -222,6 +222,7 @@ BUTTON_OKAY = "Okay",
 BUTTON_DELETE = "Delete",
 BOARD_TAKE_AUTO = "Take automatically",
 BOARD_LOT_FORMAT = "%s (%s)",
+BOARD_ABANDON_LABEL = "Abandon (%s)",
 BOARD_TAKE_AUTO_TIP = "Ticked, AutoCallboard takes this contract for this character while the board is open and Start is on. The board's own button stays yours.",
 BOARD_GROUP_BOX = "The whole group",
 BOARD_GROUP_BOX_TIP = "Ticks or unticks every contract of this group. Half filled, with a count: some of them are ticked.",
@@ -260,8 +261,6 @@ TRAVEL_DEFAULT_TOOLTIP = "Where the travel button leads when the contract's own 
 TRAVEL_DEFAULT_AUTO = "Automatic (Dalaran, else your race's capital)",
 MINIMAP_BUTTON_LABEL = "Minimap Button",
 MINIMAP_BUTTON_TOOLTIP = "Shows or hides the ACB minimap button.",
-BUTTON_SHARE = "Share",
-SHARE_BUTTON_TOOLTIP = "Shares the last accepted quest.",
 
 DEBUG_OUTPUT_ON = "Debug output is on.",
 DEBUG_OUTPUT_OFF = "Debug output is off. Log cleared.",
@@ -318,9 +317,6 @@ MIGRATION_GROUP_CHOICE = "%s (%d)",
 MIGRATION_REPLACE_TITLE = "Delete group",
 MIGRATION_REPLACE_BODY = "Group \"%s\" and the collections %s will be deleted.",
 
-SHARE_LOG_UNAVAILABLE = "Quest log selection is not available.",
-SHARE_PUSH_UNAVAILABLE = "Quest sharing is not available.",
-SHARE_NOT_SHAREABLE = "Quest is not shareable: %s",
 
 
 LISTS_RENAME_DIALOG_TITLE = "Rename \"%s\":",
@@ -356,9 +352,6 @@ BUILDS_WINDOW_EMPTY = "Requesting the list from the server...",
 BUILDS_WINDOW_REFRESH_BUTTON = "Refresh",
 
 
-SHARE_NO_ACCEPTED_QUEST = "No accepted quest recorded yet.",
-SHARE_NOT_IN_LOG_YET = "Accepted quest is not in the quest log yet: %s",
-SHARE_ACCEPTED_QUEST = "Shared accepted quest: %s",
 
 EVENTTRACE_OPENED = "EventTrace opened. Use it with /acb sniff for board testing.",
 EVENTTRACE_UNAVAILABLE = "EventTrace is not available in this client.",
@@ -515,7 +508,6 @@ HELP_SECTIONS = {
     "",
     "# While started",
     "{AUTO_CURRENT_INSTANCE_LABEL}: when you are in a dungeon or raid, the contract of that instance is taken as well, if the board posts one.",
-    "{BUTTON_SHARE}: shares the last quest you accepted with your party or raid.",
     "A contract you abandon is not taken again before the next reset. Ticking it again lifts that.",
     "A contract that pays nothing at your level (you are above the top of its level range) is never taken: its tooltip and the status line say so.",
     "Daily and weekly contracts come back at the reset: AutoCallboard reads the new board and takes them again at your next visit.",

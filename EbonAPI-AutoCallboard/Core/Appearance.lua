@@ -33,7 +33,7 @@ function Core.copyAppearance(source)
   return result
 end
 
-Core.TOOLBAR_ACTIONS = {"builds", "callboard", "start", "share", "eternals", "settings", "instance", "routes"}
+Core.TOOLBAR_ACTIONS = {"builds", "callboard", "start", "eternals", "settings", "instance", "routes"}
 local TOOLBAR_KNOWN = {}
 for _, key in ipairs(Core.TOOLBAR_ACTIONS) do TOOLBAR_KNOWN[key] = true end
 
@@ -47,6 +47,6 @@ function Core.copyToolbar(source)
       result[#result + 1], seen[key] = key, true
     end
   end
-  if #result == 0 then return {"builds", "callboard", "start", "share"} end
+  if #result == 0 then return {"builds", "callboard", "start"} end
   return result
 end

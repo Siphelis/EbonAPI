@@ -222,6 +222,7 @@ BUTTON_OKAY = "Vale",
 BUTTON_DELETE = "Eliminar",
 BOARD_TAKE_AUTO = "Tomar automáticamente",
 BOARD_LOT_FORMAT = "%s (%s)",
+BOARD_ABANDON_LABEL = "Abandonar (%s)",
 BOARD_TAKE_AUTO_TIP = "Marcada, AutoCallboard toma este contrato para este personaje mientras el tablón está abierto y Empezar está activo. El botón del tablón sigue siendo tuyo.",
 BOARD_GROUP_BOX = "Todo el grupo",
 BOARD_GROUP_BOX_TIP = "Marca o desmarca todos los contratos de este grupo. A medio llenar, con una cuenta: algunos están marcados.",
@@ -260,8 +261,6 @@ TRAVEL_DEFAULT_TOOLTIP = "A dónde lleva el botón de viaje cuando el lugar del 
 TRAVEL_DEFAULT_AUTO = "Automático (Dalaran, si no la capital de tu raza)",
 MINIMAP_BUTTON_LABEL = "Botón del minimapa",
 MINIMAP_BUTTON_TOOLTIP = "Muestra u oculta el botón ACB del minimapa.",
-BUTTON_SHARE = "Compartir",
-SHARE_BUTTON_TOOLTIP = "Comparte la última misión aceptada.",
 
 DEBUG_OUTPUT_ON = "La salida de depuración está activada.",
 DEBUG_OUTPUT_OFF = "La salida de depuración está desactivada. Registro borrado.",
@@ -318,9 +317,6 @@ MIGRATION_GROUP_CHOICE = "%s (%d)",
 MIGRATION_REPLACE_TITLE = "Eliminar grupo",
 MIGRATION_REPLACE_BODY = "El grupo \"%s\" y las colecciones %s se eliminarán.",
 
-SHARE_LOG_UNAVAILABLE = "La selección en el registro de misiones no está disponible.",
-SHARE_PUSH_UNAVAILABLE = "Compartir misiones no está disponible.",
-SHARE_NOT_SHAREABLE = "La misión no se puede compartir: %s",
 
 
 LISTS_RENAME_DIALOG_TITLE = "Renombrar \"%s\":",
@@ -356,9 +352,6 @@ BUILDS_WINDOW_EMPTY = "Lista solicitada al servidor...",
 BUILDS_WINDOW_REFRESH_BUTTON = "Actualizar",
 
 
-SHARE_NO_ACCEPTED_QUEST = "Aún no se ha registrado ninguna misión aceptada.",
-SHARE_NOT_IN_LOG_YET = "La misión aceptada aún no está en el registro de misiones: %s",
-SHARE_ACCEPTED_QUEST = "Misión aceptada compartida: %s",
 
 EVENTTRACE_OPENED = "EventTrace abierto. Úsalo con /acb sniff para probar el tablón.",
 EVENTTRACE_UNAVAILABLE = "EventTrace no está disponible en este cliente.",
@@ -515,7 +508,6 @@ HELP_SECTIONS = {
     "",
     "# Una vez iniciado",
     "{AUTO_CURRENT_INSTANCE_LABEL}: cuando está en una mazmorra o banda, también se toma el contrato de esa instancia, si el tablón publica uno.",
-    "{BUTTON_SHARE}: comparte la última misión que aceptó con su grupo o banda.",
     "Un contrato abandonado no se vuelve a tomar antes del próximo reinicio. Volver a marcarlo anula esa exclusión.",
     "Un contrato que no da nada a su nivel (está por encima de su rango de niveles) nunca se toma: su descripción emergente y la línea de estado lo indican.",
     "Los contratos diarios y semanales vuelven con el reinicio: AutoCallboard lee el nuevo tablón y los vuelve a tomar en su próxima visita.",

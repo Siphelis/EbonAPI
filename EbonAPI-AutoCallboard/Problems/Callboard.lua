@@ -7,6 +7,10 @@ RT.api:Problems("ACB", {
   ["DIFFICULTY.SELECTION_REFUSED"] = { class = "echec", key = "entryId" },
   ["BOARD.REMOTE_REFUSED"] = { class = "refus", key = "reason" },
   ["BOARD.REMOTE_FAR"] = { class = "refus", key = "reason" },
+  ["ABANDON.API_MISSING"] = { class = "echec", key = "count" },
+  ["ABANDON.NO_SELECTION"] = { class = "refus" },
+  ["ABANDON.GRAFT_LOST"] = { class = "echec", key = "count" },
+  ["ABANDON.CANCEL_MISSING"] = { class = "echec" },
 })
 
 EbonAPI.Locale.register("AutoCallboard", {
@@ -17,6 +21,10 @@ EbonAPI.Locale.register("AutoCallboard", {
     PROBLEM_DIFFICULTY_SELECTION_REFUSED = "the difficulty {tier} was not saved because the selected list was not found. Nothing was changed; refresh the lists window and choose the list again",
     PROBLEM_BOARD_REMOTE_REFUSED = "the board refused the {op} ({reason}; contract {questId}) while you were away from it, with the Toolbelt and no window. Nothing was changed; try again, or go to the board and open it",
     PROBLEM_BOARD_REMOTE_FAR = "the board refused the {op} ({reason}; contract {questId}) while you were away from it, with the Toolbelt and no window, because the server requires you to be near the board even with the Toolbelt. Nothing was changed; walk up to the board, then try again",
+    PROBLEM_ABANDON_API_MISSING = "the group abandon is unavailable because the abandon service of EbonAPI is not loaded. Nothing was abandoned; enable EbonAPI, then try again ({count} quests)",
+    PROBLEM_ABANDON_NO_SELECTION = "the abandon did nothing because no quest is selected on the board. Nothing was abandoned; select a quest, then try again",
+    PROBLEM_ABANDON_GRAFT_LOST = "the Abandon button lost its action after the board redrew ({count} quests). Nothing was abandoned; close and reopen the board",
+    PROBLEM_ABANDON_CANCEL_MISSING = "the group abandon could not be stopped at your death because the abandon service of EbonAPI is not loaded. Nothing was changed by that; the running group abandon may continue",
   },
   frFR = {
     PROBLEM_BOOT_DEBUG_MODULE_MISSING = "la commande de débogage n'a rien fait car le module de débogage n'est pas chargé. Rien n'a été modifié ; activez le module de débogage, puis saisissez de nouveau la commande",
@@ -25,6 +33,10 @@ EbonAPI.Locale.register("AutoCallboard", {
     PROBLEM_DIFFICULTY_SELECTION_REFUSED = "la difficulté {tier} n'a pas été enregistrée car la liste choisie est introuvable. Rien n'a été modifié ; actualisez la fenêtre des listes et choisissez de nouveau la liste",
     PROBLEM_BOARD_REMOTE_REFUSED = "le tableau a refusé l'opération {op} ({reason} ; contrat {questId}) alors que vous étiez loin de lui, avec la ceinture et sans fenêtre. Rien n'a été modifié ; réessayez, ou rendez-vous au tableau et ouvrez-le",
     PROBLEM_BOARD_REMOTE_FAR = "le tableau a refusé l'opération {op} ({reason} ; contrat {questId}) à distance, avec la ceinture et sans fenêtre, car le serveur exige d'être près du tableau même avec la ceinture. Rien n'a été modifié ; approchez-vous du tableau, puis réessayez",
+    PROBLEM_ABANDON_API_MISSING = "l'abandon groupé est indisponible car le service d'abandon d'EbonAPI n'est pas chargé. Rien n'a été abandonné ; activez EbonAPI, puis réessayez ({count} quêtes)",
+    PROBLEM_ABANDON_NO_SELECTION = "l'abandon n'a rien fait car aucune quête n'est sélectionnée sur le tableau. Rien n'a été abandonné ; sélectionnez une quête, puis réessayez",
+    PROBLEM_ABANDON_GRAFT_LOST = "le bouton Abandonner a perdu son action après le redessin du tableau ({count} quêtes). Rien n'a été abandonné ; fermez puis rouvrez le tableau",
+    PROBLEM_ABANDON_CANCEL_MISSING = "l'abandon groupé n'a pas pu être arrêté à votre mort car le service d'abandon d'EbonAPI n'est pas chargé. Rien n'a été modifié par cela ; l'abandon groupé en cours peut se poursuivre",
   },
   deDE = {
     PROBLEM_BOOT_DEBUG_MODULE_MISSING = "der Debug-Befehl hat nichts bewirkt, weil das Debug-Modul nicht geladen ist. Es wurde nichts geändert; aktivieren Sie das Debug-Modul und geben Sie den Befehl erneut ein",

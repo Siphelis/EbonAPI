@@ -1252,5 +1252,55 @@ local function pageShown(_, owner, key)
   end
 end
 
+local worldEntered = false
+local queue = {}
+
+local function openUpdate(item)
+  local name, latest, own, url = item[1], item[2], item[3], item[4]
+  local text = format(L.UPDATE_DIALOG_TEXT, name, latest, own)
+  local spec = { addon = name, title = L.UPDATE_DIALOG_TITLE }
+
+  local function answered()
+    EbonAPI.Version.acknowledge(name, latest)
+  end
+
+  spec.onClose = answered
+
+  if url and EbonAPI:LinkMethod() then
+    spec.action = format(L.UI_ADDON_DOWNLOAD, latest)
+    spec.onAction = function()
+      answered()
+      EbonAPI:OpenLink(url)
+    end
+  elseif url then
+    text = text .. "\n\n" .. url
+  end
+
+  spec.text = text
+  EbonAPI.Alerts.notice(spec)
+end
+
+local function flushQueue()
+  while #queue > 0 do
+    openUpdate(table.remove(queue, 1))
+  end
+end
+
+local function updateAvailable(_, name, latest, own, url)
+  queue[#queue + 1] = { name, latest, own, url }
+
+  if worldEntered then
+    flushQueue()
+  end
+end
+
+local function worldReady()
+  worldEntered = true
+  EbonAPI.Bus.off("PLAYER_ENTERING_WORLD", worldReady, Settings)
+  flushQueue()
+end
+
+EbonAPI.Bus.on("PLAYER_ENTERING_WORLD", worldReady, Settings)
+EbonAPI:On("UPDATE_AVAILABLE", updateAvailable)
 EbonAPI:On("READY", hintModules)
 EbonAPI:On("WINDOW_PAGE", pageShown)

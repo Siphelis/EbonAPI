@@ -222,6 +222,7 @@ BUTTON_OKAY = "Okay",
 BUTTON_DELETE = "Löschen",
 BOARD_TAKE_AUTO = "Automatisch nehmen",
 BOARD_LOT_FORMAT = "%s (%s)",
+BOARD_ABANDON_LABEL = "Abbrechen (%s)",
 BOARD_TAKE_AUTO_TIP = "Angehakt nimmt AutoCallboard diesen Auftrag für diesen Charakter, solange das Brett offen und Start aktiv ist. Der Knopf des Bretts bleibt deiner.",
 BOARD_GROUP_BOX = "Die ganze Gruppe",
 BOARD_GROUP_BOX_TIP = "Hakt alle Aufträge dieser Gruppe an oder ab. Halb gefüllt, mit einer Zahl: Einige davon sind angehakt.",
@@ -260,8 +261,6 @@ TRAVEL_DEFAULT_TOOLTIP = "Wohin die Reiseschaltfläche führt, wenn der Ort des 
 TRAVEL_DEFAULT_AUTO = "Automatisch (Dalaran, sonst die Hauptstadt deiner Rasse)",
 MINIMAP_BUTTON_LABEL = "Minikarten-Schaltfläche",
 MINIMAP_BUTTON_TOOLTIP = "Zeigt oder verbirgt die ACB-Schaltfläche auf der Minikarte.",
-BUTTON_SHARE = "Teilen",
-SHARE_BUTTON_TOOLTIP = "Teilt die zuletzt angenommene Quest.",
 
 DEBUG_OUTPUT_ON = "Debug-Ausgabe ist an.",
 DEBUG_OUTPUT_OFF = "Debug-Ausgabe ist aus. Protokoll geleert.",
@@ -318,9 +317,6 @@ MIGRATION_GROUP_CHOICE = "%s (%d)",
 MIGRATION_REPLACE_TITLE = "Gruppe löschen",
 MIGRATION_REPLACE_BODY = "Gruppe \"%s\" und die Sammlungen %s werden gelöscht.",
 
-SHARE_LOG_UNAVAILABLE = "Die Auswahl im Questlog ist nicht verfügbar.",
-SHARE_PUSH_UNAVAILABLE = "Questteilen ist nicht verfügbar.",
-SHARE_NOT_SHAREABLE = "Quest ist nicht teilbar: %s",
 
 
 LISTS_RENAME_DIALOG_TITLE = "\"%s\" umbenennen:",
@@ -356,9 +352,6 @@ BUILDS_WINDOW_EMPTY = "Liste wurde beim Server angefordert...",
 BUILDS_WINDOW_REFRESH_BUTTON = "Aktualisieren",
 
 
-SHARE_NO_ACCEPTED_QUEST = "Noch keine angenommene Quest erfasst.",
-SHARE_NOT_IN_LOG_YET = "Die angenommene Quest ist noch nicht im Questlog: %s",
-SHARE_ACCEPTED_QUEST = "Angenommene Quest geteilt: %s",
 
 EVENTTRACE_OPENED = "EventTrace geöffnet. Nutze es mit /acb sniff zum Testen des Boards.",
 EVENTTRACE_UNAVAILABLE = "EventTrace ist auf diesem Client nicht verfügbar.",
@@ -515,7 +508,6 @@ HELP_SECTIONS = {
     "",
     "# Nach dem Start",
     "{AUTO_CURRENT_INSTANCE_LABEL}: Befinden Sie sich in einem Dungeon oder Schlachtzug, wird auch der Auftrag dieser Instanz genommen, wenn das Brett einen ausschreibt.",
-    "{BUTTON_SHARE}: teilt die zuletzt angenommene Quest mit Ihrer Gruppe oder Ihrem Schlachtzug.",
     "Ein abgebrochener Auftrag wird vor der nächsten Zurücksetzung nicht erneut genommen. Ein erneuter Haken hebt das auf.",
     "Ein Auftrag, der auf Ihrer Stufe nichts einbringt (Sie sind über seinem Stufenbereich), wird nie genommen: Sein Tooltip und die Statuszeile sagen es.",
     "Tägliche und wöchentliche Aufträge kommen bei der Zurücksetzung zurück: AutoCallboard liest das neue Brett und nimmt sie bei Ihrem nächsten Besuch erneut.",

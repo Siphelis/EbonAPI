@@ -153,8 +153,24 @@ function Windows.layer(key, roots)
   end
 end
 
+local function protectedNow(frame)
+  return locked() and frame.IsProtected and frame:IsProtected()
+end
+
 local function raise(frame)
   if frame and frame.Raise and frame:IsShown() then
+    if protectedNow(frame) then
+      if not frame.raiseOwed then
+        frame.raiseOwed = true
+        later(function()
+          frame.raiseOwed = nil
+          raise(frame)
+        end)
+      end
+
+      return
+    end
+
     frame:Raise()
   end
 end
@@ -222,7 +238,11 @@ local function place(root, strata)
   local old = root:GetFrameStrata()
 
   if old == strata then
-    return
+    return false
+  end
+
+  if protectedNow(root) then
+    return true
   end
 
   local probe = nil
@@ -240,9 +260,14 @@ local function place(root, strata)
   if propagates == false then
     visit(old, strata, root:GetChildren())
   end
+
+  return false
 end
 
-local function settle()
+local settle
+local owedSettle = false
+
+settle = function()
   local top = nil
 
   for index = #pile, 1, -1 do
@@ -265,10 +290,20 @@ local function settle()
     end
   end
 
+  local deferred = false
+
   for _, window in ipairs(pile) do
-    if managed(window) then
-      place(window, window == top and high or low)
+    if managed(window) and place(window, window == top and high or low) then
+      deferred = true
     end
+  end
+
+  if deferred and not owedSettle then
+    owedSettle = true
+    later(function()
+      owedSettle = false
+      settle()
+    end)
   end
 end
 

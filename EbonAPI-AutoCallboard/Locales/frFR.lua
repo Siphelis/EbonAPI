@@ -222,6 +222,7 @@ BUTTON_OKAY = "D'accord",
 BUTTON_DELETE = "Supprimer",
 BOARD_TAKE_AUTO = "Prendre automatiquement",
 BOARD_LOT_FORMAT = "%s (%s)",
+BOARD_ABANDON_LABEL = "Abandonner (%s)",
 BOARD_TAKE_AUTO_TIP = "Cochée, AutoCallboard prend ce contrat pour ce personnage tant que le tableau est ouvert et que Démarrer est actif. Le bouton du tableau reste le tien.",
 BOARD_GROUP_BOX = "Tout le groupe",
 BOARD_GROUP_BOX_TIP = "Coche ou décoche tous les contrats de ce groupe. À moitié remplie, avec un compte : certains sont cochés.",
@@ -260,8 +261,6 @@ TRAVEL_DEFAULT_TOOLTIP = "Où mène le bouton de voyage quand le lieu du contrat
 TRAVEL_DEFAULT_AUTO = "Automatique (Dalaran, sinon la capitale de ta race)",
 MINIMAP_BUTTON_LABEL = "Bouton minicarte",
 MINIMAP_BUTTON_TOOLTIP = "Affiche ou masque le bouton ACB de la minicarte.",
-BUTTON_SHARE = "Partager",
-SHARE_BUTTON_TOOLTIP = "Partage la dernière quête acceptée.",
 
 DEBUG_OUTPUT_ON = "Sortie de débogage activée.",
 DEBUG_OUTPUT_OFF = "Sortie de débogage désactivée. Journal effacé.",
@@ -318,9 +317,6 @@ MIGRATION_GROUP_CHOICE = "%s (%d)",
 MIGRATION_REPLACE_TITLE = "Supprimer le groupe",
 MIGRATION_REPLACE_BODY = "Le groupe \"%s\" et les collections %s seront supprimés.",
 
-SHARE_LOG_UNAVAILABLE = "La sélection dans le journal de quêtes est indisponible.",
-SHARE_PUSH_UNAVAILABLE = "Le partage de quête est indisponible.",
-SHARE_NOT_SHAREABLE = "Quête non partageable : %s",
 
 
 LISTS_RENAME_DIALOG_TITLE = "Renommer \"%s\" :",
@@ -356,9 +352,6 @@ BUILDS_WINDOW_EMPTY = "Liste demandée au serveur...",
 BUILDS_WINDOW_REFRESH_BUTTON = "Rafraîchir",
 
 
-SHARE_NO_ACCEPTED_QUEST = "Aucune quête acceptée enregistrée pour l'instant.",
-SHARE_NOT_IN_LOG_YET = "La quête acceptée n'est pas encore dans le journal : %s",
-SHARE_ACCEPTED_QUEST = "Quête acceptée partagée : %s",
 
 EVENTTRACE_OPENED = "EventTrace ouvert. Utilise-le avec /acb sniff pour tester le tableau.",
 EVENTTRACE_UNAVAILABLE = "EventTrace n'est pas disponible sur ce client.",
@@ -515,7 +508,6 @@ HELP_SECTIONS = {
     "",
     "# Une fois démarré",
     "{AUTO_CURRENT_INSTANCE_LABEL} : lorsque vous vous trouvez dans un donjon ou un raid, le contrat de cette instance est pris lui aussi, si le tableau en affiche un.",
-    "{BUTTON_SHARE} : partage la dernière quête que vous avez acceptée avec votre groupe ou votre raid.",
     "Un contrat abandonné n'est pas repris avant la prochaine remise à zéro. Le recocher lève cette exclusion.",
     "Un contrat qui ne rapporte rien à votre niveau (vous avez dépassé le haut de sa tranche de niveaux) n'est jamais pris : son infobulle et la ligne d'état l'indiquent.",
     "Les contrats quotidiens et hebdomadaires reviennent à la remise à zéro : AutoCallboard lit le nouveau tableau et les reprend à votre prochaine visite.",

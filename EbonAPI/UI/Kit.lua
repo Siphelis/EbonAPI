@@ -5163,7 +5163,7 @@ local function lay(window, at)
         local current = self.kitAttach
         local host = current and current.inside and not current.ancestor and current.frame
 
-        if host and (host:GetFrameStrata() ~= self:GetFrameStrata() or host:GetFrameLevel() ~= self.kitFollowed) then
+        if host and not (self.kitSecure and inCombat()) and (host:GetFrameStrata() ~= self:GetFrameStrata() or host:GetFrameLevel() ~= self.kitFollowed) then
           self.kitFollowed = host:GetFrameLevel()
           self:SetFrameStrata(host:GetFrameStrata())
           relevel(self, host:GetFrameLevel() + S("kit.followLevelBase"))
@@ -5188,7 +5188,7 @@ local function lay(window, at)
           local current = self.kitAttach
           local ancestor = current and current.ancestor
 
-          if ancestor and not current.inside and (ancestor:GetFrameLevel() ~= self.kitFollowed
+          if ancestor and not current.inside and not (self.kitSecure and inCombat()) and (ancestor:GetFrameLevel() ~= self.kitFollowed
             or ancestor:GetFrameStrata() ~= self:GetFrameStrata()) then
             self.kitFollowed = ancestor:GetFrameLevel()
             self:SetFrameStrata(ancestor:GetFrameStrata())

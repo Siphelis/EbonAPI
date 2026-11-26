@@ -1378,8 +1378,11 @@ local function toggleRow(parent, build)
   local label = Bricks.text(row, "normal")
 
   label:SetPoint("LEFT", control, "RIGHT", gap, 0)
-  label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
   label:SetJustifyH("LEFT")
+
+  if label.SetWordWrap then
+    label:SetWordWrap(false)
+  end
 
   row.box, row.label = control, label
 
@@ -1410,8 +1413,29 @@ local function toggleRow(parent, build)
     self:Visual()
   end
 
+  local function natural(self)
+    local text = self.label
+
+    text:SetWidth(0)
+    text:SetHeight(0)
+
+    return ceil(text:GetStringWidth() or 0), ceil(text:GetStringHeight() or 0)
+  end
+
+  function row:Fit()
+    local wide, high = natural(self)
+    local rowWidth = self:GetWidth() or 0
+    local room = rowWidth - width - gap
+
+    if rowWidth > 0 and room < wide then
+      self.label:SetWidth(max(1, room))
+      self.label:SetHeight(max(1, high))
+    end
+  end
+
   function row:SetLabel(text)
     self.label:SetText(text or "")
+    self:Fit()
   end
 
   function row:SetDisabledState(disabled)
@@ -1421,8 +1445,16 @@ local function toggleRow(parent, build)
   end
 
   function row:TextWidth()
-    return ceil(self.label:GetStringWidth() or 0) + width + gap + S("widgets.toggle.margin")
+    local wide = natural(self)
+
+    self:Fit()
+
+    return wide + width + gap + S("widgets.toggle.margin")
   end
+
+  row:SetScript("OnSizeChanged", function(self)
+    self:Fit()
+  end)
 
   return row
 end
@@ -2570,8 +2602,29 @@ Bricks.register("color", "default", function(parent)
     self.chip:SetBackdropColor(self.color[1], self.color[2], self.color[3], self.color[4])
   end
 
+  local function natural(self)
+    local text = self.label
+
+    text:SetWidth(0)
+    text:SetHeight(0)
+
+    return ceil(text:GetStringWidth() or 0), ceil(text:GetStringHeight() or 0)
+  end
+
+  function row:Fit()
+    local wide, high = natural(self)
+    local rowWidth = self:GetWidth() or 0
+    local room = rowWidth - width - gap
+
+    if rowWidth > 0 and room < wide then
+      self.label:SetWidth(max(1, room))
+      self.label:SetHeight(max(1, high))
+    end
+  end
+
   function row:SetLabel(text)
     self.label:SetText(text or "")
+    self:Fit()
   end
 
   function row:SetDisabledState(disabled)

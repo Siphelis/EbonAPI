@@ -182,8 +182,7 @@ function RT.RouteArrowPreviewAngle()
     return RT.RouteArrowRotation(0, facing)
   end
 
-  local map, x, y, areaId = RT.ReadPlayerMapPoint()
-  local here = map and RT.WorldPointFor(map, x, y, areaId)
+  local here = RT.PlayerWorldPoint()
   local there = target.point or RT.WorldPointFor(target.map, target.x, target.y)
 
   if not here or not there or here.map ~= there.map then
@@ -382,15 +381,14 @@ function RT.UpdateRouteArrow(force)
     return
   end
 
-  local map, x, y, areaId = RT.ReadPlayerMapPoint()
+  local here = RT.PlayerWorldPoint()
 
-  if not map then
+  if not here then
     arrowFrame.status:SetText(L.ROUTE_ARROW_NO_POSITION)
     RT.HideRouteArrowShape()
     return
   end
 
-  local here = RT.WorldPointFor(map, x, y, areaId)
   local there = target.point or RT.WorldPointFor(target.map, target.x, target.y)
 
   if not here or not there or here.map ~= there.map then

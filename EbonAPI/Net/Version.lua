@@ -5,7 +5,6 @@ local Version = EbonAPI.Version
 local Log = EbonAPI.Log
 local Bus = EbonAPI.Bus
 local DB = EbonAPI.DB
-local Session = EbonAPI.Session
 local Handle = EbonAPI.Handle
 local L = EbonAPI.L
 
@@ -27,7 +26,6 @@ local names = {}
 local store = nil
 local enabled = false
 local replyAt, lastReplyAt = nil, nil
-local notified = {}
 
 Version.said = 0
 Version.heard = 0
@@ -104,14 +102,89 @@ function Version.available(name)
   return nil
 end
 
-local function notify(entry)
-  local latest, own = Version.available(entry.name)
+local proposed = {}
 
-  if not latest or notified[entry.name] == latest then
+local function characterStore()
+  return DB.store("EbonAPI", { account = { versions = {} } }).char
+end
+
+local function reloadRequested()
+  local char = DB.isAttached() and characterStore()
+
+  if char then
+    char.reloading = true
+  end
+end
+
+if type(hooksecurefunc) == "function" then
+  if type(ReloadUI) == "function" then
+    hooksecurefunc("ReloadUI", reloadRequested)
+  end
+
+  if type(ConsoleExec) == "function" then
+    hooksecurefunc("ConsoleExec", function(command)
+      if tostring(command):lower():match("^%s*reloadui%s*$") then
+        reloadRequested()
+      end
+    end)
+  end
+end
+
+local loginHandled = false
+
+local function forgetAnswersOnLogin()
+  local char = store and store.char
+
+  if loginHandled or not char then
+    return
+  end
+
+  loginHandled = true
+
+  local reloading = char.reloading
+  char.reloading = nil
+
+  if not reloading then
+    char.answered = nil
+  end
+end
+
+local function answered()
+  if not store or not store.char then
+    return nil
+  end
+
+  local held = store.char.answered
+
+  if type(held) ~= "table" then
+    held = {}
+    store.char.answered = held
+  end
+
+  return held
+end
+
+function Version.acknowledge(name, version)
+  local held = answered()
+
+  if not held or type(name) ~= "string" or type(version) ~= "string" then
     return false
   end
 
-  notified[entry.name] = latest
+  held[name] = version
+
+  return true
+end
+
+local function notify(entry)
+  local latest, own = Version.available(entry.name)
+  local done = answered()
+
+  if not latest or not done or done[entry.name] == latest or proposed[entry.name] == latest then
+    return false
+  end
+
+  proposed[entry.name] = latest
 
   local text = format(L.UPDATE_AVAILABLE, latest, own)
   local url = EbonAPI:AddonLink(entry.name)
@@ -139,11 +212,7 @@ local function settle(entry)
     held[entry.name] = nil
   end
 
-  if Session.isNew() then
-    notify(entry)
-  else
-    notified[entry.name] = Version.available(entry.name)
-  end
+  notify(entry)
 end
 
 function Version.register(name, text)
@@ -323,6 +392,8 @@ function Version.enable()
 
   store = DB.store("EbonAPI", { account = { versions = {} } })
 
+  forgetAnswersOnLogin()
+
   Version.register("EbonAPI", EbonAPI.version)
 
   enabled = true
@@ -342,10 +413,6 @@ function Version.disable()
   enabled = false
 
   Bus.untick("EbonAPI:reply")
-
-  for name in pairs(notified) do
-    notified[name] = nil
-  end
 
   return true
 end

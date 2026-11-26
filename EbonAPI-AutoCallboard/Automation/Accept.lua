@@ -20,6 +20,7 @@ local RESET_EXCLUSIONS = { exhausted = true, inlog = true, notoffered = true, un
 local TRANSIENT = { BOARD_ACCEPTING = true, BOARD_CLAIMING = true }
 
 local armed = false
+local stoppedByDeath = false
 local session
 local excluded = {}
 local readOnlyNoted = false
@@ -239,6 +240,9 @@ local function Accept(quest, source)
 end
 
 function RT.EvaluateBoard(source)
+  if stoppedByDeath then
+    return false
+  end
   local board = RT.GetBoard()
 
   if not session or not board or session.stopped or session.pending then
@@ -282,8 +286,6 @@ end
 
 function RT.OnBoardChanged()
   local board = RT.GetBoard()
-
-  RT.OnBoardAbandonStep()
 
   if session then
     session.fresh = true
@@ -477,6 +479,7 @@ end
 
 function RT.Start()
   armed = true
+  stoppedByDeath = false
 
   if session then
     session.stopped = nil
@@ -514,6 +517,24 @@ end
 
 function RT.IsStarted()
   return armed
+end
+
+function RT.StopByDeath()
+  stoppedByDeath = true
+  boardLot = nil
+
+  if type(RT.api.CancelAbandon) == "function" then
+    RT.api:CancelAbandon()
+  else
+    RT.api:Report(RT.api:Problem("ABANDON.CANCEL_MISSING", {}))
+  end
+
+  RT.StopRoutePlayback("death")
+  RT.Stop()
+end
+
+function RT.IsStoppedByDeath()
+  return stoppedByDeath
 end
 
 function RT.GetBoardStop()
@@ -605,8 +626,6 @@ local function KeyForAbandoned(questId)
   return nil
 end
 
-local expectedAbandon = {}
-
 local function WantedKeyOf(questId)
   local lists = { RT.GetBoard() and RT.GetBoard().quests, state and state.knownQuests }
 
@@ -627,186 +646,22 @@ local function WantedKeyOf(questId)
   return Core.questKey({ questId = questId })
 end
 
-function RT.ExpectBoardAbandon(ids)
-  expectedAbandon = {}
-
-  for i = 1, #ids do
-    expectedAbandon[ids[i]] = true
-  end
-end
-
-local abandonLot
-
-local function TitleOf(questId)
-  local lists = { RT.GetBoard() and RT.GetBoard().quests, state and state.knownQuests }
-
-  for i = 1, 2 do
-    local list = lists[i]
-
-    if type(list) == "table" then
-      for j = 1, #(list) do
-        local quest = list[j]
-
-        if type(quest) == "table" and tonumber(quest.questId or quest.id) == questId then
-          return quest.title
-        end
-      end
-    end
-  end
-
-  return tostring(questId)
-end
-
-local function AbandonLotNext()
-  local lot = abandonLot
-
-  while lot and #lot.queue > 0 do
-    local questId = table.remove(lot.queue, 1)
-
-    if RT.FindQuestLogIndexByID(questId) then
-      lot.pending = questId
-      ProjectEbonhold.Callboard.Abandon(questId)
-      Log("board", "lot abandon ", questId)
-
-      return
-    end
-  end
-
-  abandonLot = nil
-
-  if lot and #lot.keys > 0 then
-    RT.SetWantedKeys(lot.keys, false)
-  end
-end
-
-function RT.OnBoardAbandonStep()
-  local lot = abandonLot
-  local questId = lot and lot.pending
-
-  if not questId or RT.FindQuestLogIndexByID(questId) then
-    return
-  end
-
-  local posted = RT.GetBoardQuest(questId)
-
-  if posted and posted.state == Core.STATE.ACCEPTED then
-    return
-  end
-
-  lot.pending = nil
-  lot.keys[#lot.keys + 1] = WantedKeyOf(questId)
-  AbandonLotNext()
-end
-
-function RT.AbandonBoardLot(ids, category)
-  local confirm = EbonAPI and EbonAPI.QuestLogConfirm
-  local callboard = ProjectEbonhold and ProjectEbonhold.Callboard
-
-  if type(ids) ~= "table" or #ids == 0 or not confirm or not callboard or type(callboard.Abandon) ~= "function" then
-    return false
-  end
-
-  local items, queue = {}, {}
-
-  for i = 1, #ids do
-    queue[i] = ids[i]
-    items[i] = { questID = ids[i], title = TitleOf(ids[i]) }
-  end
-
-  confirm.open({
-    count = #items,
-    categories = { { title = RT.GetQuestCategoryName(category), quests = items } },
-  }, function()
-    abandonLot = { queue = queue, keys = {} }
-    AbandonLotNext()
-  end)
-
-  return true
-end
-
 function RT.NoteQuestAbandoned(title, questId)
   local key = KeyForAbandoned(questId)
 
-  if not key or excluded[key] then
+  if not key then
     return
   end
 
-  excluded[key] = true
-  Log("quest", "abandoned contract left out until the reset key=", key)
+  if not excluded[key] then
+    excluded[key] = true
+    Log("quest", "abandoned contract left out until the reset key=", key)
+  end
+
+  RT.SetWantedKeys({ WantedKeyOf(tonumber(questId)) }, false)
 end
 
-local function SelectedQuest()
-  local index = GetQuestLogSelection and RT.SafeCall(GetQuestLogSelection)
-  local entry = tonumber(index) and index > 0 and RT.GetQuestLogEntryInfo(index)
-
-  if not entry or entry.isHeader or not entry.questID then
-    return nil
-  end
-
-  return { questId = entry.questID, title = entry.title }
-end
-
-function RT.InstallAbandonQuestHook()
-  if RT.abandonQuestHooked or type(hooksecurefunc) ~= "function" then
-    return
-  end
-
-  local function capture()
-    if not GetAbandonQuestName then
-      return
-    end
-
-    local ok, name = pcall(GetAbandonQuestName)
-    if ok and type(name) == "string" and name ~= "" then
-      RT.abandonQuestCandidate = name
-      return name
-    end
-  end
-
-  local setHooked = true
-
-  if type(SetAbandonQuest) == "function" then
-    setHooked = pcall(hooksecurefunc, "SetAbandonQuest", function()
-      capture()
-      RT.abandonQuestSelected = SelectedQuest()
-    end)
-  end
-
-  if type(AbandonQuest) ~= "function" then
-    return
-  end
-
-  local hooked = pcall(hooksecurefunc, "AbandonQuest", function()
-    RT.api:Guard("abandon.hook", function()
-      local name = capture()
-      local selected = RT.abandonQuestSelected
-
-      RT.NoteQuestAbandoned(RT.abandonQuestCandidate or (selected and selected.title), selected and selected.questId)
-
-      local id = selected and tonumber(selected.questId)
-
-      if id and expectedAbandon[id] then
-        expectedAbandon[id] = nil
-        RT.SetWantedKeys({ WantedKeyOf(id) }, false)
-      end
-
-      RT.abandonQuestCandidate = nil
-      RT.abandonQuestSelected = nil
-    end)
-  end)
-
-  RT.abandonQuestHooked = hooked
-
-  if not hooked or not setHooked then
-    RT.api:Degrade(RT.api:Problem("ROLL.ABANDON_HOOK_FAILED", { ["function"] = hooked and "SetAbandonQuest" or "AbandonQuest" }))
-  else
-    RT.api:Restore("ROLL.ABANDON_HOOK_FAILED")
-  end
-
-  if not hooked then
-    Log("quest", "AbandonQuest hook refused, abandoned contracts may be taken again")
-  end
-end
+RT.api:On("QUEST_ABANDONED", function(questId, title) RT.NoteQuestAbandoned(title, questId) end)
 
 function RT.GetBoardStatusText()
   local problem = RT.GetBoardProblem()

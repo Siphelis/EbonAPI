@@ -2,7 +2,7 @@ local RT, Core, Skin, L = AutoCallboardRuntime, AutoCallboardCore, AutoCallboard
 local buttons
 local ACTIONS = {
   builds = {"BUTTON_BUILDS", "ToggleBuildsWindow"}, callboard = {"ADDON_NAME_TOOLTIP"}, start = {"BUTTON_START", "Start"},
-  share = {"BUTTON_SHARE", "ShareAcceptedQuest"}, eternals = {"UI_ETERNALS", "ShowSettings", 1},
+  eternals = {"UI_ETERNALS", "ShowSettings", 1},
   settings = {"UI_SETTINGS", "ShowSettings"}, instance = {"AUTO_CURRENT_INSTANCE_LABEL", "ToggleInstanceMode"},
   routes = {"BUTTON_ROUTES", "ToggleRouteWindow"},
 }
@@ -339,8 +339,7 @@ function RT.InitAppearance()
 end
 function RT.InitSettingsAccess()
   local frame = RT.controlFrame
-  buttons = {builds = frame.buildsButton, callboard = AutoCallboardButton, start = frame.startButton,
-    share = frame.shareButton}
+  buttons = {builds = frame.buildsButton, callboard = AutoCallboardButton, start = frame.startButton}
   speedText = frame.content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   speedText:SetJustifyH("RIGHT")
   Skin.MutedText(speedText)

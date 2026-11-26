@@ -46,6 +46,8 @@ EbonAPILocales.deDE = {
 
   VERSION_UPDATE = "%s %s (%s verfügbar)",
   UPDATE_AVAILABLE = "Version %s ist verfügbar (installiert: %s).",
+  UPDATE_DIALOG_TITLE = "Neue Version verfügbar",
+  UPDATE_DIALOG_TEXT = "%s %s ist verfügbar.\nInstallierte Version: %s.",
   VERSION_TOO_OLD = "EbonAPI %s ist zu alt für %s, das %s benötigt.",
 
   SENDERS_NONE = "kein Absender beobachtet",
@@ -707,7 +709,11 @@ EbonAPILocales.deDE = {
   PROBLEM_BRIDGE_DROPPED = "eine Nachricht des Servers wurde verworfen; die enthaltene Information wurde nicht aktualisiert",
   PROBLEM_SERVER_NO_ANSWER = "der Server hat nicht innerhalb von {seconds} Sekunden geantwortet; die Information wurde nicht aktualisiert",
   PROBLEM_QUEUE_FULL = "eine Nachricht von {addon} wurde nicht eingereiht: Die Sendewarteschlange ist voll ({waiting} Nachrichten warten, {parts} weitere passen nicht hinein); sie wurde nicht gesendet, versuchen Sie es gleich noch einmal",
-  PROBLEM_QUESTLOG_ABANDON_FAILED = "{failed} Quest(s) konnten nicht abgebrochen werden",
+  PROBLEM_QUESTLOG_ABANDON_BUSY = "Abbrechen abgelehnt: Ein anderer Abbruch läuft bereits",
+  PROBLEM_QUESTLOG_ABANDON_EMPTY = "Abbrechen abgelehnt: Keine der angeforderten Quests befindet sich in Ihrem Questlog",
+  PROBLEM_QUESTLOG_ABANDON_UNCONFIRMED = "{quest} wurde nicht abgebrochen: Die Entfernung aus dem Questlog wurde nicht rechtzeitig bestätigt",
+  PROBLEM_QUESTLOG_ABANDON_MISSING = "{quest} befindet sich nicht mehr in Ihrem Questlog: Es gibt nichts abzubrechen",
+  PROBLEM_QUESTLOG_ABANDON_NOT_STARTED = "{quest} wurde nicht abgebrochen: Das Spiel hat sie nicht als Ziel ausgewählt",
   PROBLEM_QUEUE_PEER_OFFLINE = "{player} ist offline gegangen: {purged} wartende Nachrichten von {addon} wurden entfernt und nicht gesendet",
   PROBLEM_QUEUE_SEND_FAILED = "{addon} konnte keine Nachricht an {target} senden; die Nachricht wurde nicht gesendet",
   PROBLEM_QUEUE_STREAM_CUT = "eine Übertragung von {addon} wurde nach {sent} von {total} Teilen abgebrochen; der andere Spieler hat nicht die ganze Nachricht erhalten",

@@ -98,15 +98,29 @@ for name, entrances in pairs(Core.travelEntrances or {}) do
   entrancesByName[NormalizeLocation(name)] = entrances
 end
 
+local regionZones = {}
+
 for _, row in ipairs(Core.travelZones or {}) do
   local zone = { name = row[1], mapId = row[2], serverMapId = row[3],
     region = row[8], bounds = row[4] and { row[4], row[5], row[6], row[7], row[3] } or nil }
   zonesByName[NormalizeLocation(zone.name)] = zone
   zonesByMap[zone.mapId] = zone
+  if row[8] then
+    regionZones[#regionZones + 1] = { name = row[1], region = row[8] }
+  end
 end
 
 local function WorldMapKey(zone, map)
-  return tostring(map) .. ":" .. (zone.region or "")
+  return tostring(map) .. ":" .. ((zone and zone.region) or "")
+end
+
+local function MapToWorld(zone, bounds, x, y)
+  x, y = tonumber(x), tonumber(y)
+  if not x or not y or x < 0 or x > 1 or y < 0 or y > 1 then
+    return nil
+  end
+  return { x = bounds[1] + (bounds[2] - bounds[1]) * x,
+    y = bounds[3] + (bounds[4] - bounds[3]) * y, map = WorldMapKey(zone, bounds[5]) }
 end
 
 local function WorldPoint(checkpoint, boundsByName)
@@ -121,12 +135,7 @@ local function WorldPoint(checkpoint, boundsByName)
   if not bounds or bounds[5] ~= tonumber(checkpoint.serverMapId) then
     return nil
   end
-  local x, y = tonumber(checkpoint.x), tonumber(checkpoint.y)
-  if not x or not y or x < 0 or x > 1 or y < 0 or y > 1 then
-    return nil
-  end
-  return { x = bounds[1] + (bounds[2] - bounds[1]) * x,
-    y = bounds[3] + (bounds[4] - bounds[3]) * y, map = WorldMapKey(zone, bounds[5]) }
+  return MapToWorld(zone, bounds, checkpoint.x, checkpoint.y)
 end
 
 local boundsSource, boundsCopy
@@ -158,19 +167,42 @@ ClientBounds = function()
 end
 
 function RT.WorldPointFor(mapName, x, y, areaId)
-  x, y = tonumber(x), tonumber(y)
+  local zone = (areaId and zonesByMap[tonumber(areaId)]) or zonesByName[NormalizeLocation(mapName)]
+  local bounds = (ClientBounds() or {})[NormalizeLocation(zone and zone.name or mapName)]
 
-  if not x or not y then
+  if not bounds and zone and zone.bounds then
+    bounds = zone.bounds
+  end
+
+  if not bounds then
     return nil
   end
 
-  local zone = areaId and zonesByMap[tonumber(areaId)] or zonesByName[NormalizeLocation(mapName)]
+  return MapToWorld(zone, bounds, x, y)
+end
 
-  if not zone then
+local function RegionAt(serverMap, north, west)
+  local bounds = ClientBounds() or {}
+  for _, zone in ipairs(regionZones) do
+    local b = bounds[NormalizeLocation(zone.name)]
+    if b and b[5] == serverMap and west <= b[1] and west >= b[2] and north <= b[3] and north >= b[4] then
+      return zone.region
+    end
+  end
+  return nil
+end
+
+function RT.PlayerWorldPoint()
+  local position, failure = EbonAPI.Ebonhold.PlayerPosition()
+  if not position then
+    return nil, failure
+  end
+  if position.serverMap == nil then
     return nil
   end
-
-  return WorldPoint({ mapId = zone.mapId, serverMapId = zone.serverMapId, x = x, y = y }, ClientBounds())
+  local serverMap = tonumber(position.serverMap)
+  local region = RegionAt(serverMap, position.north, position.west)
+  return { x = position.west, y = position.north, map = tostring(serverMap) .. ":" .. (region or ""), continent = serverMap }
 end
 
 function Core.travelZoneKey(location)
@@ -614,6 +646,9 @@ local SendTravel
 RT.AutoTravelBlocked = AutoTravelBlocked
 
 function MaybeAutoTravel(questKey)
+  if RT.IsStoppedByDeath() then
+    return false
+  end
   if not RT.IsTravelAutoEnabled() then
     autoQuestKey = questKey
     return false
@@ -717,8 +752,7 @@ end
 
 function RT.NearestContractTarget()
   local board = RT.GetBoard and RT.GetBoard()
-  local map, x, y, areaId = RT.ReadPlayerMapPoint()
-  local here = board and map and RT.WorldPointFor(map, x, y, areaId)
+  local here = board and RT.PlayerWorldPoint()
 
   if not here then
     return nil
